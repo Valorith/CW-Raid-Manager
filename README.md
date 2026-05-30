@@ -123,35 +123,38 @@ browser-approved device flow and stores a revocable `nxcli_` session token in th
 config file. From the repo root, use the `npm run nexus -- ...` wrapper; it builds the CLI
 automatically when source files changed.
 
-First-time local setup:
+First-time hosted setup:
 
 ```bash
-npm run nexus:setup
+npm run nexus:setup -- --url https://your-nexus-host --profile prod
+npm run nexus -- profiles use prod
+npm run nexus:doctor
 ```
 
-The setup command applies local migrations, starts any missing local dev processes, waits for the
-API/client to become ready, opens the browser authorization flow, and saves a `local` profile. If
-your local API or client is on a different URL, set `NEXUS_LOCAL_URL` or `NEXUS_LOCAL_CLIENT_URL`
-before running setup.
+The setup command opens the browser authorization flow against the hosted Nexus API and saves a
+revocable local CLI token. Once a hosted profile is active, normal commands make authenticated
+requests directly to that server; no local API or client process is required.
 
 Useful shortcuts:
 
 ```bash
-npm run nexus:setup:fresh
 npm run nexus:doctor
+npm run nexus -- inbox list
+npm run nexus -- tm list --status ACTIVE
+```
+
+Local development setup is still available when you explicitly need to test the CLI against a local
+Fastify/Vite stack:
+
+```bash
+npm run nexus:setup:local
+npm run nexus:setup:local:fresh
 npm run nexus:local -- tm list --status ACTIVE
 npm run nexus:dev:stop
 ```
 
-Use `nexus:setup:fresh` when you want to remove the existing `local` CLI profile and re-test the
-first-run browser approval flow. Dev process logs are written under `.nexus/logs/`.
-
-Log in to a hosted Nexus deployment:
-
-```bash
-npm run nexus -- setup --url https://your-nexus-host --profile prod
-npm run nexus -- profiles use prod
-```
+Use the local setup scripts only for development; they can start local dev processes and write logs
+under `.nexus/logs/`.
 
 Common Test Manager commands:
 
@@ -175,12 +178,12 @@ npm --workspace cli run test
 
 For non-login commands, use `--nexus-url` if you need to override the active profile's Nexus URL.
 The shorter `--url` flag is reserved for `login` and command-specific URL fields such as
-`tm links add --url`. You can also use `--local` with Test Manager commands to select the `local`
-profile directly.
+`tm links add --url`. You can also use `--local` with commands to select the `local` profile
+directly for development.
 
 High-impact commands such as deleting changes, resetting the next-patch queue, changing tester
 access, or updating Test Manager settings require `--yes`. CLI bearer tokens are scoped to
-Test Manager, `/api/auth/me`, and CLI session-management endpoints.
+Test Manager, Webhook Inbox, `/api/auth/me`, and CLI session-management endpoints.
 
 ## Deploying to Railway
 

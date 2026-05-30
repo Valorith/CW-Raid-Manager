@@ -293,8 +293,7 @@ async function setup(
   flags: Flags,
   jsonMode: boolean,
 ): Promise<void> {
-  const hasExplicitUrl = Boolean(stringFlag(flags, "url"));
-  const target = args[0] ?? (hasExplicitUrl ? "remote" : "local");
+  const target = args[0] ?? (boolFlag(flags, "local") ? "local" : "remote");
   if (target === "local") {
     flags.local = true;
     await login(flags, jsonMode);
@@ -307,7 +306,7 @@ async function setup(
   }
 
   throw new Error(
-    'Unknown setup target. Run "npm run nexus -- setup" for local dev or "npm run nexus -- setup --url <nexus-url>" for a deployment.',
+    'Unknown setup target. Run "npm run nexus -- setup --url <nexus-url>" for a deployment or "npm run nexus -- setup local" for local dev.',
   );
 }
 
@@ -346,7 +345,8 @@ async function doctor(flags: Flags, jsonMode: boolean): Promise<void> {
       };
       await checkDoctorAuth(report, envOnlyBaseUrl, envToken);
     } else {
-      report.suggestion = "Run: npm run nexus -- setup";
+      report.suggestion =
+        "Run: npm run nexus -- setup --url <nexus-url> --profile prod";
     }
 
     if (jsonMode) {
@@ -2721,14 +2721,14 @@ function printHelp(): void {
   console.log(`Nexus CLI
 
 Quick start from the repo root:
-  npm run nexus -- setup
+  npm run nexus -- setup --url https://your-nexus-host --profile prod
   npm run nexus -- doctor
-  npm run nexus -- tm list --local --status ACTIVE
+  npm run nexus -- inbox list
 
 Usage:
-  nexus setup [local]
   nexus setup --url <nexus-url> [--profile prod]
-  nexus doctor [--profile local]
+  nexus setup local
+  nexus doctor [--profile prod]
   nexus login --url <nexus-url> [--profile default]
   nexus login --local
   nexus auth status | sessions list | sessions revoke <sessionId>
@@ -2768,7 +2768,7 @@ Usage:
 Global flags:
   --profile <name>     Use a configured profile
   --nexus-url <url>    Override the profile Nexus URL
-  --local              Use http://localhost:4000 and the local profile
+  --local              Use http://localhost:4000 and the local profile for dev
   --app-url <url>      Override the web app URL for generated inbox links
   --json               Print JSON output
   --html               Treat text/file content as already-sanitized HTML

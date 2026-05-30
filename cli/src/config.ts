@@ -77,7 +77,7 @@ export async function requireProfile(
   const profile = config.profiles[profileName];
   if (!profile) {
     throw new Error(
-      `Profile "${profileName}" is not configured. Run "npm run nexus -- setup" for local dev or "npm run nexus -- login --url <nexus-url>" for a deployment.`,
+      `Profile "${profileName}" is not configured. Run "npm run nexus -- setup --url <nexus-url> --profile prod" for a deployment or "npm run nexus -- login --local" for local dev.`,
     );
   }
   return { name: profileName, profile };

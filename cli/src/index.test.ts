@@ -260,10 +260,67 @@ test("login stores the approved CLI token in a temp config profile", async () =>
   );
 });
 
-test("setup defaults to the local Nexus profile and URL", async () => {
+test("setup requires a remote Nexus URL by default", async () => {
+  const tempDir = await mkdtemp(join(tmpdir(), "nexus-cli-test-"));
+  const configPath = join(tempDir, "config.json");
+  const result = await runCli(["setup", "--no-open", "--json"], {
+    NEXUS_CONFIG_PATH: configPath,
+  });
+
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /login requires --url <nexus-url>/);
+});
+
+test("setup with url stores a hosted Nexus profile", async () => {
   await withMockServer(
     async ({ baseUrl, records, configPath }) => {
-      const result = await runCli(["setup", "--no-open", "--json"], {
+      const result = await runCli(
+        ["setup", "--url", baseUrl, "--profile", "prod", "--no-open", "--json"],
+        { NEXUS_CONFIG_PATH: configPath },
+      );
+
+      assert.equal(result.code, 0, result.stderr);
+      assert.equal(records.length, 2);
+      assert.equal(records[0].method, "POST");
+      assert.equal(records[0].url, "/api/cli/auth/device");
+      assert.equal(records[1].method, "POST");
+      assert.equal(records[1].url, "/api/cli/auth/device/token");
+
+      const config = JSON.parse(await readFile(configPath, "utf-8")) as {
+        activeProfile: string;
+        profiles: Record<string, { baseUrl: string; token: string }>;
+      };
+      assert.equal(config.activeProfile, "prod");
+      assert.equal(config.profiles.prod.baseUrl, baseUrl);
+      assert.equal(config.profiles.prod.token, "nxcli_token");
+    },
+    route({
+      "POST /api/cli/auth/device": () => ({
+        deviceCode: "device-code",
+        userCode: "ABCD-1234",
+        verificationUriComplete:
+          "https://example.test/cli/authorize?user_code=ABCD-1234",
+        expiresAt: new Date(Date.now() + 30_000).toISOString(),
+        interval: 0,
+      }),
+      "POST /api/cli/auth/device/token": () => ({
+        status: "approved",
+        token: "nxcli_token",
+        user: {
+          id: "user-1",
+          email: "tester@example.com",
+          displayName: "Tester",
+        },
+        session: { id: "session-1" },
+      }),
+    }),
+  );
+});
+
+test("setup local selects the local Nexus profile and URL", async () => {
+  await withMockServer(
+    async ({ baseUrl, records, configPath }) => {
+      const result = await runCli(["setup", "local", "--no-open", "--json"], {
         NEXUS_CONFIG_PATH: configPath,
         NEXUS_LOCAL_URL: baseUrl,
       });
@@ -348,7 +405,10 @@ test("doctor points first-run users at setup when no profile exists", async () =
 
   assert.equal(result.code, 0, result.stderr);
   const output = JSON.parse(result.stdout) as { suggestion?: string };
-  assert.equal(output.suggestion, "Run: npm run nexus -- setup");
+  assert.equal(
+    output.suggestion,
+    "Run: npm run nexus -- setup --url <nexus-url> --profile prod",
+  );
 });
 
 test("tm command families map to the Test Manager API without a real database", async () => {
