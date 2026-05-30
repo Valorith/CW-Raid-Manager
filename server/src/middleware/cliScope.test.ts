@@ -29,10 +29,25 @@ test('CLI token scope only allows explicit CLI-safe API paths', () => {
     cliTokenCanAccessPath('/api/admin/webhooks/hook-1/test', ['webhook-inbox'], 'POST'),
     true
   );
+  assert.equal(
+    cliTokenCanAccessPath('/api/admin/webhook-inbox/message-1', [
+      'test-manager',
+      'webhook-inbox'
+    ]),
+    true
+  );
   assert.equal(cliTokenCanAccessPath('/api/admin/webhooks', ['webhook-inbox'], 'POST'), false);
   assert.equal(
     cliTokenCanAccessPath('/api/admin/webhook-inbox/message-1', ['test-manager']),
-    true
+    false
+  );
+  assert.equal(
+    cliTokenCanAccessPath('/api/admin/webhook-labels', ['test-manager']),
+    false
+  );
+  assert.equal(
+    cliTokenCanAccessPath('/api/admin/webhooks/hook-1/test', ['test-manager'], 'POST'),
+    false
   );
   assert.equal(cliTokenCanAccessPath('/api/admin/webhook-inbox', []), false);
 

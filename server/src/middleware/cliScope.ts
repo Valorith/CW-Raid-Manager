@@ -18,9 +18,7 @@ export function cliTokenCanAccessPath(
   if (pathIsOrChild(pathname, '/api/test-manager')) {
     return Boolean(scopes?.includes('test-manager'));
   }
-  const hasWebhookInboxScope = Boolean(
-    scopes?.includes('webhook-inbox') || scopes?.includes('test-manager')
-  );
+  const hasWebhookInboxScope = Boolean(scopes?.includes('webhook-inbox'));
   if (
     pathIsOrChild(pathname, '/api/admin/webhook-inbox') ||
     pathIsOrChild(pathname, '/api/admin/webhook-labels')
