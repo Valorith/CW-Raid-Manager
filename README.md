@@ -202,6 +202,7 @@ Railway can host both the Fastify API and the Vue client behind a single project
    - `SESSION_SECRET` – Long, random string used to sign cookies and JWTs.
    - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` – OAuth credentials configured for the Railway domain.
    - `GOOGLE_CALLBACK_URL` – Must exactly match the Google console redirect (`https://<railway-domain>/api/auth/google/callback`).
+   - Optional passkey overrides: `PASSKEY_RP_NAME`, `PASSKEY_RP_ID`, and `PASSKEY_ORIGIN`. Defaults derive from `CLIENT_URL`; set them explicitly if the public client origin or relying-party domain differs.
    - Optional cost controls: set `EQ_DB_POOL_LIMIT` to a small value for the external EQ database and add Prisma's `connection_limit` parameter to `DATABASE_URL` if the Railway MySQL plan has a low connection cap.
    - Optional scheduler override: `ENABLE_IN_PROCESS_SCHEDULERS=true` starts the web process schedulers for single-service deployments. Leave it unset for the recommended separate web + cron Railway setup.
    - Optional: `APP_CONFIG_PATH` if you store a custom `config/app.config.json`.

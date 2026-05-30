@@ -1,4 +1,6 @@
+import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server';
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { z } from 'zod';
 
 import { appConfig } from '../config/appConfig.js';
 import { authenticate } from '../middleware/authenticate.js';
@@ -8,6 +10,12 @@ import {
   upsertDiscordUser,
   upsertGoogleUser
 } from '../services/authService.js';
+import {
+  generatePasskeyAuthenticationOptions,
+  generatePasskeyRegistrationOptions,
+  verifyPasskeyAuthentication,
+  verifyPasskeyRegistration
+} from '../services/passkeyService.js';
 import { getTestManagerUserPermissions } from '../services/testManagerService.js';
 import {
   captureOAuthException,
@@ -20,6 +28,18 @@ import { prisma } from '../utils/prisma.js';
 const POST_AUTH_ORIGIN_COOKIE = 'cwraid_post_auth_origin';
 const POST_AUTH_REDIRECT_COOKIE = 'cwraid_post_auth_redirect';
 const GENERIC_OAUTH_LOGIN_ERROR = 'Sign-in could not be completed. Please try again.';
+
+const passkeyRegistrationVerificationSchema = z.object({
+  response: z.custom<RegistrationResponseJSON>(
+    (value) => typeof value === 'object' && value !== null
+  )
+});
+
+const passkeyAuthenticationVerificationSchema = z.object({
+  response: z.custom<AuthenticationResponseJSON>(
+    (value) => typeof value === 'object' && value !== null
+  )
+});
 
 function isLoopbackHostname(hostname: string): boolean {
   return (
@@ -78,6 +98,32 @@ function buildOAuthLoginErrorUrl(
   url.searchParams.set('error', message);
   url.searchParams.set('provider', provider);
   return url.toString();
+}
+
+async function setAuthSessionCookie(
+  reply: FastifyReply,
+  user: { id: string; email: string }
+): Promise<void> {
+  const jwt = await reply.jwtSign(
+    {
+      userId: user.id,
+      email: user.email
+    },
+    {
+      sign: {
+        expiresIn: '7d'
+      }
+    }
+  );
+
+  reply.setCookie('cwraid_token', jwt, {
+    signed: true,
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: appConfig.nodeEnv === 'production',
+    path: '/',
+    maxAge: 60 * 60 * 24 * 7
+  });
 }
 
 export async function authRoutes(server: FastifyInstance): Promise<void> {
@@ -712,6 +758,60 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
       'Discord OAuth plugin unavailable. Skipping Discord callback route registration.'
     );
   }
+
+  server.get('/passkeys/registration/options', { preHandler: [authenticate] }, async (request, reply) => {
+    try {
+      const options = await generatePasskeyRegistrationOptions(request.user.userId);
+      return { options };
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Unable to start passkey registration.';
+      return reply.badRequest(message);
+    }
+  });
+
+  server.post('/passkeys/registration/verify', { preHandler: [authenticate] }, async (request, reply) => {
+    const parsed = passkeyRegistrationVerificationSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.badRequest('Invalid passkey registration response.');
+    }
+
+    try {
+      const passkey = await verifyPasskeyRegistration(request.user.userId, parsed.data.response);
+      return { passkey };
+    } catch (error) {
+      request.log.warn({ error }, 'Passkey registration verification failed');
+      const message = error instanceof Error ? error.message : 'Unable to verify passkey.';
+      return reply.badRequest(message);
+    }
+  });
+
+  server.get('/passkeys/authentication/options', async (_request, reply) => {
+    try {
+      const options = await generatePasskeyAuthenticationOptions();
+      return { options };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to start passkey sign-in.';
+      return reply.badRequest(message);
+    }
+  });
+
+  server.post('/passkeys/authentication/verify', async (request, reply) => {
+    const parsed = passkeyAuthenticationVerificationSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.badRequest('Invalid passkey authentication response.');
+    }
+
+    try {
+      const user = await verifyPasskeyAuthentication(parsed.data.response);
+      await setAuthSessionCookie(reply, user);
+      return { success: true };
+    } catch (error) {
+      request.log.warn({ error }, 'Passkey authentication verification failed');
+      const message = error instanceof Error ? error.message : 'Unable to verify passkey.';
+      return reply.badRequest(message);
+    }
+  });
 
   // ============ OAuth Account Linking Routes ============
   // These routes set a linking cookie then redirect to the standard OAuth flow.

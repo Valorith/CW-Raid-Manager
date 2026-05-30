@@ -119,7 +119,13 @@ export async function linkDiscordToUser(userId: string, profile: DiscordUserProf
 export async function unlinkGoogle(userId: string) {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { googleId: true, discordId: true }
+    select: {
+      googleId: true,
+      discordId: true,
+      _count: {
+        select: { passkeys: true }
+      }
+    }
   });
 
   if (!user) {
@@ -130,7 +136,7 @@ export async function unlinkGoogle(userId: string) {
     throw new Error('Google is not linked to this account.');
   }
 
-  if (!user.discordId) {
+  if (!user.discordId && user._count.passkeys === 0) {
     throw new Error('Cannot unlink Google. You must have at least one login method.');
   }
 
@@ -152,7 +158,13 @@ export async function unlinkGoogle(userId: string) {
 export async function unlinkDiscord(userId: string) {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { googleId: true, discordId: true }
+    select: {
+      googleId: true,
+      discordId: true,
+      _count: {
+        select: { passkeys: true }
+      }
+    }
   });
 
   if (!user) {
@@ -163,7 +175,7 @@ export async function unlinkDiscord(userId: string) {
     throw new Error('Discord is not linked to this account.');
   }
 
-  if (!user.googleId) {
+  if (!user.googleId && user._count.passkeys === 0) {
     throw new Error('Cannot unlink Discord. You must have at least one login method.');
   }
 
@@ -184,7 +196,13 @@ export async function unlinkDiscord(userId: string) {
 export async function getLinkedProviders(userId: string) {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { googleId: true, discordId: true }
+    select: {
+      googleId: true,
+      discordId: true,
+      _count: {
+        select: { passkeys: true }
+      }
+    }
   });
 
   if (!user) {
@@ -193,6 +211,8 @@ export async function getLinkedProviders(userId: string) {
 
   return {
     google: Boolean(user.googleId),
-    discord: Boolean(user.discordId)
+    discord: Boolean(user.discordId),
+    passkeys: user._count.passkeys > 0,
+    passkeyCount: user._count.passkeys
   };
 }

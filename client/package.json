@@ -12,6 +12,7 @@
     "type-check": "vue-tsc --noEmit"
   },
   "dependencies": {
+    "@simplewebauthn/browser": "^13.3.0",
     "axios": "^1.6.8",
     "chart.js": "^4.5.1",
     "pinia": "^2.1.7",

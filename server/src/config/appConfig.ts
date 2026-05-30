@@ -48,6 +48,13 @@ const fileConfigSchema = z
             clientSecret: z.string().min(1).optional(),
             callbackUrl: z.string().url().optional()
           })
+          .optional(),
+        passkeys: z
+          .object({
+            rpName: z.string().min(1).optional(),
+            rpId: z.string().min(1).optional(),
+            origin: z.string().url().optional()
+          })
           .optional()
       })
       .optional(),
@@ -287,6 +294,9 @@ const envGoogleCallbackUrl = readOptionalEnv('GOOGLE_CALLBACK_URL', googleCallba
 const envDiscordClientId = readOptionalEnv('DISCORD_CLIENT_ID', z.string().min(1));
 const envDiscordClientSecret = readOptionalEnv('DISCORD_CLIENT_SECRET', z.string().min(1));
 const envDiscordCallbackUrl = readOptionalEnv('DISCORD_CALLBACK_URL', googleCallbackSchema);
+const envPasskeyRpName = readOptionalEnv('PASSKEY_RP_NAME', z.string().min(1));
+const envPasskeyRpId = readOptionalEnv('PASSKEY_RP_ID', z.string().min(1));
+const envPasskeyOrigin = readOptionalEnv('PASSKEY_ORIGIN', z.string().url());
 const envTelegramBotToken = readOptionalEnv('TELEGRAM_BOT_TOKEN', z.string().min(1));
 const envTelegramBotUsername = readOptionalEnv('TELEGRAM_BOT_USERNAME', z.string().min(1));
 const envTelegramWebhookUrl = readOptionalEnv('TELEGRAM_WEBHOOK_URL', googleCallbackSchema);
@@ -345,6 +355,13 @@ if (!envClientUrl && !fileConfig.client?.baseUrl) {
     'Using CLIENT_URL from config/app.config.json. Set CLIENT_URL in the environment to override for deployments.'
   );
 }
+
+const passkeyOrigin =
+  envPasskeyOrigin ?? fileConfig.auth?.passkeys?.origin ?? new URL(clientUrl).origin;
+const passkeyRpId =
+  envPasskeyRpId ?? fileConfig.auth?.passkeys?.rpId ?? new URL(passkeyOrigin).hostname;
+const passkeyRpName =
+  envPasskeyRpName ?? fileConfig.auth?.passkeys?.rpName ?? 'CWRaidManager';
 
 const sessionSecret =
   envSessionSecret ?? fileConfig.session?.secret ?? randomBytes(32).toString('hex');
@@ -513,6 +530,11 @@ export const appConfig = {
   eqDatabase: eqDatabaseConfig,
   google: googleConfig,
   discord: discordConfig,
+  passkeys: {
+    rpName: passkeyRpName,
+    rpId: passkeyRpId,
+    origin: passkeyOrigin
+  },
   telegram: telegramConfig,
   whatsapp: whatsappConfig,
   enableInProcessSchedulers

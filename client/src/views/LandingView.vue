@@ -12,7 +12,7 @@
           <img :src="APP_LOGO_PATH" :alt="APP_NAME" class="topbar__logo" />
           <span class="topbar__name">{{ APP_NAME }}</span>
         </div>
-        <a href="/api/auth/google" class="topbar__login">Sign In</a>
+        <a href="/auth/callback" class="topbar__login">Sign In</a>
       </div>
     </nav>
 
@@ -29,7 +29,7 @@
         into a single command post — so leadership runs the night, not a dozen tabs.
       </p>
       <div class="hero__actions">
-        <a href="/api/auth/google" class="btn btn--primary">
+        <a href="/auth/callback" class="btn btn--primary">
           <svg
             width="18"
             height="18"
@@ -113,9 +113,9 @@
     <section class="cta">
       <h2 class="cta__title">Your guild deserves better than spreadsheets.</h2>
       <p class="cta__sub">
-        Sign in with Google or Discord. Free to use. Built by raiders, for raiders.
+        Sign in with a passkey, Google, or Discord. Free to use. Built by raiders, for raiders.
       </p>
-      <a href="/api/auth/google" class="btn btn--primary btn--lg"> Get Started </a>
+      <a href="/auth/callback" class="btn btn--primary btn--lg"> Get Started </a>
     </section>
 
     <!-- Footer -->

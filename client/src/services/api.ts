@@ -1,4 +1,10 @@
 import axios, { AxiosResponse } from 'axios';
+import type {
+  AuthenticationResponseJSON,
+  PublicKeyCredentialCreationOptionsJSON,
+  PublicKeyCredentialRequestOptionsJSON,
+  RegistrationResponseJSON
+} from '@simplewebauthn/browser';
 import { isMasterLooterName } from '../utils/lootNames';
 
 import type {
@@ -1419,6 +1425,19 @@ export interface AccountProfile {
 export interface LinkedProviders {
   google: boolean;
   discord: boolean;
+  passkeys: boolean;
+  passkeyCount: number;
+}
+
+export interface UserPasskey {
+  id: string;
+  name: string;
+  deviceType: string | null;
+  backedUp: boolean;
+  transports: string[];
+  createdAt: string;
+  updatedAt: string;
+  lastUsedAt: string | null;
 }
 
 export type NotificationProvider = 'TELEGRAM' | 'WHATSAPP';
@@ -4680,7 +4699,9 @@ export const api = {
     const response = await axios.get('/api/account/linked-providers');
     return {
       google: Boolean(response.data.providers?.google),
-      discord: Boolean(response.data.providers?.discord)
+      discord: Boolean(response.data.providers?.discord),
+      passkeys: Boolean(response.data.providers?.passkeys),
+      passkeyCount: Number(response.data.providers?.passkeyCount ?? 0)
     };
   },
 
@@ -4688,7 +4709,9 @@ export const api = {
     const response = await axios.post('/api/account/unlink/google');
     return {
       google: Boolean(response.data.providers?.google),
-      discord: Boolean(response.data.providers?.discord)
+      discord: Boolean(response.data.providers?.discord),
+      passkeys: Boolean(response.data.providers?.passkeys),
+      passkeyCount: Number(response.data.providers?.passkeyCount ?? 0)
     };
   },
 
@@ -4696,7 +4719,52 @@ export const api = {
     const response = await axios.post('/api/account/unlink/discord');
     return {
       google: Boolean(response.data.providers?.google),
-      discord: Boolean(response.data.providers?.discord)
+      discord: Boolean(response.data.providers?.discord),
+      passkeys: Boolean(response.data.providers?.passkeys),
+      passkeyCount: Number(response.data.providers?.passkeyCount ?? 0)
+    };
+  },
+
+  async fetchPasskeyRegistrationOptions(): Promise<PublicKeyCredentialCreationOptionsJSON> {
+    const response = await axios.get('/api/auth/passkeys/registration/options');
+    return response.data.options;
+  },
+
+  async verifyPasskeyRegistration(responseJson: RegistrationResponseJSON): Promise<UserPasskey> {
+    const response = await axios.post('/api/auth/passkeys/registration/verify', {
+      response: responseJson
+    });
+    return response.data.passkey;
+  },
+
+  async fetchPasskeyAuthenticationOptions(): Promise<PublicKeyCredentialRequestOptionsJSON> {
+    const response = await axios.get('/api/auth/passkeys/authentication/options');
+    return response.data.options;
+  },
+
+  async verifyPasskeyAuthentication(responseJson: AuthenticationResponseJSON): Promise<void> {
+    await axios.post('/api/auth/passkeys/authentication/verify', {
+      response: responseJson
+    });
+  },
+
+  async fetchPasskeys(): Promise<UserPasskey[]> {
+    const response = await axios.get('/api/account/passkeys');
+    return Array.isArray(response.data.passkeys) ? response.data.passkeys : [];
+  },
+
+  async renamePasskey(passkeyId: string, name: string): Promise<UserPasskey> {
+    const response = await axios.patch(`/api/account/passkeys/${passkeyId}`, { name });
+    return response.data.passkey;
+  },
+
+  async deletePasskey(passkeyId: string): Promise<LinkedProviders> {
+    const response = await axios.delete(`/api/account/passkeys/${passkeyId}`);
+    return {
+      google: Boolean(response.data.providers?.google),
+      discord: Boolean(response.data.providers?.discord),
+      passkeys: Boolean(response.data.providers?.passkeys),
+      passkeyCount: Number(response.data.providers?.passkeyCount ?? 0)
     };
   },
 

@@ -8,6 +8,11 @@ import { updateMarketFavoriteNotificationSettings } from '../services/marketNoti
 import { getMarketFavorites } from '../services/marketService.js';
 import { sendNotificationTestMessage } from '../services/notificationOutboxService.js';
 import {
+  deleteUserPasskey,
+  listUserPasskeys,
+  renameUserPasskey
+} from '../services/passkeyService.js';
+import {
   createTelegramLinkSession,
   createWhatsappLinkSession,
   disconnectNotificationChannel,
@@ -45,6 +50,14 @@ const profileSchema = z.object({
       z.null()
     ])
     .optional()
+});
+
+const passkeyParamsSchema = z.object({
+  passkeyId: z.string().min(1)
+});
+
+const passkeyRenameSchema = z.object({
+  name: z.string().trim().min(1, 'Passkey name is required.').max(64)
 });
 
 const accountProfileSelect = {
@@ -239,6 +252,56 @@ export async function accountRoutes(server: FastifyInstance): Promise<void> {
       return { success: true, providers };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to unlink Discord.';
+      return reply.badRequest(message);
+    }
+  });
+
+  server.get('/passkeys', { preHandler: [authenticate] }, async (request, reply) => {
+    try {
+      const passkeys = await listUserPasskeys(request.user.userId);
+      return { passkeys };
+    } catch (error) {
+      request.log.error({ error }, 'Failed to list passkeys.');
+      return reply.internalServerError('Unable to load passkeys.');
+    }
+  });
+
+  server.patch('/passkeys/:passkeyId', { preHandler: [authenticate] }, async (request, reply) => {
+    const params = passkeyParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.badRequest('Invalid passkey.');
+    }
+
+    const body = passkeyRenameSchema.safeParse(request.body);
+    if (!body.success) {
+      return reply.badRequest(body.error.errors[0]?.message ?? 'Invalid passkey name.');
+    }
+
+    try {
+      const passkey = await renameUserPasskey(
+        request.user.userId,
+        params.data.passkeyId,
+        body.data.name
+      );
+      return { passkey };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to rename passkey.';
+      return reply.badRequest(message);
+    }
+  });
+
+  server.delete('/passkeys/:passkeyId', { preHandler: [authenticate] }, async (request, reply) => {
+    const params = passkeyParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.badRequest('Invalid passkey.');
+    }
+
+    try {
+      await deleteUserPasskey(request.user.userId, params.data.passkeyId);
+      const providers = await getLinkedProviders(request.user.userId);
+      return { success: true, providers };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to delete passkey.';
       return reply.badRequest(message);
     }
   });

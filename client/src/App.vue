@@ -336,6 +336,20 @@
           <button class="nav__logout" @click="logout">Log Out</button>
         </template>
         <template v-else>
+          <input
+            ref="passkeyAutofillInputRef"
+            class="passkey-autofill-input"
+            autocomplete="username webauthn"
+            aria-label="Passkey sign-in"
+          />
+          <button class="btn btn--passkey" :disabled="passkeyAuthenticating" @click="loginWithPasskey">
+            <svg class="btn__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <circle cx="8" cy="15" r="4" stroke-width="2" />
+              <path d="M11 12 21 2" stroke-width="2" stroke-linecap="round" />
+              <path d="m16 7 2 2 3-3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            {{ passkeyAuthenticating ? 'Checking...' : 'Passkey' }}
+          </button>
           <button class="btn btn--google" @click="loginWithGoogle">
             <svg class="btn__icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
               <path
@@ -487,6 +501,28 @@
       </div>
     </div>
 
+    <div v-if="passkeyPromptVisible" class="passkey-enroll-banner">
+      <div class="passkey-enroll-banner__content">
+        <div>
+          <strong>Use this device next time</strong>
+          <p>Add a passkey for one-tap sign-in with your device unlock.</p>
+        </div>
+        <div class="passkey-enroll-banner__actions">
+          <button
+            type="button"
+            class="btn btn--passkey"
+            :disabled="passkeyPromptSaving"
+            @click="createPromptPasskey"
+          >
+            {{ passkeyPromptSaving ? 'Creating...' : 'Add Passkey' }}
+          </button>
+          <button type="button" class="btn btn--outline" @click="dismissPasskeyPrompt">
+            Not Now
+          </button>
+        </div>
+      </div>
+    </div>
+
     <div class="toast-container" aria-live="polite" aria-atomic="true">
       <TransitionGroup name="toast" tag="div">
         <div
@@ -544,6 +580,15 @@ import GuildDonationsModal from './components/GuildDonationsModal.vue';
 import NpcNotificationModal from './components/NpcNotificationModal.vue';
 import DiscordWebhookDebugModal from './components/DiscordWebhookDebugModal.vue';
 import { useWebhookDebugStore } from './stores/webhookDebug';
+import {
+  authenticateWithPasskey,
+  cancelActivePasskeyPrompt,
+  getPasskeyErrorMessage,
+  isPasskeyCancel,
+  registerCurrentDevicePasskey,
+  supportsPasskeyAutofill,
+  supportsPasskeys
+} from './composables/usePasskeyAuth';
 
 const authStore = useAuthStore();
 const webhookDebugStore = useWebhookDebugStore();
@@ -570,6 +615,11 @@ const guildDropdownNavRef = ref<HTMLElement | null>(null);
 const adminDropdownNavRef = ref<HTMLElement | null>(null);
 const activeDropdownMenuRef = ref<HTMLElement | null>(null);
 const navDropdownStyle = ref<CSSProperties>({});
+const passkeyAutofillInputRef = ref<HTMLInputElement | null>(null);
+const passkeyAuthenticating = ref(false);
+const passkeyAutofillStarted = ref(false);
+const passkeyPromptVisible = ref(false);
+const passkeyPromptSaving = ref(false);
 
 let hoverDropdownMediaQuery: MediaQueryList | null = null;
 
@@ -800,6 +850,114 @@ function loginWithDiscord() {
   window.location.href = '/api/auth/discord';
 }
 
+async function loginWithPasskey() {
+  if (passkeyAuthenticating.value) return;
+
+  passkeyAuthenticating.value = true;
+  try {
+    await authenticateWithPasskey({ verifyBrowserAutofillInput: false });
+    await authStore.fetchCurrentUser();
+    addToast({
+      title: 'Signed In',
+      message: 'Passkey sign-in completed.'
+    });
+    if (route.name === 'Landing' || route.path === '/auth/callback') {
+      router.replace('/dashboard');
+    }
+  } catch (error) {
+    if (!isPasskeyCancel(error)) {
+      addToast({
+        title: 'Passkey Sign-in Failed',
+        message: getPasskeyErrorMessage(error, 'Unable to sign in with passkey.'),
+        variant: 'error'
+      });
+    }
+  } finally {
+    passkeyAuthenticating.value = false;
+  }
+}
+
+async function startPasskeyAutofill() {
+  if (authStore.isAuthenticated || passkeyAutofillStarted.value || !supportsPasskeys()) {
+    return;
+  }
+
+  await nextTick();
+  if (!passkeyAutofillInputRef.value || !(await supportsPasskeyAutofill())) {
+    return;
+  }
+
+  passkeyAutofillStarted.value = true;
+  try {
+    await authenticateWithPasskey({ useBrowserAutofill: true });
+    await authStore.fetchCurrentUser();
+    if (route.name === 'Landing' || route.path === '/auth/callback') {
+      router.replace('/dashboard');
+    }
+  } catch (error) {
+    if (!isPasskeyCancel(error)) {
+      console.warn('Passkey autofill sign-in failed.', error);
+    }
+  } finally {
+    passkeyAutofillStarted.value = false;
+  }
+}
+
+function passkeyPromptDismissKey() {
+  return authStore.user?.userId ? `cwraid-passkey-prompt-dismissed:${authStore.user.userId}` : '';
+}
+
+async function evaluatePasskeyPrompt() {
+  passkeyPromptVisible.value = false;
+  if (!authStore.isAuthenticated || !authStore.user || !supportsPasskeys()) {
+    return;
+  }
+
+  const dismissedKey = passkeyPromptDismissKey();
+  if (dismissedKey && window.localStorage.getItem(dismissedKey) === '1') {
+    return;
+  }
+
+  try {
+    const providers = await api.fetchLinkedProviders();
+    passkeyPromptVisible.value = !providers.passkeys;
+  } catch (error) {
+    console.warn('Unable to check passkey enrollment status.', error);
+  }
+}
+
+function dismissPasskeyPrompt() {
+  const key = passkeyPromptDismissKey();
+  if (key) {
+    window.localStorage.setItem(key, '1');
+  }
+  passkeyPromptVisible.value = false;
+}
+
+async function createPromptPasskey() {
+  if (passkeyPromptSaving.value) return;
+
+  passkeyPromptSaving.value = true;
+  try {
+    await registerCurrentDevicePasskey();
+    passkeyPromptVisible.value = false;
+    addToast({
+      title: 'Passkey Added',
+      message: 'This device is ready for faster sign-in.'
+    });
+  } catch (error) {
+    if (!isPasskeyCancel(error)) {
+      addToast({
+        title: 'Passkey Setup Failed',
+        message: getPasskeyErrorMessage(error, 'Unable to create passkey.'),
+        variant: 'error'
+      });
+    }
+  } finally {
+    passkeyPromptSaving.value = false;
+  }
+}
+
 function handleLootAssigned(
   event: CustomEvent<{ raidId: string; itemName?: string; looterName?: string }>
 ) {
@@ -930,6 +1088,11 @@ onMounted(async () => {
   window.addEventListener('scroll', handleDropdownViewportChange, true);
 
   await authStore.fetchCurrentUser();
+  if (authStore.isAuthenticated) {
+    evaluatePasskeyPrompt();
+  } else {
+    startPasskeyAutofill();
+  }
   if (primaryGuild.value) {
     await loadActiveRaid(primaryGuild.value.id);
     // Start NPC respawn monitoring for notifications
@@ -975,6 +1138,7 @@ onBeforeUnmount(() => {
   // Cleanup webhook debug store
   webhookDebugStore.cleanup();
   stopWebhookPendingActionRefresh();
+  cancelActivePasskeyPrompt();
 });
 
 watch(
@@ -983,6 +1147,19 @@ watch(
     activeDropdown.value = null;
     if (authStore.isAdmin) {
       refreshWebhookPendingActionCount();
+    }
+  }
+);
+
+watch(
+  () => authStore.user?.userId,
+  (userId) => {
+    cancelActivePasskeyPrompt();
+    if (userId) {
+      evaluatePasskeyPrompt();
+    } else {
+      passkeyPromptVisible.value = false;
+      startPasskeyAutofill();
     }
   }
 );
@@ -1866,6 +2043,27 @@ function hasRaidStarted(raid: RaidEventSummary) {
   background: #4752c4;
 }
 
+.btn--passkey {
+  background: rgba(20, 184, 166, 0.18);
+  border: 1px solid rgba(45, 212, 191, 0.45);
+  color: #ccfbf1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.btn--passkey:hover {
+  background: rgba(20, 184, 166, 0.28);
+}
+
+.passkey-autofill-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .btn__icon {
   width: 1.1rem;
   height: 1.1rem;
@@ -1898,6 +2096,38 @@ function hasRaidStarted(raid: RaidEventSummary) {
   justify-content: space-between;
   align-items: center;
   gap: 1rem;
+}
+
+.passkey-enroll-banner {
+  background: rgba(15, 118, 110, 0.16);
+  border-bottom: 1px solid rgba(45, 212, 191, 0.28);
+  padding: 0.8rem 2rem;
+}
+
+.passkey-enroll-banner__content {
+  max-width: 1100px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.passkey-enroll-banner strong {
+  display: block;
+  color: #f8fafc;
+  margin-bottom: 0.2rem;
+}
+
+.passkey-enroll-banner p {
+  margin: 0;
+  color: #ccfbf1;
+}
+
+.passkey-enroll-banner__actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
 }
 
 .active-raid-banner__status {

@@ -64,6 +64,8 @@ model User {
   testHistoryEvents  TestChangeHistory[] @relation("TestChangeHistoryActor")
   cliDeviceLogins    CliDeviceLogin[]   @relation("CliDeviceLoginUser")
   cliSessions        CliSession[]
+  passkeys           UserPasskey[]
+  passkeyChallenges  PasskeyChallenge[]
 }
 
 model Guild {
@@ -1588,6 +1590,39 @@ model CliSession {
 
   @@index([userId, revokedAt])
   @@index([expiresAt])
+}
+
+model UserPasskey {
+  id               String    @id @default(cuid())
+  userId           String
+  credentialIdHash String    @unique @db.VarChar(64)
+  credentialId     String    @db.Text
+  publicKey        String    @db.Text
+  counter          BigInt    @default(0)
+  transports       Json?
+  deviceType       String?   @db.VarChar(32)
+  backedUp         Boolean   @default(false)
+  name             String    @db.VarChar(191)
+  lastUsedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model PasskeyChallenge {
+  id            String    @id @default(cuid())
+  userId        String?
+  type          String    @db.VarChar(32)
+  challengeHash String    @unique @db.VarChar(64)
+  expiresAt     DateTime
+  consumedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  user          User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type, expiresAt])
+  @@index([type, expiresAt])
 }
 
 // Webhook Debug Messages - stores debug webhook messages for cross-process delivery

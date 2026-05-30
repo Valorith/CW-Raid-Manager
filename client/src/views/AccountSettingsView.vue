@@ -151,6 +151,101 @@
           </div>
         </div>
 
+        <div class="passkeys-panel">
+          <div class="passkeys-panel__header">
+            <div>
+              <h3>Passkeys</h3>
+              <p class="muted small">
+                Sign in with your device unlock. Keep Google or Discord linked as a fallback.
+              </p>
+            </div>
+            <button
+              type="button"
+              class="btn btn--success btn--small"
+              :disabled="registeringPasskey || !passkeysSupported"
+              :title="passkeysSupported ? '' : 'This browser does not support passkeys'"
+              @click="handleAddPasskey"
+            >
+              {{ registeringPasskey ? 'Creating...' : 'Add Passkey' }}
+            </button>
+          </div>
+
+          <div v-if="passkeysLoading" class="connected-accounts__loading">
+            <span class="muted">Loading passkeys...</span>
+          </div>
+          <div v-else-if="passkeys.length === 0" class="passkeys-empty">
+            <span>No passkeys yet.</span>
+          </div>
+          <div v-else class="passkey-list">
+            <article v-for="passkey in passkeys" :key="passkey.id" class="passkey-card">
+              <div class="provider-card__info">
+                <div class="provider-card__icon provider-card__icon--passkey" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor">
+                    <circle cx="8" cy="15" r="4" stroke-width="2" />
+                    <path d="M11 12 21 2" stroke-width="2" stroke-linecap="round" />
+                    <path d="m16 7 2 2 3-3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </div>
+                <div class="provider-card__details passkey-card__details">
+                  <template v-if="editingPasskeyId === passkey.id">
+                    <input
+                      v-model="passkeyDraftName"
+                      class="passkey-card__name-input"
+                      maxlength="64"
+                      @keyup.enter="handleSavePasskeyName(passkey.id)"
+                      @keyup.esc="cancelRenamePasskey"
+                    />
+                  </template>
+                  <template v-else>
+                    <span class="provider-card__name">{{ passkey.name }}</span>
+                    <span class="provider-card__status">
+                      {{ describePasskey(passkey) }}
+                    </span>
+                  </template>
+                </div>
+              </div>
+              <div class="provider-card__actions">
+                <template v-if="editingPasskeyId === passkey.id">
+                  <button
+                    type="button"
+                    class="btn btn--success btn--small"
+                    :disabled="renamingPasskey"
+                    @click="handleSavePasskeyName(passkey.id)"
+                  >
+                    {{ renamingPasskey ? 'Saving...' : 'Save' }}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn--outline btn--small"
+                    :disabled="renamingPasskey"
+                    @click="cancelRenamePasskey"
+                  >
+                    Cancel
+                  </button>
+                </template>
+                <template v-else>
+                  <button
+                    type="button"
+                    class="btn btn--outline btn--small"
+                    @click="startRenamePasskey(passkey)"
+                  >
+                    Rename
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn--danger btn--small"
+                    :disabled="deletingPasskeyId === passkey.id || !canDeletePasskey"
+                    :title="canDeletePasskey ? '' : 'You must have at least one login method'"
+                    @click="handleDeletePasskey(passkey.id)"
+                  >
+                    {{ deletingPasskeyId === passkey.id ? 'Deleting...' : 'Delete' }}
+                  </button>
+                </template>
+              </div>
+            </article>
+          </div>
+        </div>
+
         <div v-if="linkedProvidersError" class="alert alert--error">{{ linkedProvidersError }}</div>
         <div v-if="linkedProvidersSuccess" class="alert alert--success">
           {{ linkedProvidersSuccess }}
@@ -650,10 +745,16 @@ import {
   type NotificationLinkSession,
   type NotificationPreferenceSummary,
   type NotificationProviderAvailability,
-  type NotificationProvider
+  type NotificationProvider,
+  type UserPasskey
 } from '../services/api';
 import { useAuthStore } from '../stores/auth';
 import { useToastBus } from '../components/ToastBus';
+import {
+  getPasskeyErrorMessage,
+  registerCurrentDevicePasskey,
+  supportsPasskeys
+} from '../composables/usePasskeyAuth';
 import {
   deleteDefaultLogHandle,
   getDefaultLogHandle,
@@ -679,12 +780,25 @@ const defaultLogError = ref('');
 const defaultLogHandleAvailable = ref(false);
 
 // Connected accounts state
-const linkedProviders = ref<LinkedProviders>({ google: false, discord: false });
+const linkedProviders = ref<LinkedProviders>({
+  google: false,
+  discord: false,
+  passkeys: false,
+  passkeyCount: 0
+});
 const linkedProvidersLoading = ref(true);
 const linkedProvidersError = ref('');
 const linkedProvidersSuccess = ref('');
 const unlinkingGoogle = ref(false);
 const unlinkingDiscord = ref(false);
+const passkeys = ref<UserPasskey[]>([]);
+const passkeysLoading = ref(true);
+const registeringPasskey = ref(false);
+const deletingPasskeyId = ref<string | null>(null);
+const editingPasskeyId = ref<string | null>(null);
+const passkeyDraftName = ref('');
+const renamingPasskey = ref(false);
+const passkeysSupported = supportsPasskeys();
 const notificationsLoading = ref(true);
 const notificationChannels = ref<NotificationChannelConnection[]>([]);
 const notificationAvailability = ref<
@@ -707,8 +821,12 @@ const connectingProvider = ref<NotificationProvider | null>(null);
 const linkSessions = ref<Partial<Record<NotificationProvider, NotificationLinkSession>>>({});
 let notificationPollTimer: ReturnType<typeof window.setInterval> | null = null;
 
-const canUnlinkGoogle = computed(() => linkedProviders.value.discord);
-const canUnlinkDiscord = computed(() => linkedProviders.value.google);
+const hasPasskeyLogin = computed(() => passkeys.value.length > 0 || linkedProviders.value.passkeys);
+const canUnlinkGoogle = computed(() => linkedProviders.value.discord || hasPasskeyLogin.value);
+const canUnlinkDiscord = computed(() => linkedProviders.value.google || hasPasskeyLogin.value);
+const canDeletePasskey = computed(
+  () => linkedProviders.value.google || linkedProviders.value.discord || passkeys.value.length > 1
+);
 const telegramChannel = computed(
   () => notificationChannels.value.find((channel) => channel.provider === 'TELEGRAM') ?? null
 );
@@ -829,6 +947,23 @@ async function loadLinkedProviders() {
   }
 }
 
+async function loadPasskeys() {
+  passkeysLoading.value = true;
+  try {
+    passkeys.value = await api.fetchPasskeys();
+    linkedProviders.value = {
+      ...linkedProviders.value,
+      passkeys: passkeys.value.length > 0,
+      passkeyCount: passkeys.value.length
+    };
+  } catch (error) {
+    console.error('Failed to load passkeys', error);
+    linkedProvidersError.value = 'Unable to load passkeys.';
+  } finally {
+    passkeysLoading.value = false;
+  }
+}
+
 async function loadNotifications() {
   notificationsLoading.value = true;
   try {
@@ -845,6 +980,10 @@ async function loadNotifications() {
     notificationsLoading.value = false;
     syncNotificationPolling();
   }
+}
+
+async function refreshLoginMethods() {
+  await Promise.all([loadLinkedProviders(), loadPasskeys()]);
 }
 
 async function handleUnlinkGoogle() {
@@ -879,6 +1018,116 @@ async function handleUnlinkDiscord() {
   } finally {
     unlinkingDiscord.value = false;
   }
+}
+
+async function handleAddPasskey() {
+  if (registeringPasskey.value || !passkeysSupported) return;
+
+  registeringPasskey.value = true;
+  linkedProvidersError.value = '';
+  linkedProvidersSuccess.value = '';
+
+  try {
+    const passkey = await registerCurrentDevicePasskey();
+    passkeys.value = [passkey, ...passkeys.value.filter((entry) => entry.id !== passkey.id)];
+    linkedProviders.value = {
+      ...linkedProviders.value,
+      passkeys: true,
+      passkeyCount: passkeys.value.length
+    };
+    linkedProvidersSuccess.value = 'Passkey added successfully.';
+    addToast({
+      title: 'Passkey Added',
+      message: 'You can use this device for faster sign-in next time.'
+    });
+  } catch (error) {
+    const message = getPasskeyErrorMessage(error, 'Failed to add passkey.');
+    if (message !== 'Passkey prompt canceled.') {
+      linkedProvidersError.value = message;
+    }
+  } finally {
+    registeringPasskey.value = false;
+  }
+}
+
+function startRenamePasskey(passkey: UserPasskey) {
+  editingPasskeyId.value = passkey.id;
+  passkeyDraftName.value = passkey.name;
+  linkedProvidersError.value = '';
+  linkedProvidersSuccess.value = '';
+}
+
+function cancelRenamePasskey() {
+  editingPasskeyId.value = null;
+  passkeyDraftName.value = '';
+}
+
+async function handleSavePasskeyName(passkeyId: string) {
+  const name = passkeyDraftName.value.trim();
+  if (!name || renamingPasskey.value) return;
+
+  renamingPasskey.value = true;
+  linkedProvidersError.value = '';
+  linkedProvidersSuccess.value = '';
+
+  try {
+    const updated = await api.renamePasskey(passkeyId, name);
+    passkeys.value = passkeys.value.map((passkey) =>
+      passkey.id === passkeyId ? updated : passkey
+    );
+    linkedProvidersSuccess.value = 'Passkey renamed successfully.';
+    cancelRenamePasskey();
+  } catch (error) {
+    linkedProvidersError.value = extractErrorMessage(error, 'Failed to rename passkey.');
+  } finally {
+    renamingPasskey.value = false;
+  }
+}
+
+async function handleDeletePasskey(passkeyId: string) {
+  if (deletingPasskeyId.value || !canDeletePasskey.value) return;
+  if (!window.confirm('Delete this passkey from your account?')) return;
+
+  deletingPasskeyId.value = passkeyId;
+  linkedProvidersError.value = '';
+  linkedProvidersSuccess.value = '';
+
+  try {
+    linkedProviders.value = await api.deletePasskey(passkeyId);
+    passkeys.value = passkeys.value.filter((passkey) => passkey.id !== passkeyId);
+    linkedProvidersSuccess.value = 'Passkey deleted successfully.';
+  } catch (error) {
+    linkedProvidersError.value = extractErrorMessage(error, 'Failed to delete passkey.');
+  } finally {
+    deletingPasskeyId.value = null;
+  }
+}
+
+function describePasskey(passkey: UserPasskey) {
+  const parts: string[] = [];
+  if (passkey.deviceType === 'multiDevice') {
+    parts.push(passkey.backedUp ? 'Synced' : 'Sync-capable');
+  } else if (passkey.deviceType === 'singleDevice') {
+    parts.push('Single device');
+  } else {
+    parts.push('Passkey');
+  }
+
+  if (passkey.lastUsedAt) {
+    parts.push(`last used ${formatCompactDate(passkey.lastUsedAt)}`);
+  } else {
+    parts.push(`created ${formatCompactDate(passkey.createdAt)}`);
+  }
+
+  return parts.join(' · ');
+}
+
+function formatCompactDate(value: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  }).format(new Date(value));
 }
 
 function handleUrlParams() {
@@ -1386,7 +1635,7 @@ async function saveNickname() {
 onMounted(() => {
   handleUrlParams();
   loadProfile();
-  loadLinkedProviders();
+  refreshLoginMethods();
   loadNotifications();
 });
 
@@ -1581,6 +1830,11 @@ onBeforeUnmount(() => {
   color: #5865f2;
 }
 
+.provider-card__icon--passkey {
+  background: rgba(45, 212, 191, 0.15);
+  color: #5eead4;
+}
+
 .provider-card__icon--telegram {
   background: rgba(56, 189, 248, 0.15);
   color: #38bdf8;
@@ -1630,6 +1884,64 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: stretch;
   gap: 1rem;
+}
+
+.passkeys-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 1rem;
+  border: 1px solid rgba(45, 212, 191, 0.2);
+  border-radius: 0.85rem;
+  background: rgba(15, 23, 42, 0.38);
+}
+
+.passkeys-panel__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.passkeys-panel__header h3 {
+  margin: 0;
+  color: #f8fafc;
+  font-size: 1rem;
+}
+
+.passkeys-empty {
+  color: #94a3b8;
+  font-size: 0.95rem;
+}
+
+.passkey-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.passkey-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 0.75rem;
+  background: rgba(30, 41, 59, 0.5);
+}
+
+.passkey-card__details {
+  min-width: 0;
+}
+
+.passkey-card__name-input {
+  width: min(280px, 100%);
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(94, 234, 212, 0.45);
+  border-radius: 0.5rem;
+  color: #f8fafc;
+  padding: 0.45rem 0.6rem;
 }
 
 .messenger-notifications {
@@ -1872,6 +2184,12 @@ onBeforeUnmount(() => {
     flex-direction: column;
     align-items: stretch;
     gap: 0.75rem;
+  }
+
+  .passkeys-panel__header,
+  .passkey-card {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .provider-card__info {
