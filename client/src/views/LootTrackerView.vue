@@ -70,6 +70,9 @@
             }"
             role="status"
             aria-live="assertive"
+            @pointerenter="showLootConsoleItemTooltip($event, lootConsoleCurrent)"
+            @pointermove="updateTooltipPosition($event)"
+            @pointerleave="hideItemTooltip"
           >
             <span class="loot-console__line">{{ lootConsoleCurrent.line }}</span>
           </div>
@@ -281,13 +284,11 @@
               v-for="item in lootCouncilActiveItems"
               :key="item.key"
               :class="['loot-council-column', getLootCouncilViewerClasses(item)]"
+              @pointerenter="showLootCouncilItemTooltip($event, item)"
+              @pointermove="updateTooltipPosition($event)"
+              @pointerleave="hideItemTooltip"
             >
-              <header
-                class="loot-council-column__header"
-                @pointerenter="showLootCouncilItemTooltip($event, item)"
-                @pointermove="updateTooltipPosition($event)"
-                @pointerleave="hideItemTooltip"
-              >
+              <header class="loot-council-column__header">
                 <div class="loot-council-column__icon">
                   <template v-if="hasValidIconId(item.itemIconId)">
                     <img
@@ -1490,11 +1491,15 @@ interface LootConsoleItem {
   id: string;
   line: string;
   status: LootConsoleStatus;
+  itemName: string;
+  itemId?: number | null;
 }
 
 interface LootConsolePayload {
   line: string;
   status: LootConsoleStatus;
+  itemName?: string | null;
+  itemId?: number | null;
 }
 
 type LootCouncilItemStatus = 'ACTIVE' | 'AWARDED' | 'REMOVED';
@@ -1639,6 +1644,13 @@ function showLootCouncilReplacingTooltip(event: MouseEvent, interest: LootCounci
       itemName: interest.replacing,
       itemIconId: interest.replacingItemIconId ?? undefined
     },
+    { x: event.clientX, y: event.clientY }
+  );
+}
+
+function showLootConsoleItemTooltip(event: MouseEvent, item: LootConsoleItem) {
+  void tooltipStore.showTooltip(
+    { itemId: item.itemId, itemName: item.itemName },
     { x: event.clientX, y: event.clientY }
   );
 }
@@ -6097,7 +6109,9 @@ function enqueueLootConsoleEntries(entries: LootConsolePayload[]) {
   const normalized = entries
     .map((entry) => ({
       line: entry.line?.trim() ?? '',
-      status: entry.status
+      status: entry.status,
+      itemName: entry.itemName?.trim() ?? '',
+      itemId: entry.itemId
     }))
     .filter((entry) => entry.line.length > 0);
 
@@ -6110,7 +6124,9 @@ function enqueueLootConsoleEntries(entries: LootConsolePayload[]) {
     lootConsoleQueue.value.push({
       id: `console-${timestamp}-${index}-${Math.random().toString(36).slice(2, 6)}`,
       line: entry.line,
-      status: entry.status
+      status: entry.status,
+      itemName: entry.itemName,
+      itemId: entry.itemId
     });
   }
 
@@ -6289,7 +6305,9 @@ function processLogContent(
       if (includeConsole) {
         consolePayloads.push({
           line: formatConsoleLine(entry),
-          status: 'REJECTED'
+          status: 'REJECTED',
+          itemName: getParsedLootItemName(entry),
+          itemId: entry.itemId
         });
       }
       continue;
@@ -6305,7 +6323,9 @@ function processLogContent(
       if (includeConsole) {
         consolePayloads.push({
           line: formatConsoleLine(entry),
-          status: 'REJECTED'
+          status: 'REJECTED',
+          itemName: getParsedLootItemName(entry),
+          itemId: entry.itemId
         });
       }
       continue;
@@ -6323,7 +6343,9 @@ function processLogContent(
         if (includeConsole) {
           consolePayloads.push({
             line: formatConsoleLine(entry),
-            status: 'REJECTED'
+            status: 'REJECTED',
+            itemName: getParsedLootItemName(entry),
+            itemId: entry.itemId
           });
         }
         continue;
@@ -6344,7 +6366,9 @@ function processLogContent(
       if (includeConsole) {
         consolePayloads.push({
           line: formatConsoleLine(entry),
-          status: 'ACCEPTED'
+          status: 'ACCEPTED',
+          itemName: getParsedLootItemName(entry),
+          itemId: entry.itemId
         });
       }
       continue;
@@ -6357,7 +6381,9 @@ function processLogContent(
       if (includeConsole) {
         consolePayloads.push({
           line: formatConsoleLine(entry),
-          status: 'REJECTED'
+          status: 'REJECTED',
+          itemName: getParsedLootItemName(entry),
+          itemId: entry.itemId
         });
       }
       continue;
@@ -6379,7 +6405,9 @@ function processLogContent(
     if (includeConsole) {
       consolePayloads.push({
         line: formatConsoleLine(entry),
-        status: result
+        status: result,
+        itemName: getParsedLootItemName(entry),
+        itemId: entry.itemId
       });
     }
   });
@@ -6446,6 +6474,10 @@ function formatConsoleLine(entry: ParsedLootEvent) {
   return parts.join(' ');
 }
 
+function getParsedLootItemName(entry: ParsedLootEvent): string {
+  return entry.itemName ?? entry.looter ?? 'Unknown Item';
+}
+
 function transformParsedEvents(
   parsed: ParsedLootEvent[],
   emoji: string,
@@ -6472,7 +6504,7 @@ function transformParsedEvents(
       continue;
     }
     processedLogKeys.add(key);
-    const itemName = entry.itemName ?? entry.looter ?? 'Unknown Item';
+    const itemName = getParsedLootItemName(entry);
     const looterName = normalizeLooterNameValue(entry.looter ?? entry.itemName ?? 'Unknown');
     entry.looter = looterName;
     rows.push({
