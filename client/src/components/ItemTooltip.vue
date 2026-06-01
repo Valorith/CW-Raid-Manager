@@ -9,12 +9,43 @@
     >
       <div v-if="store.loading" class="item-tooltip__card">
         <p class="item-tooltip__eyebrow">Item Preview</p>
-        <p class="item-tooltip__message">Loading item details...</p>
+        <div v-if="basicDetail" class="item-tooltip__basic">
+          <div class="item-tooltip__basic-icon-shell">
+            <img
+              v-if="basicDetail.iconId != null && basicDetail.iconId > 0"
+              :src="getLootIconSrc(basicDetail.iconId)"
+              class="item-tooltip__basic-icon"
+              alt=""
+            />
+            <div v-else class="item-tooltip__basic-icon item-tooltip__basic-icon--placeholder"></div>
+          </div>
+          <div class="item-tooltip__basic-copy">
+            <h2 class="item-tooltip__title">{{ basicDetail.itemName }}</h2>
+            <p class="item-tooltip__message">Loading item details...</p>
+          </div>
+        </div>
+        <p v-else class="item-tooltip__message">Loading item details...</p>
       </div>
 
-      <div v-else-if="store.error" class="item-tooltip__card">
+      <div v-else-if="store.error && basicDetail" class="item-tooltip__card">
         <p class="item-tooltip__eyebrow">Item Preview</p>
-        <p class="item-tooltip__message">Could not load the item tooltip.</p>
+        <div class="item-tooltip__basic">
+          <div class="item-tooltip__basic-icon-shell">
+            <img
+              v-if="basicDetail.iconId != null && basicDetail.iconId > 0"
+              :src="getLootIconSrc(basicDetail.iconId)"
+              class="item-tooltip__basic-icon"
+              alt=""
+            />
+            <div v-else class="item-tooltip__basic-icon item-tooltip__basic-icon--placeholder"></div>
+          </div>
+          <div class="item-tooltip__basic-copy">
+            <h2 class="item-tooltip__title">{{ basicDetail.itemName }}</h2>
+            <p class="item-tooltip__message">
+              Detailed item stats are unavailable for this item.
+            </p>
+          </div>
+        </div>
       </div>
 
       <section v-else-if="detail" class="item-tooltip__card item-tooltip__card--detail">
@@ -249,6 +280,11 @@ type TooltipDetail = {
   effects: TooltipEffect[];
   coinValue: CoinValue;
   hasCoinValue: boolean;
+};
+
+type BasicTooltipDetail = {
+  itemName: string;
+  iconId: number | null;
 };
 
 const store = useItemTooltipStore();
@@ -1046,6 +1082,24 @@ const detail = computed<TooltipDetail | null>(() => {
   };
 });
 
+const basicDetail = computed<BasicTooltipDetail | null>(() => {
+  const item = store.currentItem;
+  if (!item) {
+    return null;
+  }
+
+  const itemName = item.itemName.trim();
+  if (!itemName) {
+    return null;
+  }
+
+  const iconId = item.itemIconId;
+  return {
+    itemName,
+    iconId: iconId != null && iconId > 0 ? iconId : null
+  };
+});
+
 const statGridStyle = computed(() => {
   const tooltipDetail = detail.value;
   const columnCount = tooltipDetail
@@ -1058,7 +1112,7 @@ const statGridStyle = computed(() => {
 });
 
 watch(
-  () => [store.isVisible, store.itemStats, store.loading, store.error],
+  () => [store.isVisible, store.currentItem, store.itemStats, store.loading, store.error],
   async () => {
     if (!store.isVisible) {
       return;
@@ -1155,6 +1209,37 @@ const tooltipStyle = computed(() => {
   display: flex;
   gap: 10px;
   align-items: flex-start;
+}
+
+.item-tooltip__basic {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.item-tooltip__basic-icon-shell {
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+
+.item-tooltip__basic-icon {
+  display: block;
+  width: 40px;
+  height: 40px;
+  border-radius: 4px;
+}
+
+.item-tooltip__basic-icon--placeholder {
+  border: 1px solid rgba(122, 135, 152, 0.7);
+  background: linear-gradient(180deg, rgba(90, 101, 118, 0.95), rgba(53, 62, 75, 0.95));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 1px 2px rgba(0, 0, 0, 0.28);
+}
+
+.item-tooltip__basic-copy {
+  min-width: 0;
 }
 
 .item-tooltip__hero-icon-shell {
@@ -1386,7 +1471,7 @@ const tooltipStyle = computed(() => {
   }
 }
 
-@media (max-width: 1099px) {
+@media (any-hover: none) {
   .item-tooltip {
     display: none;
   }
