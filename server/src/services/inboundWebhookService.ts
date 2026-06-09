@@ -26,6 +26,12 @@ const WEBHOOK_DEBUG_LOGS =
   appConfig.nodeEnv === 'development' || process.env.WEBHOOK_DEBUG_LOGS === 'true';
 const OPENAI_ESCALATION_MODEL = 'gpt-5.4-mini';
 const SERVER_CRASH_REPORT_INTAKE: InboundWebhookIntakeType = 'EQEMU_SERVER_CRASH_REPORT';
+const REPEATED_REPORT_COALESCE_WINDOW_SECONDS = Math.max(
+  1,
+  Number.parseInt(process.env.WEBHOOK_REPEAT_COALESCE_WINDOW_SECONDS ?? '', 10) || 30 * 60
+);
+const REPEATED_REPORT_LOOKBACK_LIMIT = 100;
+const INTAKE_REPEAT_META_KEY = 'intakeRepeat';
 
 function debugLog(...args: unknown[]): void {
   if (WEBHOOK_DEBUG_LOGS) {
@@ -111,6 +117,14 @@ interface PendingMergeGroup {
   timer: NodeJS.Timeout | null;  // null when processing
   status: 'pending' | 'processing';
 }
+
+type RepeatReportMetadata = {
+  fingerprint: string;
+  occurrenceCount: number;
+  firstReceivedAt: string;
+  lastReceivedAt: string;
+  latestSourceIp: string | null;
+};
 
 // Track pending merge groups by a composite key: webhookId:groupKey
 const pendingMergeGroups = new Map<string, PendingMergeGroup>();
@@ -1038,6 +1052,27 @@ export async function receiveInboundWebhookMessage(input: InboundWebhookMessageI
     return { id: 'discarded', webhookId: webhook.id, status: 'DISCARDED' as const };
   }
 
+  const repeatFingerprint = messageContent ? createRepeatedReportFingerprint(messageContent) : null;
+  if (repeatFingerprint) {
+    const coalescedMessage = await coalesceRepeatedReportOccurrence({
+      webhookId: webhook.id,
+      fingerprint: repeatFingerprint,
+      sourceIp: input.sourceIp ?? null
+    });
+
+    if (coalescedMessage) {
+      await prisma.inboundWebhook.update({
+        where: { id: webhook.id },
+        data: { lastReceivedAt: new Date() }
+      });
+      debugLog(
+        `[WEBHOOK RECEIVE] Coalesced repeated report into existing message ${coalescedMessage.id}`
+      );
+      debugLog(`[WEBHOOK RECEIVE] ========== MESSAGE RECEIVE COMPLETE ==========`);
+      return coalescedMessage;
+    }
+  }
+
   const message = await prisma.inboundWebhookMessage.create({
     data: {
       webhookId: webhook.id,
@@ -1423,6 +1458,153 @@ function hasRelayableWebhookPayload(payload: unknown, rawBody: string | null): b
   }
 
   return true;
+}
+
+function stripLightMarkdown(value: string): string {
+  return value.replace(/\*\*/g, '').replace(/__/g, '');
+}
+
+function canonicalizeReportText(value: string): string {
+  return stripLightMarkdown(value)
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function createStableHash(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function isChunkedCrashSegment(value: string): boolean {
+  if (extractChunkNumber(value) !== null) {
+    return true;
+  }
+  return /\*?\*?Chunk\*?\*?\s*\[\d+\]/i.test(value);
+}
+
+function shouldCoalesceRepeatedReport(rawText: string): boolean {
+  if (isChunkedCrashSegment(rawText)) {
+    return false;
+  }
+  return detectQuestError(undefined, '', rawText);
+}
+
+function createRepeatedReportFingerprint(rawText: string): string | null {
+  if (!shouldCoalesceRepeatedReport(rawText)) {
+    return null;
+  }
+
+  const canonical = canonicalizeReportText(rawText);
+  return canonical ? createStableHash(canonical) : null;
+}
+
+function readRepeatReportMetadata(
+  payload: Record<string, unknown>,
+  fallbackReceivedAt: Date
+): RepeatReportMetadata {
+  const raw = payload[INTAKE_REPEAT_META_KEY];
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    const record = raw as Record<string, unknown>;
+    const occurrenceCount =
+      typeof record.occurrenceCount === 'number' && Number.isSafeInteger(record.occurrenceCount)
+        ? Math.max(1, record.occurrenceCount)
+        : 1;
+    return {
+      fingerprint: typeof record.fingerprint === 'string' ? record.fingerprint : '',
+      occurrenceCount,
+      firstReceivedAt:
+        typeof record.firstReceivedAt === 'string'
+          ? record.firstReceivedAt
+          : fallbackReceivedAt.toISOString(),
+      lastReceivedAt:
+        typeof record.lastReceivedAt === 'string'
+          ? record.lastReceivedAt
+          : fallbackReceivedAt.toISOString(),
+      latestSourceIp: typeof record.latestSourceIp === 'string' ? record.latestSourceIp : null
+    };
+  }
+
+  return {
+    fingerprint: '',
+    occurrenceCount: 1,
+    firstReceivedAt: fallbackReceivedAt.toISOString(),
+    lastReceivedAt: fallbackReceivedAt.toISOString(),
+    latestSourceIp: null
+  };
+}
+
+function payloadToObject(payload: Prisma.JsonValue): Record<string, unknown> {
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    return { ...(payload as Record<string, unknown>) };
+  }
+  return {};
+}
+
+function getStoredRepeatedReportFingerprint(message: {
+  payload: Prisma.JsonValue;
+  rawBody: string | null;
+}): string | null {
+  const payload = payloadToObject(message.payload);
+  const rawMetadata = payload[INTAKE_REPEAT_META_KEY];
+  if (rawMetadata && typeof rawMetadata === 'object' && !Array.isArray(rawMetadata)) {
+    const fingerprint = (rawMetadata as Record<string, unknown>).fingerprint;
+    if (typeof fingerprint === 'string' && fingerprint.length > 0) {
+      return fingerprint;
+    }
+  }
+
+  const content = extractActualMessageContent(message.payload, message.rawBody);
+  return content ? createRepeatedReportFingerprint(content) : null;
+}
+
+async function coalesceRepeatedReportOccurrence(options: {
+  webhookId: string;
+  fingerprint: string;
+  sourceIp: string | null;
+}) {
+  const cutoff = new Date(Date.now() - REPEATED_REPORT_COALESCE_WINDOW_SECONDS * 1000);
+  const candidates = await prisma.inboundWebhookMessage.findMany({
+    where: {
+      webhookId: options.webhookId,
+      archivedAt: null,
+      receivedAt: { gte: cutoff }
+    },
+    orderBy: { receivedAt: 'desc' },
+    take: REPEATED_REPORT_LOOKBACK_LIMIT,
+    select: {
+      id: true,
+      payload: true,
+      rawBody: true,
+      receivedAt: true
+    }
+  });
+
+  const existing = candidates.find(
+    (message) => getStoredRepeatedReportFingerprint(message) === options.fingerprint
+  );
+  if (!existing) {
+    return null;
+  }
+
+  const payload = payloadToObject(existing.payload);
+  const existingMetadata = readRepeatReportMetadata(payload, existing.receivedAt);
+  const now = new Date();
+  payload[INTAKE_REPEAT_META_KEY] = {
+    fingerprint: options.fingerprint,
+    occurrenceCount: existingMetadata.occurrenceCount + 1,
+    firstReceivedAt: existingMetadata.firstReceivedAt,
+    lastReceivedAt: now.toISOString(),
+    latestSourceIp: options.sourceIp
+  } satisfies RepeatReportMetadata;
+
+  return prisma.inboundWebhookMessage.update({
+    where: { id: existing.id },
+    data: {
+      payload: payload as Prisma.InputJsonValue
+    }
+  });
 }
 
 function shouldUseCrashMergePipeline(
@@ -4282,28 +4464,38 @@ export async function processDismissedMergeMessages(messageIds: string[]) {
  */
 function extractCrashFileIdentifier(payload: unknown, rawBody: string | null): string | null {
   const text = extractTextForSorting(payload, rawBody);
+  const strippedText = stripLightMarkdown(text);
 
   // Pattern 1: "File [crash_xxx.log]" format
-  const fileMatch = text.match(/File\s*\[([^\]]+\.log)\]/i);
+  const fileMatch = strippedText.match(/File\s*\[([^\]]+\.log)\]/i);
   if (fileMatch) {
     return fileMatch[1];
   }
 
   // Pattern 2: Direct crash log filename pattern
-  const crashLogMatch = text.match(/(crash_[a-zA-Z0-9_]+\.log)/i);
+  const crashLogMatch = strippedText.match(/(crash_[a-zA-Z0-9_]+\.log)/i);
   if (crashLogMatch) {
     return crashLogMatch[1];
   }
 
-  // Pattern 3: Script error identifier - use quest/script name if present
-  const questErrorMatch = text.match(/\[QuestErrors?\]\s*([^\n\r]+)/i);
+  // Pattern 3: Script error identifier - use stable quest error content if present
+  const questScriptErrorMatch = strippedText.match(
+    /\[QuestErrors?\]\s*Zone\s*\[([^\]]+)\]\s*Script Error\s*\|\s*Package\s*\[([^\]]+)\]\s*Event\s*\[([^\]]+)\]\s*Error\s*\[([^\]\n\r]+)/i
+  );
+  if (questScriptErrorMatch) {
+    const [, zoneName, packageName, eventName, errorHead] = questScriptErrorMatch;
+    const keySeed = canonicalizeReportText([zoneName, packageName, eventName, errorHead].join('|'));
+    return `quest_error_${createStableHash(keySeed).slice(0, 16)}`;
+  }
+
+  const questErrorMatch = strippedText.match(/\[QuestErrors?\]\s*([^\n\r]+)/i);
   if (questErrorMatch) {
-    // Use first 50 chars of the error as identifier
-    return `quest_error_${questErrorMatch[1].slice(0, 50).replace(/[^a-zA-Z0-9]/g, '_')}`;
+    const keySeed = canonicalizeReportText(questErrorMatch[1]);
+    return `quest_error_${createStableHash(keySeed).slice(0, 16)}`;
   }
 
   // Pattern 4: Look for zone/server identifier in crash header
-  const zoneMatch = text.match(/\[Crash\]\s*Zone\s*\[([^\]]+)\]/i);
+  const zoneMatch = strippedText.match(/\[Crash\]\s*Zone\s*\[([^\]]+)\]/i);
   if (zoneMatch) {
     // Combine with timestamp approximation for uniqueness
     const timeKey = Math.floor(Date.now() / 60000); // 1-minute buckets
@@ -4371,6 +4563,34 @@ function _groupMessagesForMerge(messages: Array<{
   return Array.from(groups.values());
 }
 
+function buildRepeatedPayloadMergeText(messages: Array<{
+  payload: unknown;
+  rawBody: string | null;
+}>): string | null {
+  if (messages.length < 2) {
+    return null;
+  }
+
+  const texts = messages.map((message) => extractTextForSorting(message.payload, message.rawBody));
+  const canonicalTexts = texts.map(canonicalizeReportText).filter(Boolean);
+  if (canonicalTexts.length !== texts.length || new Set(canonicalTexts).size !== 1) {
+    return null;
+  }
+
+  const representativeText = texts[0].trim();
+  if (!representativeText) {
+    return null;
+  }
+
+  return [
+    representativeText,
+    '',
+    '--- Intake repeat summary ---',
+    `Occurrences collapsed: ${messages.length}`,
+    'Reason: identical webhook payloads received in the same merge group.'
+  ].join('\n');
+}
+
 /**
  * Process a single merge group: sort, remove duplicates, merge, and run AI review.
  */
@@ -4392,6 +4612,18 @@ async function processAutoMergeGroup(
     }>;
   }
 ) {
+  const repeatedPayloadText = buildRepeatedPayloadMergeText(messages);
+  if (repeatedPayloadText) {
+    const mergedMessage = await mergeWebhookMessages(messages.map((message) => message.id), repeatedPayloadText);
+    try {
+      await retryCrashReviewForMessage(mergedMessage.id);
+      debugLog(`[Auto-merge] Collapsed ${messages.length} identical repeated payloads into ${mergedMessage.id}`);
+    } catch (error) {
+      console.error('[Auto-merge] AI review failed after repeated payload collapse:', error);
+    }
+    return;
+  }
+
   // Build segments for sorting
   const segments = messages.map(msg => ({
     id: msg.id,
