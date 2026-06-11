@@ -7,6 +7,8 @@ import { startMoneyTrackerScheduler } from './services/moneyTrackerScheduler.js'
 import { startNpcRespawnNotificationScheduler } from './services/npcRespawnNotificationScheduler.js';
 import { initializeEqDbPool, isEqDbConfigured } from './utils/eqDb.js';
 
+const MEMORY_LOG_INTERVAL_MS = 5 * 60 * 1000;
+
 async function start(): Promise<void> {
   const server = buildServer();
 
@@ -19,6 +21,19 @@ async function start(): Promise<void> {
       { port: appConfig.port, env: appConfig.nodeEnv },
       'CW Raid Manager API server started'
     );
+
+    setInterval(() => {
+      const { rss, heapUsed, heapTotal, external } = process.memoryUsage();
+      server.log.info(
+        {
+          rssMb: Math.round(rss / 1048576),
+          heapUsedMb: Math.round(heapUsed / 1048576),
+          heapTotalMb: Math.round(heapTotal / 1048576),
+          externalMb: Math.round(external / 1048576)
+        },
+        'Process memory usage'
+      );
+    }, MEMORY_LOG_INTERVAL_MS).unref();
 
     if (appConfig.enableInProcessSchedulers) {
       startNpcRespawnNotificationScheduler({

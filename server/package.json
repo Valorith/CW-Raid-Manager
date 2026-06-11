@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node ../scripts/run-with-db-url.cjs tsx watch --clear-screen=false src/index.ts",
     "build": "npm run prisma:generate && tsc",
-    "start": "node ../scripts/run-with-db-url.cjs node build/index.js",
+    "start": "node ../scripts/run-with-db-url.cjs node --max-old-space-size=1024 --heap-growing-percent=15 build/index.js",
     "cron:snapshot": "node ../scripts/run-with-db-url.cjs node build/cronSnapshot.js",
     "lint": "eslint \"src/**/*.{ts,tsx}\"",
     "test": "tsx --test src/middleware/cliScope.test.ts",
