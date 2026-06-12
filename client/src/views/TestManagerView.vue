@@ -2085,7 +2085,11 @@
               ><span aria-hidden="true">{{ roleIcon(role.key) }}</span
               >{{ role.label }}</strong
             >
-            <span v-for="permission in permissionColumns" :key="permission.key">
+            <span
+              v-for="permission in permissionColumns"
+              :key="permission.key"
+              :data-permission="permission.label"
+            >
               <label
                 class="tm-permission-toggle"
                 :class="{
@@ -12029,6 +12033,12 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
     0 0 24px rgba(85, 183, 255, 0.12);
 }
 
+@media (hover: none) {
+  .tm-change-tooltip {
+    display: none;
+  }
+}
+
 .tm-change-tooltip::before {
   content: '';
   position: absolute;
@@ -14047,6 +14057,7 @@ button.tm-version-badge {
 .tm-rich {
   color: #eee1cf;
   line-height: 1.55;
+  overflow-wrap: anywhere;
 }
 
 .tm-rich p,
@@ -16806,6 +16817,7 @@ button.tm-version-badge {
   place-items: center;
   z-index: 10040;
   padding: 1rem;
+  overflow-y: auto;
   backdrop-filter: blur(3px);
 }
 
@@ -18590,8 +18602,48 @@ button.tm-version-badge {
     grid-template-columns: 1fr;
   }
 
+  .tm-permissions {
+    overflow-x: visible;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .tm-permissions__head {
+    display: none;
+  }
+
   .tm-permissions__row {
+    min-width: 0;
     grid-template-columns: 1fr;
+    margin-bottom: 0.65rem;
+    border: 1px solid var(--tm-border-soft);
+    background: rgba(255, 255, 255, 0.018);
+  }
+
+  .tm-permissions__row > strong {
+    position: static;
+    border-right: 0;
+    border-bottom: 1px solid var(--tm-border-soft);
+    box-shadow: none;
+  }
+
+  .tm-permissions__row > span {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    border-right: 0;
+    padding: 0.5rem 0.9rem;
+  }
+
+  .tm-permissions__row > span::before {
+    content: attr(data-permission);
+    color: var(--tm-muted);
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
   }
 
   .tm-confirm-modal__header {
