@@ -18623,8 +18623,10 @@ button.tm-version-badge {
 
   .tm-permissions__row > strong {
     position: static;
+    padding: 0.6rem 0.9rem;
     border-right: 0;
     border-bottom: 1px solid var(--tm-border-soft);
+    background: transparent;
     box-shadow: none;
   }
 
