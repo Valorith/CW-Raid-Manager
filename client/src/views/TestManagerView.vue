@@ -12033,7 +12033,7 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
     0 0 24px rgba(85, 183, 255, 0.12);
 }
 
-@media (hover: none) {
+@media (any-hover: none) {
   .tm-change-tooltip {
     display: none;
   }

@@ -12888,7 +12888,7 @@ input[type='checkbox']:checked::after {
   box-shadow: 0 16px 30px rgba(2, 6, 23, 0.42);
 }
 
-@media (hover: none) {
+@media (any-hover: none) {
   .label-manager-tooltip {
     display: none;
   }
@@ -13311,12 +13311,6 @@ input[type='checkbox']:checked::after {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
   z-index: 100000;
   pointer-events: none;
-}
-
-@media (hover: none) {
-  .inspector-tooltip {
-    display: none;
-  }
 }
 
 .inspector-tooltip .tooltip-category {
