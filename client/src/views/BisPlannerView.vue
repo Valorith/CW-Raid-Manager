@@ -14,6 +14,9 @@
         <div class="bis-planner__stat">
           <span class="bis-planner__stat-label">Established Slots</span>
           <strong>{{ establishedSlotCount }}/23</strong>
+          <span class="bis-planner__stat-meter" aria-hidden="true">
+            <span :style="{ width: `${establishedPercent}%` }"></span>
+          </span>
         </div>
         <div class="bis-planner__stat">
           <span class="bis-planner__stat-label">Total Votes</span>
@@ -38,6 +41,7 @@
           'bis-planner__class-pill',
           { 'bis-planner__class-pill--active': characterClass === activeClass }
         ]"
+        :aria-pressed="characterClass === activeClass"
         @click="selectClass(characterClass)"
       >
         <span
@@ -68,7 +72,8 @@
       </span>
     </div>
 
-    <div class="bis-planner__main">
+    <Transition name="bis-board" mode="out-in">
+    <div :key="activeClass" class="bis-planner__main">
       <div class="bis-planner__canvas">
         <div class="bis-planner__equipment-stage">
           <BisEquipmentGrid
@@ -80,6 +85,8 @@
             :slot-tones="bisGridTones"
             :selected-slot-id="selectedSlotId"
             scale="large"
+            :legend="templateLegend"
+            footer-empty-label="No winner yet"
             @select="handleSelectSlot"
           />
 
@@ -93,7 +100,11 @@
                 <h2>Character vs Template</h2>
               </div>
               <div class="bis-planner__compare-controls">
-                <div class="bis-planner__compare-search-shell">
+                <div
+                  class="bis-planner__compare-search-shell"
+                  @focusin="compareDropdownSuppressed = false"
+                  @focusout="handleCompareFocusOut"
+                >
                   <label class="bis-planner__search-field bis-planner__search-field--header">
                     <span class="bis-planner__sr-only">Search a character</span>
                     <input
@@ -101,6 +112,7 @@
                       type="search"
                       placeholder="Search a character"
                       autocomplete="off"
+                      @keydown.escape="compareDropdownSuppressed = true"
                     />
                   </label>
 
@@ -181,11 +193,29 @@
               :slot-tones="compareGridTones"
               :selected-slot-id="selectedSlotId"
               scale="large"
+              :legend="compareLegend"
+              footer-empty-label="Nothing equipped"
               @select="handleSelectSlot"
             />
 
             <div v-else class="bis-planner__compare-empty">
-              Search for a character to load their equipped inventory beside the BiS template.
+              <svg
+                class="bis-planner__compare-empty-glyph"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+                aria-hidden="true"
+              >
+                <circle cx="11" cy="11" r="7" />
+                <line x1="16.2" y1="16.2" x2="21" y2="21" />
+              </svg>
+              <strong>No character loaded</strong>
+              <p>
+                Search for a character above to load their equipped gear beside the BiS template
+                and see slot-by-slot matches, upgrades, and gaps.
+              </p>
             </div>
 
             <p v-if="compareCharacter" class="bis-planner__compare-hint">
@@ -197,33 +227,70 @@
       </div>
 
       <aside class="bis-planner__sidebar">
-        <div class="bis-planner__panel">
+        <div class="bis-planner__panel" :class="{ 'bis-planner__panel--flash': slotPanelFlash }">
           <div class="bis-planner__panel-header">
             <div>
               <p class="bis-planner__panel-eyebrow">Selected Slot</p>
-              <h2>{{ selectedSlot?.slotLabel ?? 'Select a slot' }}</h2>
+              <div class="bis-planner__panel-title-row">
+                <h2>{{ selectedSlot?.slotLabel ?? 'Select a slot' }}</h2>
+                <span
+                  v-if="selectedSlot"
+                  class="bis-planner__slot-status"
+                  :class="
+                    selectedWinner
+                      ? 'bis-planner__slot-status--established'
+                      : 'bis-planner__slot-status--open'
+                  "
+                >
+                  {{ selectedWinner ? 'Established' : 'Open' }}
+                </span>
+              </div>
             </div>
-            <span class="bis-planner__panel-badge">
-              {{ selectedSlot?.candidates.length ?? 0 }} candidates
-            </span>
+            <div class="bis-planner__panel-header-side">
+              <div class="bis-planner__slot-nav">
+                <button
+                  type="button"
+                  aria-label="Previous slot"
+                  :disabled="!board"
+                  @click="stepSlot(-1)"
+                >
+                  ‹
+                </button>
+                <button
+                  type="button"
+                  aria-label="Next slot"
+                  :disabled="!board"
+                  @click="stepSlot(1)"
+                >
+                  ›
+                </button>
+              </div>
+              <span class="bis-planner__panel-badge">
+                {{ selectedSlot?.candidates.length ?? 0 }}
+                {{ (selectedSlot?.candidates.length ?? 0) === 1 ? 'candidate' : 'candidates' }}
+              </span>
+            </div>
           </div>
 
-          <div v-if="selectedWinner" class="bis-planner__winner-card">
-            <div class="bis-planner__winner-copy">
-              <span class="bis-planner__winner-label">Current BiS</span>
-              <strong>{{ selectedWinner.itemName }}</strong>
-              <span>{{ selectedWinner.voteCount }} votes</span>
+          <Transition name="bis-winner" mode="out-in">
+            <div v-if="selectedWinner" :key="selectedWinner.id" class="bis-planner__winner-card">
+              <img
+                v-if="selectedWinner.itemIconId"
+                :src="getLootIconSrc(selectedWinner.itemIconId)"
+                alt=""
+                class="bis-planner__winner-icon"
+              />
+              <div class="bis-planner__winner-copy">
+                <span class="bis-planner__winner-label">Current BiS</span>
+                <strong>{{ selectedWinner.itemName }}</strong>
+                <span>{{ formatVotes(selectedWinner.voteCount) }}</span>
+              </div>
             </div>
-            <img
-              v-if="selectedWinner.itemIconId"
-              :src="getLootIconSrc(selectedWinner.itemIconId)"
-              alt=""
-              class="bis-planner__winner-icon"
-            />
-          </div>
-          <div v-else class="bis-planner__empty-state">
-            No compatible item has been nominated for this slot yet.
-          </div>
+            <div v-else key="winner-empty" class="bis-planner__empty-state">
+              No compatible item has been nominated for this slot yet. Be the first — nominate one
+              below.
+            </div>
+          </Transition>
 
           <div v-if="compareCharacter" class="bis-planner__section">
             <div class="bis-planner__section-head">
@@ -258,8 +325,8 @@
                   </div>
                   <span class="bis-planner__candidate-meta">
                     <template v-if="selectedCompareCandidate">
-                      {{ selectedCompareCandidate.voteCount }} votes currently recorded for this
-                      item.
+                      {{ formatVotes(selectedCompareCandidate.voteCount) }} currently recorded for
+                      this item.
                     </template>
                     <template v-else>
                       Not yet nominated for {{ selectedSlot?.slotLabel ?? 'this slot' }}.
@@ -286,6 +353,9 @@
               <span v-if="selectedSlot?.viewerVoteCandidateId" class="bis-planner__viewer-vote">
                 Your vote is active
               </span>
+              <span v-else-if="selectedSlot && selectedSlot.totalVotes > 0">
+                {{ formatVotes(selectedSlot.totalVotes) }} cast
+              </span>
             </div>
             <div
               v-if="!selectedSlot || selectedSlot.candidates.length === 0"
@@ -293,56 +363,70 @@
             >
               Candidate items will appear here after they are nominated.
             </div>
-            <div v-else class="bis-planner__candidate-list">
+            <TransitionGroup v-else tag="div" name="bis-candidate" class="bis-planner__candidate-list">
               <article
-                v-for="candidate in selectedSlot.candidates"
+                v-for="(candidate, rank) in sortedCandidates"
                 :key="candidate.id"
                 class="bis-planner__candidate"
                 :class="{
                   'bis-planner__candidate--winner': candidate.isWinner,
                   'bis-planner__candidate--voted':
-                    selectedSlot.viewerVoteCandidateId === candidate.id
+                    selectedSlot.viewerVoteCandidateId === candidate.id,
+                  'bis-planner__candidate--just-voted': justVotedCandidateId === candidate.id
                 }"
               >
-                <div class="bis-planner__candidate-main">
-                  <img
-                    v-if="candidate.itemIconId"
-                    :src="getLootIconSrc(candidate.itemIconId)"
-                    alt=""
-                    class="bis-planner__candidate-icon"
-                  />
-                  <div>
-                    <div class="bis-planner__candidate-title-row">
-                      <strong>{{ candidate.itemName }}</strong>
-                      <span v-if="candidate.isWinner" class="bis-planner__candidate-tag">BiS</span>
+                <div class="bis-planner__candidate-row">
+                  <div class="bis-planner__candidate-main">
+                    <span class="bis-planner__candidate-rank">{{ rank + 1 }}</span>
+                    <img
+                      v-if="candidate.itemIconId"
+                      :src="getLootIconSrc(candidate.itemIconId)"
+                      alt=""
+                      class="bis-planner__candidate-icon"
+                    />
+                    <div>
+                      <div class="bis-planner__candidate-title-row">
+                        <strong>{{ candidate.itemName }}</strong>
+                        <span v-if="candidate.isWinner" class="bis-planner__candidate-tag">
+                          BiS
+                        </span>
+                      </div>
+                      <span class="bis-planner__candidate-meta">
+                        {{ formatVotes(candidate.voteCount) }} · submitted by
+                        {{ candidate.submittedBy.displayName }}
+                      </span>
                     </div>
-                    <span class="bis-planner__candidate-meta">
-                      {{ candidate.voteCount }} votes · submitted by
-                      {{ candidate.submittedBy.displayName }}
-                    </span>
                   </div>
+                  <button
+                    type="button"
+                    class="btn"
+                    :class="
+                      selectedSlot.viewerVoteCandidateId === candidate.id
+                        ? 'btn--secondary'
+                        : 'btn--primary'
+                    "
+                    :disabled="
+                      candidateVoteLoadingId === candidate.id || !board?.permissions.canVote
+                    "
+                    @click="voteForCandidate(candidate.id)"
+                  >
+                    {{
+                      selectedSlot.viewerVoteCandidateId === candidate.id
+                        ? 'Voted'
+                        : candidateVoteLoadingId === candidate.id
+                          ? 'Voting…'
+                          : 'Vote'
+                    }}
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  class="btn"
-                  :class="
-                    selectedSlot.viewerVoteCandidateId === candidate.id
-                      ? 'btn--secondary'
-                      : 'btn--primary'
-                  "
-                  :disabled="candidateVoteLoadingId === candidate.id || !board?.permissions.canVote"
-                  @click="voteForCandidate(candidate.id)"
-                >
-                  {{
-                    selectedSlot.viewerVoteCandidateId === candidate.id
-                      ? 'Voted'
-                      : candidateVoteLoadingId === candidate.id
-                        ? 'Voting…'
-                        : 'Vote'
-                  }}
-                </button>
+                <div class="bis-planner__vote-bar" aria-hidden="true">
+                  <span
+                    :class="{ 'bis-planner__vote-bar-fill--winner': candidate.isWinner }"
+                    :style="{ width: `${voteShare(candidate)}%` }"
+                  ></span>
+                </div>
               </article>
-            </div>
+            </TransitionGroup>
           </div>
 
           <div class="bis-planner__section">
@@ -393,15 +477,17 @@
         </div>
       </aside>
     </div>
+    </Transition>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 
 import BisEquipmentGrid, {
   type BisEquipmentGridItem,
+  type BisEquipmentGridLegendEntry,
   type BisEquipmentGridTone
 } from '../components/bis/BisEquipmentGrid.vue';
 import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
@@ -424,6 +510,14 @@ import { getLootIconSrc } from '../utils/itemIcons';
 
 const DEFAULT_CLASS: CharacterClass = 'WARRIOR';
 
+const templateLegend: BisEquipmentGridLegendEntry[] = [{ tone: 'winner', label: 'Established' }];
+
+const compareLegend: BisEquipmentGridLegendEntry[] = [
+  { tone: 'match', label: 'Match' },
+  { tone: 'different', label: 'Different' },
+  { tone: 'missing', label: 'Missing' }
+];
+
 const authStore = useAuthStore();
 const route = useRoute();
 const router = useRouter();
@@ -440,12 +534,17 @@ const itemSearchLoading = ref(false);
 let itemSearchDebounce: ReturnType<typeof setTimeout> | null = null;
 const nominationLoadingItemId = ref<number | null>(null);
 const candidateVoteLoadingId = ref<string | null>(null);
+const justVotedCandidateId = ref<string | null>(null);
+let justVotedTimer: ReturnType<typeof setTimeout> | null = null;
+const slotPanelFlash = ref(false);
+let slotPanelFlashTimer: ReturnType<typeof setTimeout> | null = null;
 
 const compareQuery = ref('');
 const compareResults = ref<BisSearchCharacterResult[]>([]);
 const compareSearchLoading = ref(false);
 let compareSearchDebounce: ReturnType<typeof setTimeout> | null = null;
 const compareCharacter = ref<BisSearchCharacterResult | null>(null);
+const compareDropdownSuppressed = ref(false);
 const compareInventoryItems = ref<GuildBankItem[]>([]);
 const compareInventoryLoading = ref(false);
 const compareInventoryError = ref<string | null>(null);
@@ -487,6 +586,44 @@ const selectedSlot = computed(() => {
 });
 
 const selectedWinner = computed(() => selectedSlot.value?.winner ?? null);
+
+const establishedPercent = computed(() =>
+  Math.round((establishedSlotCount.value / 23) * 100)
+);
+
+const sortedCandidates = computed(() => {
+  const candidates = selectedSlot.value?.candidates ?? [];
+  return [...candidates].sort(
+    (a, b) => b.voteCount - a.voteCount || a.submittedAt.localeCompare(b.submittedAt)
+  );
+});
+
+const maxCandidateVotes = computed(() =>
+  sortedCandidates.value.reduce((max, candidate) => Math.max(max, candidate.voteCount), 0)
+);
+
+function voteShare(candidate: { voteCount: number }): number {
+  if (maxCandidateVotes.value <= 0) {
+    return 0;
+  }
+
+  return Math.max(4, Math.round((candidate.voteCount / maxCandidateVotes.value) * 100));
+}
+
+function formatVotes(count: number): string {
+  return count === 1 ? '1 vote' : `${count} votes`;
+}
+
+function stepSlot(direction: number) {
+  const slots = board.value?.slotSummaries ?? [];
+  if (slots.length === 0) {
+    return;
+  }
+
+  const currentIndex = slots.findIndex((slot) => slot.slotId === selectedSlotId.value);
+  const nextIndex = (currentIndex + direction + slots.length) % slots.length;
+  selectedSlotId.value = slots[nextIndex].slotId;
+}
 
 const bisGridItems = computed<Record<number, BisEquipmentGridItem | null>>(() => {
   const result: Record<number, BisEquipmentGridItem | null> = {};
@@ -643,6 +780,10 @@ const compareMissingCount = computed(
 );
 
 const compareResultsVisible = computed(() => {
+  if (compareDropdownSuppressed.value) {
+    return false;
+  }
+
   const trimmedQuery = compareQuery.value.trim();
   if (trimmedQuery.length < 2) {
     return false;
@@ -654,6 +795,13 @@ const compareResultsVisible = computed(() => {
 
   return true;
 });
+
+function handleCompareFocusOut(event: FocusEvent) {
+  const shell = event.currentTarget as HTMLElement | null;
+  if (!shell?.contains(event.relatedTarget as Node | null)) {
+    compareDropdownSuppressed.value = true;
+  }
+}
 
 function emitToast(
   title: string,
@@ -711,6 +859,13 @@ async function voteForCandidate(candidateId: string) {
   try {
     await api.voteBisCandidate(candidateId);
     await loadBoard();
+    justVotedCandidateId.value = candidateId;
+    if (justVotedTimer) {
+      clearTimeout(justVotedTimer);
+    }
+    justVotedTimer = setTimeout(() => {
+      justVotedCandidateId.value = null;
+    }, 900);
     emitToast(
       'Vote Recorded',
       `Your ${selectedSlot.value?.slotLabel ?? 'slot'} vote has been updated.`
@@ -855,7 +1010,32 @@ watch(
   { immediate: true }
 );
 
+watch(selectedSlotId, () => {
+  slotPanelFlash.value = false;
+  if (slotPanelFlashTimer) {
+    clearTimeout(slotPanelFlashTimer);
+  }
+  // Re-add the class on the next frame so the flash animation restarts.
+  requestAnimationFrame(() => {
+    slotPanelFlash.value = true;
+    slotPanelFlashTimer = setTimeout(() => {
+      slotPanelFlash.value = false;
+    }, 700);
+  });
+});
+
+onBeforeUnmount(() => {
+  if (justVotedTimer) {
+    clearTimeout(justVotedTimer);
+  }
+  if (slotPanelFlashTimer) {
+    clearTimeout(slotPanelFlashTimer);
+  }
+});
+
 watch(compareQuery, (query) => {
+  compareDropdownSuppressed.value = false;
+
   if (compareSearchDebounce) {
     clearTimeout(compareSearchDebounce);
     compareSearchDebounce = null;
@@ -997,6 +1177,24 @@ watch(compareQuery, (query) => {
   color: #fff7eb;
 }
 
+.bis-planner__stat-meter {
+  display: block;
+  margin-top: 0.55rem;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  overflow: hidden;
+}
+
+.bis-planner__stat-meter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(166, 124, 64, 0.9), rgba(232, 196, 137, 0.95));
+  box-shadow: 0 0 8px rgba(208, 168, 106, 0.35);
+  transition: width 320ms ease;
+}
+
 .bis-planner__admin-link {
   display: inline-flex;
   align-items: center;
@@ -1050,8 +1248,7 @@ watch(compareQuery, (query) => {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
 }
 
-.bis-planner__class-pill:hover,
-.bis-planner__class-pill--active {
+.bis-planner__class-pill:hover {
   color: #fff8ee;
   border-color: rgba(173, 140, 85, 0.76);
   background: linear-gradient(180deg, rgba(34, 34, 34, 0.985), rgba(15, 15, 15, 0.995));
@@ -1059,6 +1256,21 @@ watch(compareQuery, (query) => {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.028),
     0 0 0 1px rgba(208, 168, 106, 0.12);
+}
+
+.bis-planner__class-pill--active {
+  color: #ffeccb;
+  font-weight: 600;
+  border-color: rgba(208, 168, 106, 0.85);
+  background: linear-gradient(180deg, rgba(62, 47, 26, 0.95), rgba(28, 21, 11, 0.98));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 0 0 1px rgba(208, 168, 106, 0.22),
+    0 6px 18px rgba(208, 168, 106, 0.1);
+}
+
+.bis-planner__class-pill--active:hover {
+  background: linear-gradient(180deg, rgba(70, 53, 30, 0.96), rgba(32, 24, 13, 0.98));
 }
 
 .bis-planner__class-pill:focus-visible {
@@ -1147,7 +1359,7 @@ watch(compareQuery, (query) => {
 .bis-planner__panel-header,
 .bis-planner__section-head,
 .bis-planner__compare-summary-row,
-.bis-planner__candidate,
+.bis-planner__candidate-row,
 .bis-planner__search-result {
   display: flex;
   justify-content: space-between;
@@ -1164,6 +1376,7 @@ watch(compareQuery, (query) => {
   z-index: 3;
   border-top-left-radius: 24px;
   border-top-right-radius: 24px;
+  flex-wrap: wrap;
 }
 
 .bis-planner__compare-headline {
@@ -1191,14 +1404,15 @@ watch(compareQuery, (query) => {
   align-items: center;
   justify-content: flex-end;
   gap: 0.55rem;
-  flex: 1;
+  flex: 1 1 18rem;
   min-width: 0;
 }
 
 .bis-planner__compare-search-shell {
   position: relative;
-  width: min(100%, 300px);
-  flex: 0 1 300px;
+  width: min(100%, 22rem);
+  max-width: 22rem;
+  flex: 1 1 18rem;
   z-index: 8;
 }
 
@@ -1273,8 +1487,10 @@ watch(compareQuery, (query) => {
 .bis-planner__search-results--dropdown {
   position: absolute;
   top: calc(100% + 6px);
-  left: 0;
+  left: auto;
   right: 0;
+  width: clamp(18rem, 30vw, 22rem);
+  max-width: calc(100vw - 2rem);
   margin: 0;
   padding: 0.45rem;
   border-radius: 14px;
@@ -1286,7 +1502,35 @@ watch(compareQuery, (query) => {
   overflow: auto;
 }
 
+.bis-planner__search-results--dropdown .bis-planner__search-result {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.72rem 0.8rem;
+  border-radius: 12px;
+}
+
+.bis-planner__search-results--dropdown .bis-planner__search-result strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bis-planner__search-results--dropdown .bis-planner__search-result span {
+  flex: 0 0 auto;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(110, 110, 110, 0.32);
+  color: #bfb7aa;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
 .bis-planner__search-results--items {
+  margin: 0.8rem 0 0;
   max-height: 18rem;
   overflow: auto;
   padding-right: 0.2rem;
@@ -1441,15 +1685,17 @@ watch(compareQuery, (query) => {
 
 .bis-planner__compare-empty {
   margin: 1rem;
-  min-height: 34rem;
+  min-height: 30rem;
   border-radius: 18px;
   border: 1px dashed rgba(79, 79, 79, 0.82);
   background:
     radial-gradient(circle at top, rgba(82, 82, 82, 0.08), transparent 42%),
     linear-gradient(180deg, rgba(17, 17, 17, 0.985), rgba(5, 5, 5, 0.995));
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 0.45rem;
   padding: 1.5rem;
   color: #bfb7aa;
   text-align: center;
@@ -1457,13 +1703,126 @@ watch(compareQuery, (query) => {
   flex: 1;
 }
 
+.bis-planner__compare-empty-glyph {
+  width: 2.6rem;
+  height: 2.6rem;
+  margin-bottom: 0.5rem;
+  color: #6f6859;
+  opacity: 0.9;
+}
+
+.bis-planner__compare-empty strong {
+  color: #e8dfcf;
+  font-size: 1.02rem;
+}
+
+.bis-planner__compare-empty p {
+  margin: 0;
+  max-width: 26rem;
+  font-size: 0.88rem;
+}
+
+.bis-planner__panel-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.bis-planner__slot-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.22rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border: 1px solid transparent;
+}
+
+.bis-planner__slot-status--established {
+  color: #f3dcb0;
+  background: rgba(116, 89, 52, 0.28);
+  border-color: rgba(208, 168, 106, 0.32);
+}
+
+.bis-planner__slot-status--open {
+  color: #b8b1a4;
+  background: rgba(82, 82, 82, 0.24);
+  border-color: rgba(120, 120, 120, 0.3);
+}
+
+.bis-planner__panel-header-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.45rem;
+}
+
+.bis-planner__slot-nav {
+  display: inline-flex;
+  gap: 0.35rem;
+}
+
+.bis-planner__slot-nav button {
+  width: 1.9rem;
+  height: 1.9rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  border: 1px solid rgba(84, 84, 84, 0.88);
+  background: linear-gradient(180deg, rgba(26, 26, 26, 0.985), rgba(11, 11, 11, 0.995));
+  color: var(--bis-text);
+  font-size: 1.05rem;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease,
+    color 120ms ease,
+    transform 120ms ease;
+}
+
+.bis-planner__slot-nav button:hover:not(:disabled) {
+  color: #fff6e7;
+  border-color: rgba(208, 168, 106, 0.64);
+  transform: translateY(-1px);
+}
+
+.bis-planner__slot-nav button:focus-visible {
+  outline: none;
+  box-shadow: var(--bis-ring);
+}
+
+.bis-planner__slot-nav button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .bis-planner__winner-card {
-  justify-content: space-between;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  border-color: rgba(162, 125, 67, 0.55);
+  background: linear-gradient(180deg, rgba(34, 27, 16, 0.96), rgba(15, 12, 7, 0.98));
 }
 
 .bis-planner__winner-copy {
   display: grid;
   gap: 0.15rem;
+  min-width: 0;
+}
+
+.bis-planner__winner-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bis-planner__winner-copy > span:last-child {
+  color: var(--bis-muted);
+  font-size: 0.82rem;
 }
 
 .bis-planner__winner-label {
@@ -1485,6 +1844,16 @@ watch(compareQuery, (query) => {
     0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 
+.bis-planner__winner-icon {
+  width: 2.75rem;
+  height: 2.75rem;
+  flex: 0 0 auto;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 0 0 1px rgba(208, 168, 106, 0.35),
+    0 0 14px rgba(208, 168, 106, 0.14);
+}
+
 .bis-planner__section {
   margin-top: 1.2rem;
   padding-top: 1.2rem;
@@ -1498,6 +1867,8 @@ watch(compareQuery, (query) => {
 }
 
 .bis-planner__candidate {
+  display: grid;
+  gap: 0.6rem;
   padding: 0.8rem 0.9rem;
   border-radius: 18px;
   background: linear-gradient(180deg, rgba(23, 23, 23, 0.985), rgba(9, 9, 9, 0.995));
@@ -1506,6 +1877,47 @@ watch(compareQuery, (query) => {
     border-color 140ms ease,
     transform 140ms ease,
     box-shadow 140ms ease;
+}
+
+.bis-planner__candidate-rank {
+  flex: 0 0 auto;
+  width: 1.45rem;
+  height: 1.45rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(110, 110, 110, 0.4);
+  color: #b9b1a3;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.bis-planner__candidate--winner .bis-planner__candidate-rank {
+  color: #f3dcb0;
+  background: rgba(116, 89, 52, 0.3);
+  border-color: rgba(208, 168, 106, 0.4);
+}
+
+.bis-planner__vote-bar {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.bis-planner__vote-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(120, 120, 120, 0.75), rgba(170, 170, 170, 0.85));
+  transition: width 280ms ease;
+}
+
+.bis-planner__vote-bar .bis-planner__vote-bar-fill--winner {
+  background: linear-gradient(90deg, rgba(166, 124, 64, 0.9), rgba(232, 196, 137, 0.95));
+  box-shadow: 0 0 8px rgba(208, 168, 106, 0.3);
 }
 
 .bis-planner__candidate:hover {
@@ -1597,6 +2009,233 @@ watch(compareQuery, (query) => {
   box-shadow: none;
 }
 
+/* ---- Motion & micro-interactions ---- */
+
+.bis-planner__hero {
+  animation: bis-rise 420ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+.bis-planner__class-strip {
+  animation: bis-rise 420ms cubic-bezier(0.2, 0.7, 0.3, 1) 60ms both;
+}
+
+.bis-planner__main {
+  animation: bis-rise 420ms cubic-bezier(0.2, 0.7, 0.3, 1) 120ms both;
+}
+
+@keyframes bis-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.bis-board-leave-active {
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
+}
+
+.bis-board-leave-to {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+.bis-planner__class-icon {
+  transition: transform 160ms ease;
+}
+
+.bis-planner__class-pill:hover .bis-planner__class-icon,
+.bis-planner__class-pill--active .bis-planner__class-icon {
+  transform: scale(1.14);
+}
+
+.bis-planner__stat-meter {
+  position: relative;
+}
+
+.bis-planner__stat-meter span {
+  position: relative;
+  overflow: hidden;
+}
+
+.bis-planner__stat-meter span::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.32), transparent);
+  transform: translateX(-100%);
+  animation: bis-meter-shimmer 3.2s ease-in-out 1.2s infinite;
+}
+
+@keyframes bis-meter-shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  55%,
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.bis-planner__compare-empty-glyph {
+  animation: bis-float 3.4s ease-in-out infinite;
+}
+
+@keyframes bis-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+.bis-planner__panel--flash {
+  animation: bis-panel-flash 700ms ease;
+}
+
+@keyframes bis-panel-flash {
+  0% {
+    border-color: rgba(208, 168, 106, 0.85);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.04),
+      0 0 0 1px rgba(208, 168, 106, 0.35),
+      0 0 26px rgba(208, 168, 106, 0.22),
+      0 24px 60px rgba(0, 0, 0, 0.42);
+  }
+
+  100% {
+    border-color: var(--bis-border);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.04),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.015),
+      0 24px 60px rgba(0, 0, 0, 0.42);
+  }
+}
+
+.bis-winner-enter-active {
+  transition:
+    opacity 220ms ease,
+    transform 220ms ease;
+}
+
+.bis-winner-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+.bis-winner-leave-active {
+  transition: opacity 140ms ease;
+}
+
+.bis-winner-leave-to {
+  opacity: 0;
+}
+
+.bis-planner__winner-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.bis-planner__winner-card::after {
+  content: '';
+  position: absolute;
+  top: -60%;
+  bottom: -60%;
+  left: -45%;
+  width: 38%;
+  background: linear-gradient(105deg, transparent, rgba(255, 233, 188, 0.14), transparent);
+  transform: skewX(-18deg);
+  pointer-events: none;
+  animation: bis-winner-sheen 1100ms ease 250ms both;
+}
+
+@keyframes bis-winner-sheen {
+  from {
+    left: -45%;
+  }
+
+  to {
+    left: 125%;
+  }
+}
+
+.bis-planner__candidate-list {
+  position: relative;
+}
+
+.bis-candidate-move {
+  transition: transform 380ms cubic-bezier(0.22, 0.9, 0.26, 1);
+}
+
+.bis-candidate-enter-active {
+  transition:
+    opacity 240ms ease,
+    transform 240ms ease;
+}
+
+.bis-candidate-enter-from {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.bis-candidate-leave-active {
+  position: absolute;
+  width: 100%;
+  transition: opacity 180ms ease;
+}
+
+.bis-candidate-leave-to {
+  opacity: 0;
+}
+
+.bis-planner__candidate--just-voted {
+  animation: bis-vote-pop 700ms cubic-bezier(0.34, 1.4, 0.4, 1);
+}
+
+@keyframes bis-vote-pop {
+  0% {
+    transform: scale(1);
+  }
+
+  35% {
+    transform: scale(1.025);
+    border-color: rgba(208, 168, 106, 0.8);
+    box-shadow:
+      0 0 0 2px rgba(208, 168, 106, 0.4),
+      0 0 26px rgba(208, 168, 106, 0.28);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+.bis-planner :deep(.btn:active:not(:disabled)) {
+  transform: translateY(0) scale(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bis-planner,
+  .bis-planner::after,
+  .bis-planner :deep(*),
+  .bis-planner :deep(*)::before,
+  .bis-planner :deep(*)::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 @media (max-width: 1280px) {
   .bis-planner__main {
     grid-template-columns: 1fr;
@@ -1634,7 +2273,15 @@ watch(compareQuery, (query) => {
 
   .bis-planner__compare-search-shell {
     width: 100%;
+    max-width: none;
     flex-basis: auto;
+  }
+
+  .bis-planner__search-results--dropdown {
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-width: none;
   }
 
   .bis-planner__search-field--header {
