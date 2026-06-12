@@ -181,247 +181,312 @@
 
     <section v-if="loading" class="tm-panel tm-loading">Loading Test Manager...</section>
 
-    <template v-else>
-      <section v-if="currentSection === 'dashboard'" class="tm-dashboard">
-        <div class="tm-grid tm-grid--dashboard">
-          <section class="tm-panel tm-panel--large tm-test-graph-panel">
-            <div class="tm-panel__header tm-state-graph__header">
-              <h2>Test State Trend</h2>
-              <span>Rolling 7-day signal</span>
+    <Transition v-else name="tm-section" mode="out-in">
+      <section v-if="currentSection === 'dashboard'" key="dashboard" class="tm-dashboard">
+        <div class="tm-dash-head">
+          <p class="tm-dash-head__summary">{{ dashboardSummaryLine || 'Test server overview' }}</p>
+          <div class="tm-dash-head__tools">
+            <span
+              class="tm-dashboard__updated"
+              :title="dashboardUpdatedTooltip"
+              aria-live="polite"
+            >
+              {{ dashboardUpdatedLabel }}
+            </span>
+            <button
+              type="button"
+              class="tm-icon-btn tm-dashboard__refresh"
+              :class="{ 'tm-dashboard__refresh--busy': dashboardRefreshing }"
+              :disabled="dashboardRefreshing"
+              aria-label="Refresh dashboard"
+              title="Refresh dashboard"
+              @click="refreshDashboard"
+            >
+              <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+                <path
+                  d="M20 12a8 8 0 1 1-2.34-5.66"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+                <path
+                  d="M20 3v5h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <section v-if="!dashboard" class="tm-panel tm-loading">Loading dashboard...</section>
+        <template v-else>
+          <div class="tm-kpis" aria-label="Test manager key metrics">
+            <button
+              v-for="(kpi, index) in dashboardKpis"
+              :key="kpi.key"
+              type="button"
+              class="tm-kpi"
+              :class="[`tm-kpi--${kpi.tone}`, { 'tm-kpi--zero': kpi.value === 0 }]"
+              :style="{ '--tm-stagger': index }"
+              :disabled="kpi.value === 0 && kpi.key !== 'open'"
+              :aria-label="`${kpi.label}: ${kpi.value}. ${kpi.hint}`"
+              @click="kpi.onClick()"
+            >
+              <strong class="tm-kpi__value"><AnimatedNumber :value="kpi.value" /></strong>
+              <span class="tm-kpi__label">{{ kpi.label }}</span>
+              <small class="tm-kpi__hint">{{ kpi.hint }}</small>
+            </button>
+          </div>
+
+          <div class="tm-grid tm-grid--dashboard">
+            <div class="tm-stack">
+              <section class="tm-panel tm-pipeline">
+                <div class="tm-panel__header">
+                  <h2>Test Pipeline</h2>
+                  <span class="tm-panel__sub">
+                    {{ dashboardGraphChangeCount }} open
+                    change{{ dashboardGraphChangeCount === 1 ? '' : 's' }} right now
+                  </span>
+                </div>
+                <div class="tm-pipeline__bar" role="img" :aria-label="pipelineAriaLabel">
+                  <div
+                    v-for="seg in pipelineSegments"
+                    v-show="seg.value > 0"
+                    :key="seg.key"
+                    class="tm-pipeline__seg"
+                    :class="`tm-pipeline__seg--${seg.key}`"
+                    :style="{ width: `${seg.percent}%` }"
+                    :title="`${seg.label}: ${seg.value} (${seg.percent}%)`"
+                  >
+                    <span v-if="seg.percent >= 9">{{ seg.value }}</span>
+                  </div>
+                  <div v-if="dashboardGraphChangeCount === 0" class="tm-pipeline__bar-empty">
+                    Pipeline is empty
+                  </div>
+                </div>
+                <div class="tm-pipeline__legend">
+                  <button
+                    v-for="seg in pipelineSegments"
+                    :key="`${seg.key}-chip`"
+                    type="button"
+                    class="tm-pipeline__chip"
+                    :class="`tm-pipeline__chip--${seg.key}`"
+                    :disabled="seg.value === 0"
+                    :aria-label="`View ${seg.label.toLowerCase()} changes (${seg.value})`"
+                    @click="seg.onClick()"
+                  >
+                    <span class="tm-pipeline__swatch" aria-hidden="true"></span>
+                    {{ seg.label }}
+                    <strong>{{ seg.value }}</strong>
+                  </button>
+                </div>
+                <div class="tm-pipeline__coverage">
+                  <span
+                    >Tester coverage
+                    <em title="Share of open changes that at least one tester has touched"
+                      >?</em
+                    ></span
+                  >
+                  <span class="tm-pipeline__coverage-track" aria-hidden="true">
+                    <span :style="{ width: `${dashboard?.metrics.coverage ?? 0}%` }"></span>
+                  </span>
+                  <strong><AnimatedNumber :value="dashboard?.metrics.coverage ?? 0" />%</strong>
+                </div>
+              </section>
+
+              <section class="tm-panel tm-queue">
+                <div class="tm-panel__header">
+                  <h2>Needs Attention</h2>
+                  <RouterLink class="tm-link" to="/test-manager/changes">View all</RouterLink>
+                </div>
+                <div v-if="needsAttentionQueue.length" class="tm-queue__list">
+                  <button
+                    v-for="(row, index) in needsAttentionQueue"
+                    :key="row.change.id"
+                    type="button"
+                    class="tm-queue__row"
+                    :style="{ '--tm-stagger': index }"
+                    :aria-label="`${row.reason}: open change #${row.change.publicId} ${row.change.title}`"
+                    @click="goToChange(row.change.id)"
+                  >
+                    <span class="tm-queue__reason" :class="`tm-queue__reason--${row.tone}`">
+                      {{ row.reason }}
+                    </span>
+                    <span class="tm-queue__main">
+                      <strong>#{{ row.change.publicId }} {{ row.change.title }}</strong>
+                      <small>
+                        {{ row.change.subsystem }} · {{ priorityLabel(row.change.priority) }} ·
+                        updated {{ relativeTime(row.change.updatedAt) }}
+                      </small>
+                    </span>
+                    <StatusPill :status="row.change.status" compact />
+                    <svg
+                      class="tm-queue__chevron"
+                      viewBox="0 0 24 24"
+                      width="13"
+                      height="13"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="m9 6 6 6-6 6"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2.4"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                  </button>
+                </div>
+                <p v-else class="tm-queue__clear">
+                  <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
+                    <path
+                      d="m5 13 4 4L19 7"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.4"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                  All clear — no failing, blocked, or high-priority changes right now.
+                </p>
+              </section>
             </div>
 
-            <div class="tm-state-graph" aria-label="Test manager multi-line state graph">
-              <div class="tm-state-graph__stats" aria-label="Current test manager metrics">
-                <article v-for="stat in testStateGraphStats" :key="stat.label">
-                  <span>{{ stat.label }}</span>
-                  <strong>{{ stat.value }}</strong>
-                  <small>{{ stat.detail }}</small>
-                </article>
-              </div>
+            <aside class="tm-stack">
+              <section class="tm-panel tm-mywork">
+                <div class="tm-panel__header">
+                  <h2>Your Test Queue</h2>
+                  <span class="tm-panel__sub">
+                    {{ myWorkItems.length }} open
+                  </span>
+                </div>
+                <div v-if="myWorkItems.length" class="tm-mywork__list">
+                  <button
+                    v-for="(item, index) in myWorkItems"
+                    :key="item.change.id"
+                    type="button"
+                    class="tm-mywork__row"
+                    :style="{ '--tm-stagger': index }"
+                    :aria-label="`Open your assignment #${item.change.publicId} ${item.change.title}`"
+                    @click="goToChange(item.change.id)"
+                  >
+                    <span class="tm-mywork__top">
+                      <strong>#{{ item.change.publicId }} {{ item.change.title }}</strong>
+                      <em class="tm-mywork__state" :class="`tm-mywork__state--${item.status.tone}`">
+                        {{ item.status.label }}
+                      </em>
+                    </span>
+                    <span v-if="item.total > 0" class="tm-mywork__progress">
+                      <span class="tm-mywork__track" aria-hidden="true">
+                        <span :style="{ width: `${item.percent}%` }"></span>
+                      </span>
+                      <small>{{ item.done }}/{{ item.total }} checklist</small>
+                    </span>
+                  </button>
+                </div>
+                <div v-else class="tm-mywork__empty">
+                  <p>You have no open test assignments.</p>
+                  <button
+                    type="button"
+                    class="tm-mywork__cta"
+                    @click="openAttentionFilter('awaiting')"
+                  >
+                    Find a change to test
+                  </button>
+                </div>
+              </section>
 
-              <div class="tm-state-graph__canvas">
-                <svg
-                  :viewBox="`0 0 ${testStateChart.width} ${testStateChart.height}`"
-                  preserveAspectRatio="none"
-                  role="img"
-                  aria-labelledby="test-state-graph-title test-state-graph-desc"
-                >
-                  <title id="test-state-graph-title">Test Manager state trend</title>
-                  <desc id="test-state-graph-desc">
-                    Multi-line chart comparing open changes, awaiting pickup, in-progress tests,
-                    and at-risk changes across the last seven days.
-                  </desc>
-                  <defs>
-                    <filter
-                      id="tm-state-line-glow"
-                      filterUnits="userSpaceOnUse"
-                      :x="-20"
-                      :y="-20"
-                      :width="testStateChart.width + 40"
-                      :height="testStateChart.height + 40"
+              <section class="tm-panel tm-feed">
+                <div class="tm-panel__header">
+                  <h2>Tester Activity</h2>
+                  <RouterLink class="tm-link" to="/test-manager/changes">View all</RouterLink>
+                </div>
+                <ol v-if="dashboardFeedItems.length" class="tm-feed__list">
+                  <li v-for="(item, index) in dashboardFeedItems" :key="item.key" :style="{ '--tm-stagger': index }">
+                    <button
+                      type="button"
+                      :title="item.tooltip"
+                      :aria-label="`Open change ${item.changeRef}`"
+                      @click="goToChange(item.changeId)"
                     >
-                      <feGaussianBlur stdDeviation="3.5" result="blur" />
-                      <feMerge>
-                        <feMergeNode in="blur" />
-                        <feMergeNode in="SourceGraphic" />
-                      </feMerge>
-                    </filter>
-                  </defs>
-                  <g class="tm-state-graph__grid" aria-hidden="true">
-                    <line
-                      v-for="line in testStateGraphGridLines"
-                      :key="line.label"
-                      :x1="testStateChart.left"
-                      :x2="testStateChart.width - testStateChart.right"
-                      :y1="line.y"
-                      :y2="line.y"
-                    />
-                    <text
-                      v-for="line in testStateGraphGridLines"
-                      :key="`${line.label}-label`"
-                      :x="testStateChart.left - 10"
-                      :y="line.y + 4"
-                    >
-                      {{ line.label }}
-                    </text>
-                  </g>
-                  <g class="tm-state-graph__axis" aria-hidden="true">
-                    <line
-                      :x1="testStateChart.left"
-                      :x2="testStateChart.width - testStateChart.right"
-                      :y1="testStateChart.height - testStateChart.bottom"
-                      :y2="testStateChart.height - testStateChart.bottom"
-                    />
-                    <text
-                      v-for="point in testStateGraphXLabels"
-                      :key="point.label"
-                      :x="point.x"
-                      :y="testStateChart.height - 13"
-                    >
-                      {{ point.label }}
-                    </text>
-                  </g>
-                  <g>
-                    <path
-                      v-for="series in testStateGraphSeries"
-                      :key="`${series.key}-area`"
-                      class="tm-state-graph__area"
-                      :d="series.areaPath"
-                      :fill="series.color"
-                    />
-                    <path
-                      v-for="series in testStateGraphSeries"
-                      :key="`${series.key}-rail`"
-                      class="tm-state-graph__line-rail"
-                      :d="series.path"
-                    />
-                    <path
-                      v-for="series in testStateGraphSeries"
-                      :key="series.key"
-                      class="tm-state-graph__line"
-                      :d="series.path"
-                      :stroke="series.color"
-                    />
-                    <g v-for="series in testStateGraphSeries" :key="`${series.key}-points`">
-                      <circle
-                        v-for="point in series.points"
-                        :key="point.key"
-                        class="tm-state-graph__point"
-                        :cx="point.x"
-                        :cy="point.y"
-                        :r="point.isLatest ? 5.5 : 3.8"
-                        :fill="series.color"
-                      >
-                        <title>{{ `${series.label}: ${point.value} on ${point.label}` }}</title>
-                      </circle>
-                    </g>
-                  </g>
-                </svg>
-              </div>
+                      <span
+                        class="tm-feed__marker"
+                        :class="`tm-feed__marker--${item.tone}`"
+                        aria-hidden="true"
+                      ></span>
+                      <span class="tm-feed__body">
+                        <span class="tm-feed__line">
+                          <strong>{{ item.name }}</strong> {{ item.verb }}
+                          <em>{{ item.changeRef }}</em>
+                        </span>
+                        <small>
+                          {{ item.time }}<template v-if="item.notes"> · {{ item.notes }}</template>
+                        </small>
+                      </span>
+                    </button>
+                  </li>
+                </ol>
+                <p v-else class="tm-feed__empty">
+                  No tester activity yet. Results will appear here as testers pick up changes.
+                </p>
+              </section>
+            </aside>
+          </div>
 
-              <div class="tm-state-graph__legend">
-                <article
-                  v-for="series in testStateGraphSeries"
-                  :key="series.key"
-                  :style="{ '--tm-state-color': series.color }"
-                >
-                  <span aria-hidden="true"></span>
-                  <div>
-                    <strong>{{ series.label }}</strong>
-                  </div>
-                  <em>{{ series.latest }}</em>
-                </article>
-              </div>
-
-              <div class="tm-state-graph__insights">
-                <article v-for="insight in testStateGraphInsights" :key="insight.label">
-                  <span>{{ insight.label }}</span>
-                  <strong>{{ insight.value }}</strong>
-                  <small>{{ insight.detail }}</small>
-                </article>
-              </div>
+          <section v-if="subsystemBreakdown.length" class="tm-panel tm-subsys">
+            <div class="tm-panel__header">
+              <h2>Hot Components</h2>
+              <span class="tm-panel__sub">open changes by subsystem</span>
+            </div>
+            <div class="tm-subsys__rows">
+              <button
+                v-for="row in subsystemBreakdown"
+                :key="row.name"
+                type="button"
+                class="tm-subsys__row"
+                :aria-label="`Search changes in ${row.name} (${row.count} open)`"
+                @click="openChangesWithSearch(row.name)"
+              >
+                <span class="tm-subsys__name">{{ row.name }}</span>
+                <span class="tm-subsys__track" aria-hidden="true">
+                  <span class="tm-subsys__fill" :style="{ width: `${row.percent}%` }"></span>
+                </span>
+                <span class="tm-subsys__count">
+                  <strong>{{ row.count }}</strong>
+                  <em v-if="row.flagged > 0">{{ row.flagged }} flagged</em>
+                </span>
+              </button>
             </div>
           </section>
-
-          <aside class="tm-stack">
-            <section class="tm-panel">
-              <div class="tm-panel__header">
-                <h2>Tester Activity</h2>
-                <RouterLink class="tm-link" to="/test-manager/changes">View All</RouterLink>
-              </div>
-              <div class="tm-activity-table" aria-label="Tester activity">
-                <div class="tm-activity-table__head" aria-hidden="true">
-                  <span>Tester</span>
-                  <span>Change</span>
-                  <span>Result</span>
-                  <span>Updated</span>
-                </div>
-                <button
-                  v-for="activity in dashboard?.testerActivity ?? []"
-                  :key="`${activity.change.id}-${activity.tester.id}`"
-                  type="button"
-                  class="tm-activity-table__row"
-                  :aria-label="`Open change #${activity.change.publicId} ${activity.change.title}`"
-                  @click="goToChange(activity.change.id)"
-                >
-                  <span class="tm-activity-table__tester">
-                    <strong>{{ activity.tester.user?.displayName ?? 'Tester' }}</strong>
-                    <small>{{ assignmentLabel(activity.tester.assignment) }}</small>
-                  </span>
-                  <span class="tm-activity-table__change">
-                    <strong>#{{ activity.change.publicId }} {{ activity.change.title }}</strong>
-                  </span>
-                  <span class="tm-activity-table__status">
-                    <StatusPill
-                      :status="activity.tester.result ?? activity.tester.status"
-                      compact
-                    />
-                  </span>
-                  <span class="tm-activity-table__time">
-                    {{ relativeTime(activity.tester.updatedAt) }}
-                  </span>
-                  <span v-if="activity.tester.notesHtml" class="tm-activity-table__notes">
-                    {{ plainText(activity.tester.notesHtml) }}
-                  </span>
-                </button>
-              </div>
-            </section>
-
-            <section class="tm-panel">
-              <div class="tm-panel__header">
-                <h2>Attention Items</h2>
-              </div>
-              <ul class="tm-attention">
-                <li>
-                  <span>Changes awaiting assignment</span
-                  ><strong>{{ dashboard?.attentionItems.awaitingAssignment ?? 0 }}</strong>
-                </li>
-                <li>
-                  <span>Your open test requests</span
-                  ><strong>{{ dashboard?.attentionItems.viewerAssignments ?? 0 }}</strong>
-                </li>
-                <li>
-                  <span>Changes with failing tests</span
-                  ><strong>{{ dashboard?.attentionItems.failingTests ?? 0 }}</strong>
-                </li>
-                <li>
-                  <span>Blocked tests</span
-                  ><strong>{{ dashboard?.attentionItems.blockedTests ?? 0 }}</strong>
-                </li>
-              </ul>
-            </section>
-          </aside>
-        </div>
-
-        <section class="tm-panel tm-recent-strip" aria-label="Recent activity">
-          <h2>Recent Activity</h2>
-          <button
-            v-for="item in recentDashboardItems"
-            :key="item.key"
-            type="button"
-            class="tm-recent-strip__item"
-            :aria-label="`Open change ${item.detail}`"
-            @click="goToChange(item.changeId)"
-          >
-            <StatusPill :status="item.status" compact />
-            <span>
-              <strong>{{ item.title }}</strong>
-              <small>{{ item.detail }}</small>
-            </span>
-          </button>
-        </section>
+        </template>
       </section>
 
       <section
         v-else-if="currentSection === 'changes'"
+        key="changes"
         ref="changesGrid"
         class="tm-grid tm-grid--changes"
         :class="{ 'tm-grid--resizing': activeChangeLayoutDrag }"
         :style="changeLayoutStyle"
       >
-        <aside class="tm-panel tm-change-list" @scroll="hideChangeTooltip">
+        <aside
+          class="tm-panel tm-change-list"
+          :class="{ 'tm-change-list--searching': changesSearching }"
+          @scroll="hideChangeTooltip"
+        >
           <div class="tm-panel__header">
-            <h2>Changes</h2>
+            <h2>
+              Changes
+              <span class="tm-change-list__count" :title="`${visibleChanges.length} listed`">
+                {{ visibleChanges.length }}
+              </span>
+            </h2>
             <button
               v-if="authStore.isAdmin"
               type="button"
@@ -438,9 +503,9 @@
               class="tm-input"
               type="search"
               placeholder="Search changes..."
-              @input="loadChanges"
+              @input="onChangeSearchInput"
             />
-            <select v-model="changeStatusFilter" class="tm-select" @change="loadChanges">
+            <select v-model="changeStatusFilter" class="tm-select" @change="onStatusFilterChange">
               <option value="ACTIVE">Active</option>
               <option value="">All Changes</option>
               <option v-for="status in changeStatuses" :key="status" :value="status">
@@ -448,8 +513,19 @@
               </option>
             </select>
           </div>
+          <div v-if="changeAttentionFilter" class="tm-filter-chip">
+            <span>{{ attentionFilterLabel }}</span>
+            <button
+              type="button"
+              aria-label="Clear attention filter"
+              title="Clear attention filter"
+              @click="clearAttentionFilter"
+            >
+              ✕
+            </button>
+          </div>
           <article
-            v-for="change in changes"
+            v-for="change in visibleChanges"
             :key="change.id"
             class="tm-change-card"
             :class="{
@@ -543,7 +619,7 @@
               Your help testing this was requested.
             </p>
           </article>
-          <p v-if="!loading && changes.length === 0" class="tm-change-list__empty">
+          <p v-if="!loading && visibleChanges.length === 0" class="tm-change-list__empty">
             {{ changeListEmptyMessage }}
           </p>
         </aside>
@@ -1412,6 +1488,24 @@
           </div>
         </main>
 
+        <main
+          v-else
+          class="tm-panel tm-detail tm-detail-unavailable tm-detail-placeholder"
+          aria-labelledby="change-placeholder-title"
+        >
+          <div class="tm-unavailable-state">
+            <span aria-hidden="true">☰</span>
+            <h2 id="change-placeholder-title">No Change Selected</h2>
+            <p>
+              {{
+                visibleChanges.length === 0
+                  ? 'Nothing matches the current filters. Adjust the search or status filter to find a change.'
+                  : 'Select a change from the list to see its details.'
+              }}
+            </p>
+          </div>
+        </main>
+
         <button
           v-if="activeChange"
           type="button"
@@ -1518,7 +1612,7 @@
         </aside>
       </section>
 
-      <section v-else-if="currentSection === 'next-patch'" class="tm-next-patch">
+      <section v-else-if="currentSection === 'next-patch'" key="next-patch" class="tm-next-patch">
         <main class="tm-panel tm-next-patch-panel">
           <div class="tm-panel__header tm-next-patch__header">
             <div class="tm-next-patch__intro">
@@ -1773,7 +1867,7 @@
         </main>
       </section>
 
-      <section v-else-if="currentSection === 'users'" class="tm-grid tm-grid--users">
+      <section v-else-if="currentSection === 'users'" key="users" class="tm-grid tm-grid--users">
         <main class="tm-panel">
           <div class="tm-panel__header">
             <div>
@@ -1950,7 +2044,7 @@
         </aside>
       </section>
 
-      <section v-else class="tm-panel tm-settings">
+      <section v-else key="settings" class="tm-panel tm-settings">
         <div class="tm-panel__header">
           <div>
             <h2>Roles & Permissions</h2>
@@ -2093,7 +2187,7 @@
           </div>
         </section>
       </section>
-    </template>
+    </Transition>
 
     <div
       v-if="changeTooltip"
@@ -2857,6 +2951,7 @@
       role="dialog"
       aria-modal="true"
       aria-labelledby="result-action-confirm-title"
+      @click.self="closeResultConfirm"
     >
       <section
         class="tm-modal__panel tm-confirm-modal"
@@ -2904,6 +2999,7 @@
       role="dialog"
       aria-modal="true"
       aria-labelledby="developer-action-confirm-title"
+      @click.self="closeDeveloperActionConfirm"
     >
       <section
         class="tm-modal__panel tm-confirm-modal"
@@ -2951,6 +3047,7 @@
       role="dialog"
       aria-modal="true"
       aria-labelledby="tester-remove-confirm-title"
+      @click.self="closeRemoveTesterConfirm"
     >
       <section class="tm-modal__panel tm-confirm-modal tm-confirm-modal--danger">
         <div class="tm-confirm-modal__header">
@@ -2994,6 +3091,7 @@
       role="dialog"
       aria-modal="true"
       aria-labelledby="next-patch-reset-confirm-title"
+      @click.self="closeNextPatchResetConfirm"
     >
       <section class="tm-modal__panel tm-confirm-modal tm-confirm-modal--danger">
         <div class="tm-confirm-modal__header">
@@ -3036,6 +3134,76 @@
             @click="confirmNextPatchReset"
           >
             {{ nextPatchResetPending ? 'Resetting...' : 'Reset Patch Queue' }}
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div
+      v-if="checklistDeleteConfirm"
+      class="tm-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="checklist-delete-confirm-title"
+      @click.self="closeChecklistDeleteConfirm"
+    >
+      <section class="tm-modal__panel tm-confirm-modal tm-confirm-modal--danger">
+        <div class="tm-confirm-modal__header">
+          <span class="tm-confirm-modal__icon" aria-hidden="true">⌫</span>
+          <div>
+            <p>Checklist</p>
+            <h2 id="checklist-delete-confirm-title">Delete checklist item?</h2>
+          </div>
+        </div>
+        <p class="tm-confirm-modal__body">
+          This deletes "{{ checklistDeleteConfirm.title }}" and removes its progress for every
+          tester.
+        </p>
+        <div class="tm-confirm-modal__actions">
+          <button type="button" class="tm-btn tm-btn--ghost" @click="closeChecklistDeleteConfirm">
+            Cancel
+          </button>
+          <button type="button" class="tm-btn tm-btn--danger" @click="confirmChecklistItemDelete">
+            Delete Item
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div
+      v-if="editChecklistRemovalConfirm !== null"
+      class="tm-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="edit-checklist-removal-confirm-title"
+      @click.self="closeEditChecklistRemovalConfirm"
+    >
+      <section class="tm-modal__panel tm-confirm-modal tm-confirm-modal--danger">
+        <div class="tm-confirm-modal__header">
+          <span class="tm-confirm-modal__icon" aria-hidden="true">⌫</span>
+          <div>
+            <p>Edit Change</p>
+            <h2 id="edit-checklist-removal-confirm-title">
+              Remove {{ editChecklistRemovalConfirm }} checklist
+              item{{ editChecklistRemovalConfirm === 1 ? '' : 's' }}?
+            </h2>
+          </div>
+        </div>
+        <p class="tm-confirm-modal__body">
+          Saving this edit removes
+          {{ editChecklistRemovalConfirm === 1 ? 'a checklist item' : 'checklist items' }} along
+          with the recorded progress for every tester.
+        </p>
+        <div class="tm-confirm-modal__actions">
+          <button
+            type="button"
+            class="tm-btn tm-btn--ghost"
+            @click="closeEditChecklistRemovalConfirm"
+          >
+            Keep Items
+          </button>
+          <button type="button" class="tm-btn tm-btn--danger" @click="confirmEditChecklistRemoval">
+            Remove and Save
           </button>
         </div>
       </section>
@@ -3218,6 +3386,7 @@
       role="dialog"
       aria-modal="true"
       aria-labelledby="closed-next-patch-confirm-title"
+      @click.self="dismissClosedNextPatchPrompt"
     >
       <section class="tm-modal__panel tm-confirm-modal tm-confirm-modal--next-patch">
         <div class="tm-confirm-modal__header">
@@ -3262,6 +3431,7 @@
       role="dialog"
       aria-modal="true"
       aria-labelledby="checklist-note-prompt-title"
+      @click.self="closeChecklistNotePrompt"
     >
       <section class="tm-modal__panel tm-confirm-modal tm-confirm-modal--info">
         <div class="tm-confirm-modal__header">
@@ -3516,6 +3686,7 @@
       role="dialog"
       aria-modal="true"
       aria-labelledby="coverage-note-title"
+      @click.self="closeCoverageNote"
     >
       <section class="tm-modal__panel tm-coverage-note-modal">
         <div class="tm-panel__header">
@@ -4097,6 +4268,18 @@ interface PatchNoteDraft {
 const loading = ref(false);
 const loadedSection = ref<string | null>(null);
 const dashboard = ref<TestManagerDashboard | null>(null);
+const dashboardUpdatedAt = ref<number | null>(null);
+const dashboardRefreshing = ref(false);
+const dashboardClock = ref(Date.now());
+let dashboardRefreshTimer: number | undefined;
+
+type AttentionFilterKey = 'awaiting' | 'mine' | 'failing' | 'blocked';
+const changeAttentionFilter = ref<AttentionFilterKey | ''>('');
+const changesSearching = ref(false);
+let changeSearchDebounce: number | undefined;
+const checklistDeleteConfirm = ref<TestChange['checklist'][number] | null>(null);
+const editChecklistRemovalConfirm = ref<number | null>(null);
+let editChecklistRemovalConfirmed = false;
 const changes = ref<TestChange[]>([]);
 const nextPatchChanges = ref<TestChange[]>([]);
 const nextPatchView = ref<NextPatchChangeView>('complete');
@@ -4985,310 +5168,232 @@ const dashboardGraphChanges = computed(() => {
 });
 const dashboardGraphChangeCount = computed(() => dashboard.value?.metrics.activeChanges ?? 0);
 
-const testStateChart = {
-  width: 760,
-  height: 320,
-  top: 28,
-  right: 28,
-  bottom: 44,
-  left: 48
-} as const;
+type DashboardKpiTone = 'gold' | 'blue' | 'green' | 'red';
 
-type TestStateGraphPoint = {
-  key: string;
-  label: string;
-  x: number;
-  y: number;
-  value: number;
-  isLatest: boolean;
-};
-
-type TestStateGraphSeries = {
-  key: string;
-  label: string;
-  color: string;
-  values: number[];
-  points: TestStateGraphPoint[];
-  path: string;
-  areaPath: string;
-  latest: number;
-};
-
-const testStateDayFormatter = new Intl.DateTimeFormat(undefined, {
-  weekday: 'short'
-});
-
-const testStateTimelineDays = computed(() => {
-  const end = new Date();
-  end.setHours(23, 59, 59, 999);
-
-  return Array.from({ length: 7 }, (_, index) => {
-    const day = new Date(end);
-    day.setDate(end.getDate() - (6 - index));
-    day.setHours(23, 59, 59, 999);
-
-    return {
-      key: day.toISOString().slice(0, 10),
-      label: testStateDayFormatter.format(day),
-      endAt: day
-    };
-  });
-});
-
-function testStateTimestamp(value: string | null | undefined) {
-  if (!value) {
-    return 0;
-  }
-
-  const timestamp = new Date(value).getTime();
-  return Number.isFinite(timestamp) ? timestamp : 0;
-}
-
-function testStateX(index: number, total: number) {
-  const span = testStateChart.width - testStateChart.left - testStateChart.right;
-  return testStateChart.left + (span * index) / Math.max(1, total - 1);
-}
-
-function testStateY(value: number, maxValue: number) {
-  const span = testStateChart.height - testStateChart.top - testStateChart.bottom;
-  return testStateChart.top + span * (1 - value / Math.max(1, maxValue));
-}
-
-function testStateBuildSeries(
-  key: string,
-  label: string,
-  color: string,
-  values: number[],
-  maxValue: number
-): TestStateGraphSeries {
-  const baseline = testStateChart.height - testStateChart.bottom;
-  const points = values.map((value, index) => ({
-    key: `${key}-${testStateTimelineDays.value[index]?.key ?? index}`,
-    label: testStateTimelineDays.value[index]?.label ?? '',
-    x: testStateX(index, values.length),
-    y: testStateY(value, maxValue),
-    value,
-    isLatest: index === values.length - 1
-  }));
-  const path = points
-    .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
-    .join(' ');
-  const first = points[0];
-  const last = points[points.length - 1];
-  const latest = values[values.length - 1] ?? 0;
-
-  return {
-    key,
-    label,
-    color,
-    values,
-    points,
-    path,
-    areaPath:
-      first && last
-        ? `${path} L ${last.x.toFixed(2)} ${baseline.toFixed(2)} L ${first.x.toFixed(
-            2
-          )} ${baseline.toFixed(2)} Z`
-        : '',
-    latest
-  };
-}
-
-function testStateCreatedByDay(change: TestChange, dayEnd: Date) {
-  const createdAt = testStateTimestamp(change.createdAt);
-  return createdAt > 0 && createdAt <= dayEnd.getTime();
-}
-
-function testStateUpdatedByDay(change: TestChange, dayEnd: Date) {
-  const updatedAt = testStateTimestamp(change.updatedAt);
-  return updatedAt > 0 && updatedAt <= dayEnd.getTime();
-}
-
-const testStateGraphRawSeries = computed(() => {
+const dashboardSummaryLine = computed(() => {
   const metrics = dashboard.value?.metrics;
-  const changes = dashboardGraphChanges.value;
-  const days = testStateTimelineDays.value;
-  const activeNow = dashboardGraphChangeCount.value;
-  const knownActiveGap = Math.max(0, activeNow - changes.length);
-  const awaitingNow = metrics?.awaitingTest ?? 0;
-  const testingNow = metrics?.inProgress ?? 0;
-  const riskChanges = changes.filter(
-    (change) =>
-      ['CRITICAL', 'HIGH'].includes(change.priority) ||
-      ['FAILED', 'BLOCKED'].includes(change.status)
-  );
-  const riskNow = Math.max(metrics?.priorityOne ?? 0, riskChanges.length);
+  if (!metrics) {
+    return '';
+  }
+  const flagged =
+    (dashboard.value?.attentionItems.failingTests ?? 0) +
+    (dashboard.value?.attentionItems.blockedTests ?? 0);
+  return [
+    `${metrics.activeChanges} open change${metrics.activeChanges === 1 ? '' : 's'}`,
+    `${metrics.awaitingTest} awaiting pickup`,
+    flagged > 0 ? `${flagged} flagged` : 'nothing flagged'
+  ].join(' · ');
+});
 
-  const statusValues = (statuses: TestChangeStatus[], target: number) => {
-    const matching = changes.filter((change) => statuses.includes(change.status));
-    const gap = Math.max(0, target - matching.length);
-    return days.map((day) => {
-      const current = matching.filter((change) => testStateUpdatedByDay(change, day.endAt)).length;
-      const ratio =
-        matching.length > 0 ? current / matching.length : day === days[days.length - 1] ? 1 : 0;
-      return Math.min(target, current + Math.round(gap * ratio));
-    });
-  };
-
-  const riskValues = days.map((day) => {
-    const current = riskChanges.filter((change) => testStateUpdatedByDay(change, day.endAt)).length;
-    const ratio =
-      riskChanges.length > 0 ? current / riskChanges.length : day === days[days.length - 1] ? 1 : 0;
-    return Math.min(
-      riskNow,
-      current + Math.round(Math.max(0, riskNow - riskChanges.length) * ratio)
-    );
-  });
-
+const dashboardKpis = computed(() => {
+  const metrics = dashboard.value?.metrics;
+  const attention = dashboard.value?.attentionItems;
   return [
     {
-      key: 'active',
-      label: 'Open changes',
-      color: '#55b7ff',
-      values: days.map((day) =>
-        Math.min(
-          activeNow,
-          knownActiveGap +
-            changes.filter((change) => testStateCreatedByDay(change, day.endAt)).length
-        )
-      )
+      key: 'open',
+      label: 'Open Changes',
+      value: metrics?.activeChanges ?? 0,
+      hint: `${metrics?.priorityOne ?? 0} high priority`,
+      tone: 'gold' as DashboardKpiTone,
+      onClick: () => openChangesWithStatus('')
     },
     {
       key: 'awaiting',
-      label: 'Awaiting pickup',
-      color: '#d9a45f',
-      values: statusValues(['SUBMITTED', 'AWAITING_TEST', 'RENEWED'], awaitingNow)
+      label: 'Awaiting Pickup',
+      value: metrics?.awaitingTest ?? 0,
+      hint: 'ready for testers',
+      tone: 'blue' as DashboardKpiTone,
+      onClick: () => openAttentionFilter('awaiting')
     },
     {
       key: 'testing',
-      label: 'In testing',
-      color: '#72d66f',
-      values: statusValues(['TESTING'], testingNow)
+      label: 'In Testing',
+      value: metrics?.inProgress ?? 0,
+      hint: 'currently underway',
+      tone: 'green' as DashboardKpiTone,
+      onClick: () => openChangesWithStatus('TESTING')
     },
     {
-      key: 'risk',
-      label: 'P1/fail/block',
-      color: '#ff6b55',
-      values: riskValues
+      key: 'failing',
+      label: 'Failing',
+      value: attention?.failingTests ?? 0,
+      hint: 'changes with failed runs',
+      tone: 'red' as DashboardKpiTone,
+      onClick: () => openAttentionFilter('failing')
+    },
+    {
+      key: 'blocked',
+      label: 'Blocked',
+      value: attention?.blockedTests ?? 0,
+      hint: 'progress halted',
+      tone: 'gold' as DashboardKpiTone,
+      onClick: () => openAttentionFilter('blocked')
     }
   ];
 });
 
-const testStateGraphMax = computed(() =>
-  Math.max(
-    1,
-    ...testStateGraphRawSeries.value.flatMap((series) => series.values),
-    dashboardGraphChangeCount.value
-  )
-);
-
-const testStateGraphSeries = computed<TestStateGraphSeries[]>(() =>
-  testStateGraphRawSeries.value.map((series) =>
-    testStateBuildSeries(
-      series.key,
-      series.label,
-      series.color,
-      series.values,
-      testStateGraphMax.value
-    )
-  )
-);
-
-const testStateGraphGridLines = computed(() => {
-  const max = testStateGraphMax.value;
-  const ticks = [max, Math.round(max * 0.66), Math.round(max * 0.33), 0].filter(
-    (value, index, list) => list.indexOf(value) === index
-  );
-
-  return ticks.map((value) => ({
-    label: String(value),
-    y: testStateY(value, max)
+const pipelineSegments = computed(() => {
+  const metrics = dashboard.value?.metrics;
+  const total = Math.max(1, metrics?.activeChanges ?? 0);
+  const defs = [
+    {
+      key: 'awaiting',
+      label: 'Awaiting',
+      value: metrics?.awaitingTest ?? 0,
+      onClick: () => openAttentionFilter('awaiting')
+    },
+    {
+      key: 'testing',
+      label: 'Testing',
+      value: metrics?.inProgress ?? 0,
+      onClick: () => openChangesWithStatus('TESTING')
+    },
+    {
+      key: 'passed',
+      label: 'Passed',
+      value: metrics?.passed ?? 0,
+      onClick: () => openChangesWithStatus('PASSED')
+    },
+    {
+      key: 'failed',
+      label: 'Failed',
+      value: metrics?.failed ?? 0,
+      onClick: () => openChangesWithStatus('FAILED')
+    },
+    {
+      key: 'blocked',
+      label: 'Blocked',
+      value: metrics?.blocked ?? 0,
+      onClick: () => openChangesWithStatus('BLOCKED')
+    }
+  ];
+  return defs.map((def) => ({
+    ...def,
+    percent: Math.round((def.value / total) * 100)
   }));
 });
 
-const testStateGraphXLabels = computed(() =>
-  testStateTimelineDays.value.map((day, index) => ({
-    label: day.label,
-    x: testStateX(index, testStateTimelineDays.value.length)
-  }))
+const pipelineAriaLabel = computed(
+  () =>
+    `Pipeline of ${dashboardGraphChangeCount.value} open changes: ${pipelineSegments.value
+      .map((seg) => `${seg.value} ${seg.label.toLowerCase()}`)
+      .join(', ')}`
 );
 
-const testStateGraphStats = computed(() => {
-  const metrics = dashboard.value?.metrics;
-  return [
-    {
-      label: 'Open',
-      value: dashboardGraphChangeCount.value,
-      detail: 'open changes'
-    },
-    {
-      label: 'Coverage',
-      value: `${metrics?.coverage ?? 0}%`,
-      detail: 'touched by testers'
-    },
-    {
-      label: 'Testing',
-      value: metrics?.inProgress ?? 0,
-      detail: 'currently underway'
-    },
-    {
-      label: 'Awaiting',
-      value: metrics?.awaitingTest ?? 0,
-      detail: 'ready for pickup'
-    }
-  ];
-});
+const needsAttentionQueue = computed(() =>
+  dashboardGraphChanges.value
+    .flatMap((change) => {
+      if (change.summary.failCount > 0) {
+        return [{ change, score: 400, reason: 'Failing', tone: 'red' }];
+      }
+      if (change.summary.blockedCount > 0 || change.status === 'BLOCKED') {
+        return [{ change, score: 300, reason: 'Blocked', tone: 'gold' }];
+      }
+      if (change.priority === 'CRITICAL' || change.priority === 'HIGH') {
+        return [{ change, score: 200, reason: 'High priority', tone: 'red' }];
+      }
+      if (ATTENTION_READY_STATUSES.includes(change.status) && change.summary.testerCount === 0) {
+        return [{ change, score: 100, reason: 'Needs testers', tone: 'blue' }];
+      }
+      return [];
+    })
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        Date.parse(left.change.updatedAt) - Date.parse(right.change.updatedAt)
+    )
+    .slice(0, 6)
+);
 
-const testStateComponentLeader = computed(() => {
-  const counts = new Map<string, number>();
+const myWorkItems = computed(() =>
+  dashboardGraphChanges.value.flatMap((change) => {
+    const tester = change.viewerTester;
+    if (change.status === 'CLOSED' || !tester || tester.status === 'DONE') {
+      return [];
+    }
+    const total = change.summary.checklistCount;
+    const done = tester.checklistProgress.filter((item) => item.completed).length;
+    return [
+      {
+        change,
+        status: viewerChangeListStatus(change),
+        done,
+        total,
+        percent: total > 0 ? Math.round((done / total) * 100) : 0
+      }
+    ];
+  })
+);
+
+const dashboardFeedItems = computed(() =>
+  (dashboard.value?.testerActivity ?? []).map((activity, index) => {
+    const result = activity.tester.result;
+    const tone =
+      result === 'PASS'
+        ? 'green'
+        : result === 'FAIL'
+          ? 'red'
+          : result === 'BLOCKED'
+            ? 'gold'
+            : 'blue';
+    return {
+      key: `${activity.change.id}-${activity.tester.id}-${index}`,
+      changeId: activity.change.id,
+      name: activity.tester.user?.displayName ?? 'Tester',
+      verb: result ? `marked ${statusLabel(result).toLowerCase()}` : 'is testing',
+      changeRef: `#${activity.change.publicId} ${activity.change.title}`,
+      time: relativeTime(activity.tester.updatedAt),
+      tooltip: formatDateTime(activity.tester.updatedAt),
+      notes: activity.tester.notesHtml ? plainText(activity.tester.notesHtml) : '',
+      tone
+    };
+  })
+);
+
+const subsystemBreakdown = computed(() => {
+  const counts = new Map<string, { name: string; count: number; flagged: number }>();
   for (const change of dashboardGraphChanges.value) {
-    counts.set(change.subsystem, (counts.get(change.subsystem) ?? 0) + 1);
+    const name = change.subsystem || 'General';
+    const entry = counts.get(name) ?? { name, count: 0, flagged: 0 };
+    entry.count += 1;
+    if (
+      change.summary.failCount > 0 ||
+      change.summary.blockedCount > 0 ||
+      change.priority === 'CRITICAL' ||
+      change.priority === 'HIGH'
+    ) {
+      entry.flagged += 1;
+    }
+    counts.set(name, entry);
   }
-
-  return (
-    [...counts.entries()]
-      .map(([name, count]) => ({ name, count }))
-      .sort(
-        (left, right) => right.count - left.count || left.name.localeCompare(right.name)
-      )[0] ?? {
-      name: 'No component',
-      count: 0
-    }
-  );
+  const list = [...counts.values()]
+    .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name))
+    .slice(0, 6);
+  const max = Math.max(1, ...list.map((entry) => entry.count));
+  return list.map((entry) => ({ ...entry, percent: Math.round((entry.count / max) * 100) }));
 });
 
-const testStateGraphInsights = computed(() => {
-  const metrics = dashboard.value?.metrics;
-  const riskCount = (metrics?.priorityOne ?? 0) + (metrics?.failed ?? 0) + (metrics?.blocked ?? 0);
-  const flowGap = (metrics?.awaitingTest ?? 0) - (metrics?.inProgress ?? 0);
-  return [
-    {
-      label: 'Flow balance',
-      value:
-        flowGap > 0
-          ? `${flowGap} waiting`
-          : flowGap < 0
-            ? `${Math.abs(flowGap)} extra testing`
-            : 'Even',
-      detail: `${metrics?.inProgress ?? 0} testing / ${metrics?.awaitingTest ?? 0} awaiting`
-    },
-    {
-      label: 'At-risk changes',
-      value: riskCount,
-      detail:
-        riskCount === 0
-          ? 'no priority-one, failed, or blocked changes'
-          : 'priority-one, failed, or blocked changes'
-    },
-    {
-      label: 'Hot component',
-      value: testStateComponentLeader.value.name,
-      detail: `${testStateComponentLeader.value.count} open change${
-        testStateComponentLeader.value.count === 1 ? '' : 's'
-      }`
-    }
-  ];
-});
+function openChangesWithStatus(status: TestChangeListStatusFilter) {
+  changeAttentionFilter.value = '';
+  changeStatusFilter.value = status;
+  changeSearch.value = '';
+  if (route.path === '/test-manager/changes') {
+    void loadChanges();
+  } else {
+    void router.push('/test-manager/changes');
+  }
+}
+
+function openChangesWithSearch(query: string) {
+  changeAttentionFilter.value = '';
+  changeStatusFilter.value = '';
+  changeSearch.value = query;
+  if (route.path === '/test-manager/changes') {
+    void loadChanges();
+  } else {
+    void router.push('/test-manager/changes');
+  }
+}
 
 const filteredActiveTesters = computed(() => {
   const query = testerSearch.value.trim().toLowerCase();
@@ -5444,21 +5549,96 @@ const assignableUsers = computed(() =>
     )
 );
 
-const recentDashboardItems = computed(() =>
-  (dashboard.value?.testerActivity ?? []).slice(0, 4).map((activity, index) => ({
-    key: `${activity.change.id}-${activity.tester.id}-${index}`,
-    changeId: activity.change.id,
-    title: `${activity.tester.user?.displayName ?? 'Tester'} ${
-      activity.tester.result ? statusLabel(activity.tester.result).toLowerCase() : 'updated'
-    }`,
-    detail: `#${activity.change.publicId} ${activity.change.title} · ${relativeTime(
-      activity.tester.updatedAt
-    )}`,
-    status: activity.tester.result ?? activity.tester.status
-  }))
+const dashboardUpdatedLabel = computed(() => {
+  if (!dashboardUpdatedAt.value) {
+    return '';
+  }
+  const minutes = Math.floor((dashboardClock.value - dashboardUpdatedAt.value) / 60000);
+  if (minutes < 1) {
+    return 'Updated just now';
+  }
+  if (minutes < 60) {
+    return `Updated ${minutes}m ago`;
+  }
+  return `Updated ${formatDateTime(new Date(dashboardUpdatedAt.value).toISOString())}`;
+});
+
+const dashboardUpdatedTooltip = computed(() =>
+  dashboardUpdatedAt.value
+    ? `Data as of ${formatDateTime(new Date(dashboardUpdatedAt.value).toISOString())}`
+    : ''
 );
 
+const ATTENTION_FILTER_LABELS: Record<AttentionFilterKey, string> = {
+  awaiting: 'Awaiting assignment',
+  mine: 'Your open test requests',
+  failing: 'Failing tests',
+  blocked: 'Blocked tests'
+};
+
+const ATTENTION_READY_STATUSES: TestChangeStatus[] = ['SUBMITTED', 'AWAITING_TEST', 'RENEWED'];
+
+function matchesAttentionFilter(change: TestChange, filter: AttentionFilterKey) {
+  if (change.status === 'CLOSED') {
+    return false;
+  }
+  switch (filter) {
+    case 'awaiting':
+      return ATTENTION_READY_STATUSES.includes(change.status);
+    case 'mine':
+      return Boolean(change.viewerTester && change.viewerTester.status !== 'DONE');
+    case 'failing':
+      return change.summary.failCount > 0;
+    case 'blocked':
+      return change.summary.blockedCount > 0 || change.status === 'BLOCKED';
+  }
+}
+
+const visibleChanges = computed(() => {
+  const filter = changeAttentionFilter.value;
+  if (!filter) {
+    return changes.value;
+  }
+  return changes.value.filter((change) => matchesAttentionFilter(change, filter));
+});
+
+const attentionFilterLabel = computed(() =>
+  changeAttentionFilter.value ? ATTENTION_FILTER_LABELS[changeAttentionFilter.value] : ''
+);
+
+function openAttentionFilter(key: AttentionFilterKey) {
+  changeAttentionFilter.value = key;
+  changeStatusFilter.value = '';
+  changeSearch.value = '';
+  if (route.path === '/test-manager/changes') {
+    void loadChanges();
+  } else {
+    void router.push('/test-manager/changes');
+  }
+}
+
+function clearAttentionFilter() {
+  changeAttentionFilter.value = '';
+}
+
+function onStatusFilterChange() {
+  changeAttentionFilter.value = '';
+  void loadChanges();
+}
+
+function onChangeSearchInput() {
+  window.clearTimeout(changeSearchDebounce);
+  changesSearching.value = true;
+  changeSearchDebounce = window.setTimeout(() => {
+    void loadChanges();
+  }, 300);
+}
+
 const changeListEmptyMessage = computed(() => {
+  if (changeAttentionFilter.value) {
+    return `No open changes match "${ATTENTION_FILTER_LABELS[changeAttentionFilter.value]}" right now.`;
+  }
+
   if (changeStatusFilter.value === 'ACTIVE') {
     return 'No active ready-to-test changes found.';
   }
@@ -5476,6 +5656,27 @@ const changeListEmptyMessage = computed(() => {
 
 async function loadDashboard() {
   dashboard.value = await api.fetchTestManagerDashboard();
+  dashboardUpdatedAt.value = Date.now();
+  dashboardClock.value = Date.now();
+}
+
+async function refreshDashboard() {
+  if (dashboardRefreshing.value) {
+    return;
+  }
+
+  dashboardRefreshing.value = true;
+  try {
+    await loadDashboard();
+  } catch (error) {
+    addToast({
+      title: 'Dashboard Refresh Failed',
+      message: getApiErrorMessage(error, 'Unable to refresh the dashboard.'),
+      variant: 'error'
+    });
+  } finally {
+    dashboardRefreshing.value = false;
+  }
 }
 
 function cacheNextPatchView(view: NextPatchChangeView, changes: TestChange[]) {
@@ -5586,6 +5787,8 @@ async function refreshChangeGithubMetadata(change: TestChange | null) {
 }
 
 async function loadChanges() {
+  window.clearTimeout(changeSearchDebounce);
+  changesSearching.value = false;
   changeUnavailable.value = false;
   const fetchedChanges = await api.fetchTestChanges({
     status: changeStatusFilter.value,
@@ -5608,7 +5811,7 @@ async function loadChanges() {
       changeUnavailable.value = true;
     }
   } else {
-    selectedChange.value = changes.value[0] ?? null;
+    selectedChange.value = visibleChanges.value[0] ?? null;
   }
 
   void refreshChangeGithubMetadata(selectedChange.value);
@@ -6874,16 +7077,11 @@ async function saveEditChange() {
   const removedChecklistItems = activeChange.value.checklist.filter(
     (item) => !checklistIds.has(item.id)
   );
-  if (
-    removedChecklistItems.length &&
-    !window.confirm(
-      `Remove ${removedChecklistItems.length} checklist item${
-        removedChecklistItems.length === 1 ? '' : 's'
-      }? This removes progress for every tester.`
-    )
-  ) {
+  if (removedChecklistItems.length && !editChecklistRemovalConfirmed) {
+    editChecklistRemovalConfirm.value = removedChecklistItems.length;
     return;
   }
+  editChecklistRemovalConfirmed = false;
 
   editSaving.value = true;
   try {
@@ -7262,15 +7460,32 @@ function setChecklistItemDeleting(checklistItemId: string, deleting: boolean) {
   deletingChecklistItemIds.value = next;
 }
 
-async function deleteChecklistItem(item: TestChange['checklist'][number]) {
+function deleteChecklistItem(item: TestChange['checklist'][number]) {
   if (!authStore.isAdmin || !activeChange.value || isDeletingChecklistItem(item.id)) {
     return;
   }
 
-  const confirmed = window.confirm(
-    `Delete checklist item "${item.title}"? This removes its progress for every tester.`
-  );
-  if (!confirmed) {
+  checklistDeleteConfirm.value = item;
+}
+
+function closeChecklistDeleteConfirm() {
+  checklistDeleteConfirm.value = null;
+}
+
+function closeEditChecklistRemovalConfirm() {
+  editChecklistRemovalConfirm.value = null;
+}
+
+function confirmEditChecklistRemoval() {
+  editChecklistRemovalConfirm.value = null;
+  editChecklistRemovalConfirmed = true;
+  void saveEditChange();
+}
+
+async function confirmChecklistItemDelete() {
+  const item = checklistDeleteConfirm.value;
+  checklistDeleteConfirm.value = null;
+  if (!item || !activeChange.value || isDeletingChecklistItem(item.id)) {
     return;
   }
 
@@ -8549,6 +8764,49 @@ function roleIcon(roleKey: string) {
   return '◉';
 }
 
+const prefersReducedMotion =
+  typeof window !== 'undefined' &&
+  Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+
+const AnimatedNumber = defineComponent({
+  props: {
+    value: { type: Number, required: true },
+    duration: { type: Number, default: 650 }
+  },
+  setup(props) {
+    const display = ref(prefersReducedMotion ? props.value : 0);
+    let frame = 0;
+
+    function animateTo(target: number) {
+      cancelAnimationFrame(frame);
+      if (prefersReducedMotion || !Number.isFinite(target)) {
+        display.value = target;
+        return;
+      }
+      const from = display.value;
+      if (from === target) {
+        return;
+      }
+      const startedAt = performance.now();
+      const step = (now: number) => {
+        const progress = Math.min(1, (now - startedAt) / props.duration);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        display.value = Math.round(from + (target - from) * eased);
+        if (progress < 1) {
+          frame = requestAnimationFrame(step);
+        }
+      };
+      frame = requestAnimationFrame(step);
+    }
+
+    watch(() => props.value, animateTo);
+    onMounted(() => animateTo(props.value));
+    onBeforeUnmount(() => cancelAnimationFrame(frame));
+
+    return () => h('span', String(display.value));
+  }
+});
+
 const StatusPill = defineComponent({
   props: {
     status: { type: String, required: true },
@@ -9001,15 +9259,75 @@ watch(
     }
   }
 );
+function closeTopmostModalOnEscape() {
+  // Content-entry modals (create/edit/notes/checklist forms) are intentionally
+  // excluded so Escape cannot discard typed work.
+  const closers: Array<{ open: boolean; close: () => void }> = [
+    { open: Boolean(discordHandoffLink.value), close: closeDiscordHandoffPrompt },
+    { open: Boolean(coverageNote.value), close: closeCoverageNote },
+    { open: Boolean(checklistDeleteConfirm.value), close: closeChecklistDeleteConfirm },
+    { open: editChecklistRemovalConfirm.value !== null, close: closeEditChecklistRemovalConfirm },
+    { open: Boolean(checklistNotePromptItemId.value), close: closeChecklistNotePrompt },
+    { open: Boolean(resultActionConfirm.value), close: closeResultConfirm },
+    { open: Boolean(developerActionConfirm.value), close: closeDeveloperActionConfirm },
+    { open: Boolean(testerRemoveConfirm.value), close: closeRemoveTesterConfirm },
+    { open: nextPatchResetConfirm.value, close: closeNextPatchResetConfirm },
+    { open: showClosedNextPatchPrompt.value, close: dismissClosedNextPatchPrompt },
+    { open: Boolean(selectedWebhookReport.value), close: closeWebhookReportSummary },
+    { open: Boolean(versionEditorChange.value), close: closeChangeVersionEditor },
+    { open: contextLinksOpen.value, close: closeContextLinksModal },
+    {
+      open: requestOpen.value,
+      close: () => {
+        requestOpen.value = false;
+      }
+    },
+    { open: patchNotesGeneratorOpen.value, close: closePatchNotesGenerator }
+  ];
+  for (const entry of closers) {
+    if (entry.open) {
+      entry.close();
+      return true;
+    }
+  }
+  return false;
+}
+
+function handleGlobalKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Escape') {
+    return;
+  }
+  if (closeTopmostModalOnEscape()) {
+    event.preventDefault();
+  }
+}
+
 onMounted(() => {
   void loadCurrentSection();
   void nextTick(() => updateChangeLayout(changeLayout.value));
   window.addEventListener('resize', handleChangeLayoutResize);
+  window.addEventListener('keydown', handleGlobalKeydown);
+  dashboardRefreshTimer = window.setInterval(() => {
+    dashboardClock.value = Date.now();
+    if (
+      currentSection.value === 'dashboard' &&
+      document.visibilityState === 'visible' &&
+      !loading.value &&
+      !dashboardRefreshing.value
+    ) {
+      loadDashboard().catch(() => {
+        // Auto-refresh failures retry on the next tick; manual refresh surfaces errors.
+      });
+    }
+  }, 60_000);
 });
 onBeforeUnmount(() => {
   hideChangeTooltip();
   stopChangeLayoutDrag();
   window.removeEventListener('resize', handleChangeLayoutResize);
+  window.removeEventListener('keydown', handleGlobalKeydown);
+  window.clearInterval(dashboardRefreshTimer);
+  window.clearTimeout(changeSearchDebounce);
 });
 </script>
 
@@ -9089,6 +9407,32 @@ onBeforeUnmount(() => {
   overflow-y: auto;
   padding-bottom: 0.25rem;
   scrollbar-gutter: stable;
+}
+
+.tm-dashboard__updated {
+  color: var(--tm-muted);
+  font-size: 0.74rem;
+}
+
+.tm-dashboard__refresh {
+  width: 1.9rem;
+  height: 1.9rem;
+}
+
+.tm-dashboard__refresh--busy svg {
+  animation: tm-refresh-spin 0.9s linear infinite;
+}
+
+@keyframes tm-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tm-dashboard__refresh--busy svg {
+    animation: none;
+  }
 }
 
 .tm-settings {
@@ -10758,20 +11102,6 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
   min-height: 0;
 }
 
-.tm-panel--large {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.tm-test-graph-panel {
-  background:
-    radial-gradient(circle at 18% 18%, rgba(85, 183, 255, 0.18), transparent 19rem),
-    radial-gradient(circle at 82% 8%, rgba(217, 164, 95, 0.14), transparent 17rem),
-    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.022) 0 1px, transparent 1px 5px),
-    linear-gradient(180deg, rgba(10, 18, 22, 0.98), rgba(5, 9, 10, 0.98));
-}
-
 .tm-panel__header,
 .tm-detail__header,
 .tm-section-title {
@@ -10805,219 +11135,8 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
   overflow: auto;
 }
 
-.tm-state-graph__header {
-  align-items: baseline;
-}
-
-.tm-state-graph__header > span {
-  color: var(--tm-muted);
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.tm-state-graph {
-  display: grid;
-  grid-template-rows: auto minmax(19rem, 1fr) auto auto;
-  gap: 0.9rem;
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.tm-state-graph__stats,
-.tm-state-graph__legend,
-.tm-state-graph__insights {
-  display: grid;
-  gap: 0.72rem;
-  min-width: 0;
-}
-
-.tm-state-graph__stats {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.tm-state-graph__stats article,
-.tm-state-graph__legend article,
-.tm-state-graph__insights article {
-  min-width: 0;
-  border: 1px solid rgba(213, 196, 164, 0.12);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent), rgba(2, 6, 8, 0.42);
-  box-shadow: inset 0 1px 0 rgba(255, 231, 190, 0.045);
-}
-
-.tm-state-graph__stats article {
-  display: grid;
-  gap: 0.18rem;
-  padding: 0.72rem 0.8rem;
-}
-
-.tm-state-graph__stats span,
-.tm-state-graph__insights span {
-  color: var(--tm-gold);
-  font-size: 0.68rem;
-  font-weight: 800;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-}
-
-.tm-state-graph__stats strong {
-  color: #f8ead1;
-  font-family: Georgia, 'Times New Roman', serif;
-  font-size: clamp(1.45rem, 2vw, 2.05rem);
-  line-height: 1;
-}
-
-.tm-state-graph__stats small,
-.tm-state-graph__insights small {
-  color: var(--tm-muted);
-  font-size: 0.78rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tm-state-graph__canvas {
-  min-height: 0;
-  border: 1px solid rgba(85, 183, 255, 0.17);
-  background:
-    radial-gradient(circle at 12% 8%, rgba(85, 183, 255, 0.13), transparent 14rem),
-    radial-gradient(circle at 86% 18%, rgba(217, 164, 95, 0.1), transparent 15rem),
-    linear-gradient(180deg, rgba(7, 16, 20, 0.94), rgba(3, 8, 10, 0.98));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.055),
-    inset 0 0 34px rgba(85, 183, 255, 0.07);
-}
-
-.tm-state-graph__canvas svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-  min-height: 19rem;
-}
-
-.tm-state-graph__grid line,
-.tm-state-graph__axis line {
-  stroke: rgba(213, 196, 164, 0.13);
-  stroke-width: 1;
-  vector-effect: non-scaling-stroke;
-}
-
-.tm-state-graph__grid text,
-.tm-state-graph__axis text {
-  fill: rgba(188, 178, 164, 0.78);
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-anchor: middle;
-  text-transform: uppercase;
-}
-
-.tm-state-graph__grid text {
-  text-anchor: end;
-}
-
-.tm-state-graph__area {
-  opacity: 0.08;
-}
-
-.tm-state-graph__line,
-.tm-state-graph__line-rail {
-  fill: none;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
-}
-
-.tm-state-graph__line-rail {
-  stroke: rgba(2, 8, 12, 0.72);
-  stroke-width: 7.5;
-}
-
-.tm-state-graph__line {
-  stroke-width: 3.75;
-  filter: url('#tm-state-line-glow');
-}
-
-.tm-state-graph__point {
-  stroke: rgba(4, 8, 10, 0.92);
-  stroke-width: 2;
-  vector-effect: non-scaling-stroke;
-}
-
-.tm-state-graph__legend {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.tm-state-graph__legend article {
-  --tm-state-color: var(--tm-blue);
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 0.6rem;
-  align-items: center;
-  padding: 0.66rem 0.75rem;
-}
-
-.tm-state-graph__legend article > span {
-  width: 0.72rem;
-  aspect-ratio: 1;
-  border-radius: 999px;
-  background: var(--tm-state-color);
-  box-shadow: 0 0 16px var(--tm-state-color);
-}
-
-.tm-state-graph__legend div {
-  min-width: 0;
-}
-
-.tm-state-graph__legend strong {
-  display: block;
-  color: #f5e8c9;
-  line-height: 1.1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tm-state-graph__legend em {
-  min-width: 2rem;
-  padding: 0.15rem 0.38rem;
-  border: 1px solid color-mix(in srgb, var(--tm-state-color) 46%, transparent);
-  color: #f8ead1;
-  font-style: normal;
-  font-weight: 800;
-  text-align: center;
-  background: rgba(0, 0, 0, 0.22);
-}
-
-.tm-state-graph__insights {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.tm-state-graph__insights article {
-  display: grid;
-  gap: 0.18rem;
-  padding: 0.72rem 0.8rem;
-}
-
-.tm-state-graph__insights strong {
-  color: #f8ead1;
-  font-size: 1rem;
-  line-height: 1.12;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .tm-table {
   display: grid;
-}
-
-.tm-panel--large > .tm-table {
-  min-height: 0;
-  overflow: auto;
-  padding-right: 0.25rem;
 }
 
 .tm-table__head {
@@ -11601,6 +11720,40 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
 
 .tm-filters--wide {
   grid-template-columns: minmax(12rem, 1fr) repeat(3, minmax(8rem, auto));
+}
+
+.tm-filter-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: fit-content;
+  margin: -0.25rem 0 0.6rem;
+  padding: 0.3rem 0.4rem 0.3rem 0.65rem;
+  border: 1px solid rgba(85, 183, 255, 0.4);
+  border-radius: 999px;
+  background: rgba(85, 183, 255, 0.1);
+  color: var(--tm-blue);
+  font-size: 0.78rem;
+}
+
+.tm-filter-chip button {
+  display: grid;
+  place-items: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(85, 183, 255, 0.16);
+  color: inherit;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+.tm-filter-chip button:hover,
+.tm-filter-chip button:focus-visible {
+  background: rgba(85, 183, 255, 0.32);
+  outline: none;
 }
 
 .tm-change-list {
@@ -15421,149 +15574,6 @@ button.tm-version-badge {
   padding-bottom: 0.75rem;
 }
 
-.tm-activity-table {
-  display: grid;
-  border: 1px solid var(--tm-border-soft);
-  background: rgba(0, 0, 0, 0.12);
-  overflow: hidden;
-}
-
-.tm-activity-table__head,
-.tm-activity-table__row {
-  display: grid;
-  grid-template-columns: minmax(5.5rem, 0.8fr) minmax(8.5rem, 1.25fr) 4.8rem 4.25rem;
-  gap: 0.6rem;
-  align-items: center;
-}
-
-.tm-activity-table__head {
-  padding: 0.48rem 0.6rem;
-  color: var(--tm-muted);
-  border-bottom: 1px solid var(--tm-border-soft);
-  background: rgba(255, 255, 255, 0.025);
-  font-size: 0.68rem;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
-.tm-activity-table__row {
-  width: 100%;
-  padding: 0.62rem 0.6rem;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  border: 0;
-  border-bottom: 1px solid var(--tm-border-soft);
-  background: transparent;
-  cursor: pointer;
-  transition:
-    background 0.14s ease,
-    box-shadow 0.14s ease;
-}
-
-.tm-activity-table__row:last-child {
-  border-bottom: 0;
-}
-
-.tm-activity-table__row:hover,
-.tm-activity-table__row:focus-visible {
-  background: rgba(85, 183, 255, 0.075);
-  box-shadow: inset 2px 0 0 rgba(85, 183, 255, 0.7);
-  outline: none;
-}
-
-.tm-activity-table__tester,
-.tm-activity-table__change {
-  display: grid;
-  min-width: 0;
-  gap: 0.08rem;
-}
-
-.tm-activity-table__tester strong,
-.tm-activity-table__change strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tm-activity-table__tester small,
-.tm-activity-table__time,
-.tm-activity-table__notes {
-  color: var(--tm-muted);
-  font-size: 0.75rem;
-}
-
-.tm-activity-table__time {
-  justify-self: end;
-  white-space: nowrap;
-}
-
-.tm-activity-table__status {
-  justify-self: start;
-}
-
-.tm-activity-table__notes {
-  grid-column: 1 / -1;
-  margin: 0;
-  padding-top: 0.05rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tm-recent-strip {
-  flex: 0 0 auto;
-  margin-top: 1rem;
-  display: grid;
-  grid-template-columns: auto repeat(4, minmax(0, 1fr));
-  gap: 0.85rem;
-  align-items: center;
-}
-
-.tm-recent-strip h2 {
-  color: var(--tm-gold);
-  font-size: 1rem;
-}
-
-.tm-recent-strip__item {
-  display: flex;
-  gap: 0.65rem;
-  align-items: center;
-  min-width: 0;
-  padding: 0.5rem 0.6rem;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  border: 1px solid transparent;
-  border-radius: var(--tm-control-radius);
-  background: rgba(255, 255, 255, 0.02);
-  cursor: pointer;
-  transition:
-    border-color 0.14s ease,
-    background 0.14s ease,
-    transform 0.14s ease;
-}
-
-.tm-recent-strip__item:hover,
-.tm-recent-strip__item:focus-visible {
-  border-color: rgba(85, 183, 255, 0.36);
-  background: rgba(85, 183, 255, 0.08);
-  transform: translateY(-1px);
-  outline: none;
-}
-
-.tm-recent-strip__item span:last-child {
-  display: grid;
-  min-width: 0;
-}
-
-.tm-recent-strip small {
-  color: var(--tm-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .tm-history article {
   display: grid;
   grid-template-columns: 7rem auto minmax(0, 1fr) 8rem;
@@ -17761,14 +17771,6 @@ button.tm-version-badge {
     overflow: visible;
   }
 
-  .tm-state-graph {
-    overflow: visible;
-  }
-
-  .tm-state-graph__legend {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .tm-next-patch-panel {
     height: auto;
     overflow: visible;
@@ -17813,14 +17815,6 @@ button.tm-version-badge {
 
   .tm-next-patch-card__remove {
     justify-self: start;
-  }
-
-  .tm-recent-strip {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .tm-recent-strip h2 {
-    grid-column: 1 / -1;
   }
 
   .tm-lane-splitter {
@@ -18029,11 +18023,7 @@ button.tm-version-badge {
   .tm-change-status-counter span {
     font-size: 0.48rem;
   }
-
-  .tm-state-graph__stats,
-  .tm-state-graph__legend,
-  .tm-next-patch-stats,
-  .tm-state-graph__insights {
+.tm-next-patch-stats {
     grid-template-columns: 1fr;
   }
 
@@ -18050,37 +18040,8 @@ button.tm-version-badge {
     min-width: 0;
   }
 
-  .tm-state-graph__canvas svg {
-    min-height: 16rem;
-  }
-
   :deep(.tm-workflow__steps) {
     justify-content: flex-start;
-  }
-
-  .tm-recent-strip {
-    display: none;
-  }
-
-  .tm-activity-table__head {
-    display: none;
-  }
-
-  .tm-activity-table__row {
-    grid-template-columns: 1fr;
-    gap: 0.4rem;
-    padding: 0.72rem;
-  }
-
-  .tm-activity-table__change strong,
-  .tm-activity-table__tester strong,
-  .tm-activity-table__notes {
-    white-space: normal;
-  }
-
-  .tm-activity-table__status,
-  .tm-activity-table__time {
-    justify-self: start;
   }
 
   .tm-github-pr-panel__brand,
@@ -18670,6 +18631,992 @@ button.tm-version-badge {
   .tm-checklist-builder__remove {
     width: 2rem;
     height: 2rem;
+  }
+}
+
+/* === Dashboard: operations overview === */
+.tm-dash-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.1rem 0.1rem 0.6rem;
+}
+
+.tm-dash-head__summary {
+  margin: 0;
+  color: var(--tm-muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.tm-dash-head__tools {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.tm-kpis {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.tm-kpi {
+  --tm-kpi-color: var(--tm-gold);
+  position: relative;
+  display: grid;
+  gap: 0.12rem;
+  padding: 0.85rem 0.95rem 0.75rem;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  border: 1px solid var(--tm-border-soft);
+  border-radius: var(--tm-button-radius);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--tm-kpi-color) 9%, transparent),
+      transparent 58%
+    ),
+    var(--tm-panel);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  overflow: hidden;
+  transition:
+    border-color 0.14s ease,
+    transform 0.14s ease,
+    box-shadow 0.14s ease;
+}
+
+.tm-kpi::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: linear-gradient(180deg, var(--tm-kpi-color), transparent);
+  opacity: 0.85;
+}
+
+.tm-kpi--blue {
+  --tm-kpi-color: var(--tm-blue);
+}
+
+.tm-kpi--green {
+  --tm-kpi-color: var(--tm-green);
+}
+
+.tm-kpi--red {
+  --tm-kpi-color: var(--tm-red);
+}
+
+.tm-kpi:not(:disabled):hover,
+.tm-kpi:not(:disabled):focus-visible {
+  border-color: color-mix(in srgb, var(--tm-kpi-color) 55%, transparent);
+  transform: translateY(-2px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 10px 22px rgba(0, 0, 0, 0.35),
+    0 0 16px color-mix(in srgb, var(--tm-kpi-color) 16%, transparent);
+  outline: none;
+}
+
+.tm-kpi:disabled {
+  cursor: default;
+}
+
+.tm-kpi--zero {
+  opacity: 0.6;
+}
+
+.tm-kpi__value {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 1.9rem;
+  line-height: 1.05;
+  color: var(--tm-kpi-color);
+  text-shadow: 0 0 14px color-mix(in srgb, var(--tm-kpi-color) 30%, transparent);
+}
+
+.tm-kpi__label {
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tm-text);
+}
+
+.tm-kpi__hint {
+  color: var(--tm-muted);
+  font-size: 0.72rem;
+}
+
+.tm-panel__sub {
+  color: var(--tm-muted);
+  font-size: 0.74rem;
+}
+
+.tm-pipeline__bar {
+  position: relative;
+  display: flex;
+  height: 2.1rem;
+  border-radius: 0.55rem;
+  overflow: hidden;
+  border: 1px solid var(--tm-border-soft);
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.tm-pipeline__seg {
+  --tm-seg-color: var(--tm-gold);
+  display: grid;
+  place-items: center;
+  min-width: 0.45rem;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--tm-seg-color) 72%, #0a0d0d),
+    color-mix(in srgb, var(--tm-seg-color) 38%, #0a0d0d)
+  );
+  box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.45);
+  transition: width 0.4s ease;
+}
+
+.tm-pipeline__seg span {
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: rgba(8, 12, 12, 0.92);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.tm-pipeline__seg--testing {
+  --tm-seg-color: var(--tm-blue);
+}
+
+.tm-pipeline__seg--passed {
+  --tm-seg-color: var(--tm-green);
+}
+
+.tm-pipeline__seg--failed {
+  --tm-seg-color: var(--tm-red);
+}
+
+.tm-pipeline__seg--blocked {
+  --tm-seg-color: var(--tm-red);
+  background: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--tm-red) 55%, #0a0d0d) 0 8px,
+    rgba(10, 13, 13, 0.9) 8px 14px
+  );
+}
+
+.tm-pipeline__seg--blocked span {
+  color: var(--tm-text);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.tm-pipeline__bar-empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  color: var(--tm-muted);
+  font-size: 0.78rem;
+}
+
+.tm-pipeline__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.tm-pipeline__chip {
+  --tm-seg-color: var(--tm-gold);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.28rem 0.6rem;
+  color: var(--tm-text);
+  font: inherit;
+  font-size: 0.76rem;
+  border: 1px solid var(--tm-border-soft);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+  transition:
+    border-color 0.14s ease,
+    background 0.14s ease;
+}
+
+.tm-pipeline__chip--testing {
+  --tm-seg-color: var(--tm-blue);
+}
+
+.tm-pipeline__chip--passed {
+  --tm-seg-color: var(--tm-green);
+}
+
+.tm-pipeline__chip--failed,
+.tm-pipeline__chip--blocked {
+  --tm-seg-color: var(--tm-red);
+}
+
+.tm-pipeline__chip:not(:disabled):hover,
+.tm-pipeline__chip:not(:disabled):focus-visible {
+  border-color: color-mix(in srgb, var(--tm-seg-color) 55%, transparent);
+  background: color-mix(in srgb, var(--tm-seg-color) 10%, transparent);
+  outline: none;
+}
+
+.tm-pipeline__chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.tm-pipeline__swatch {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 2px;
+  background: var(--tm-seg-color);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--tm-seg-color) 50%, transparent);
+}
+
+.tm-pipeline__chip strong {
+  color: var(--tm-seg-color);
+}
+
+.tm-pipeline__coverage {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.7rem;
+  margin-top: 0.9rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--tm-border-soft);
+  font-size: 0.78rem;
+  color: var(--tm-muted);
+}
+
+.tm-pipeline__coverage em {
+  font-style: normal;
+  display: inline-grid;
+  place-items: center;
+  width: 0.95rem;
+  height: 0.95rem;
+  margin-left: 0.25rem;
+  border: 1px solid var(--tm-border-soft);
+  border-radius: 50%;
+  font-size: 0.62rem;
+  cursor: help;
+}
+
+.tm-pipeline__coverage-track {
+  height: 0.5rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--tm-border-soft);
+  overflow: hidden;
+}
+
+.tm-pipeline__coverage-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--tm-gold), var(--tm-green));
+  transition: width 0.4s ease;
+}
+
+.tm-pipeline__coverage strong {
+  color: var(--tm-text);
+  font-size: 0.9rem;
+}
+
+.tm-queue__list {
+  display: grid;
+}
+
+.tm-queue__row {
+  display: grid;
+  grid-template-columns: 6.6rem minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  padding: 0.6rem 0.5rem;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  border: 0;
+  border-bottom: 1px solid var(--tm-border-soft);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background 0.14s ease,
+    box-shadow 0.14s ease;
+}
+
+.tm-queue__row:last-child {
+  border-bottom: 0;
+}
+
+.tm-queue__row:hover,
+.tm-queue__row:focus-visible {
+  background: rgba(85, 183, 255, 0.07);
+  box-shadow: inset 2px 0 0 rgba(85, 183, 255, 0.7);
+  outline: none;
+}
+
+.tm-queue__reason {
+  justify-self: start;
+  padding: 0.16rem 0.5rem;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.tm-queue__reason--red {
+  color: var(--tm-red);
+  background: rgba(255, 107, 85, 0.1);
+}
+
+.tm-queue__reason--gold {
+  color: var(--tm-gold);
+  background: rgba(217, 164, 95, 0.1);
+}
+
+.tm-queue__reason--blue {
+  color: var(--tm-blue);
+  background: rgba(85, 183, 255, 0.1);
+}
+
+.tm-queue__main {
+  display: grid;
+  gap: 0.08rem;
+  min-width: 0;
+}
+
+.tm-queue__main strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tm-queue__main small {
+  color: var(--tm-muted);
+  font-size: 0.73rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tm-queue__chevron {
+  color: var(--tm-muted);
+}
+
+.tm-queue__clear {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 1.1rem 0.5rem;
+  color: var(--tm-green);
+  font-size: 0.85rem;
+}
+
+.tm-mywork__list {
+  display: grid;
+}
+
+.tm-mywork__row {
+  display: grid;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.6rem 0.5rem;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  border: 0;
+  border-bottom: 1px solid var(--tm-border-soft);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background 0.14s ease,
+    box-shadow 0.14s ease;
+}
+
+.tm-mywork__row:last-child {
+  border-bottom: 0;
+}
+
+.tm-mywork__row:hover,
+.tm-mywork__row:focus-visible {
+  background: rgba(85, 183, 255, 0.07);
+  box-shadow: inset 2px 0 0 rgba(85, 183, 255, 0.7);
+  outline: none;
+}
+
+.tm-mywork__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
+.tm-mywork__top strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tm-mywork__state {
+  flex: 0 0 auto;
+  font-style: normal;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--tm-muted);
+}
+
+.tm-mywork__state--testing {
+  color: var(--tm-blue);
+}
+
+.tm-mywork__state--assigned,
+.tm-mywork__state--requested,
+.tm-mywork__state--blocked {
+  color: var(--tm-gold);
+}
+
+.tm-mywork__state--failed {
+  color: var(--tm-red);
+}
+
+.tm-mywork__state--passed,
+.tm-mywork__state--done {
+  color: var(--tm-green);
+}
+
+.tm-mywork__progress {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.tm-mywork__track {
+  height: 0.4rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--tm-border-soft);
+  overflow: hidden;
+}
+
+.tm-mywork__track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--tm-blue), var(--tm-green));
+  transition: width 0.4s ease;
+}
+
+.tm-mywork__progress small {
+  color: var(--tm-muted);
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+
+.tm-mywork__empty {
+  display: grid;
+  gap: 0.6rem;
+  justify-items: start;
+  padding: 0.85rem 0.5rem;
+  color: var(--tm-muted);
+  font-size: 0.85rem;
+}
+
+.tm-mywork__empty p {
+  margin: 0;
+}
+
+.tm-mywork__cta {
+  padding: 0.45rem 0.9rem;
+  color: var(--tm-gold);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  border: 1px solid rgba(217, 164, 95, 0.5);
+  border-radius: var(--tm-control-radius);
+  background: rgba(217, 164, 95, 0.12);
+  cursor: pointer;
+  transition:
+    background 0.14s ease,
+    border-color 0.14s ease;
+}
+
+.tm-mywork__cta:hover,
+.tm-mywork__cta:focus-visible {
+  background: rgba(217, 164, 95, 0.22);
+  border-color: rgba(217, 164, 95, 0.7);
+  outline: none;
+}
+
+.tm-feed__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+}
+
+.tm-feed__list li {
+  border-bottom: 1px solid var(--tm-border-soft);
+}
+
+.tm-feed__list li:last-child {
+  border-bottom: 0;
+}
+
+.tm-feed__list button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.55rem 0.4rem;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.14s ease;
+}
+
+.tm-feed__list button:hover,
+.tm-feed__list button:focus-visible {
+  background: rgba(85, 183, 255, 0.07);
+  outline: none;
+}
+
+.tm-feed__marker {
+  margin-top: 0.32rem;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--tm-blue);
+  box-shadow: 0 0 8px rgba(85, 183, 255, 0.5);
+}
+
+.tm-feed__marker--green {
+  background: var(--tm-green);
+  box-shadow: 0 0 8px rgba(114, 214, 111, 0.5);
+}
+
+.tm-feed__marker--red {
+  background: var(--tm-red);
+  box-shadow: 0 0 8px rgba(255, 107, 85, 0.5);
+}
+
+.tm-feed__marker--gold {
+  background: var(--tm-gold);
+  box-shadow: 0 0 8px rgba(217, 164, 95, 0.5);
+}
+
+.tm-feed__body {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.tm-feed__line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85rem;
+}
+
+.tm-feed__line em {
+  color: var(--tm-blue);
+  font-style: normal;
+}
+
+.tm-feed__body small {
+  color: var(--tm-muted);
+  font-size: 0.72rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tm-feed__empty {
+  margin: 0;
+  padding: 1rem 0.4rem;
+  color: var(--tm-muted);
+  font-size: 0.82rem;
+}
+
+.tm-subsys {
+  flex: 0 0 auto;
+  margin-top: 1rem;
+}
+
+.tm-subsys__rows {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.tm-subsys__row {
+  display: grid;
+  grid-template-columns: minmax(7rem, 12rem) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.8rem;
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: var(--tm-control-radius);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    border-color 0.14s ease,
+    background 0.14s ease;
+}
+
+.tm-subsys__row:hover,
+.tm-subsys__row:focus-visible {
+  border-color: rgba(85, 183, 255, 0.36);
+  background: rgba(85, 183, 255, 0.06);
+  outline: none;
+}
+
+.tm-subsys__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.84rem;
+}
+
+.tm-subsys__track {
+  height: 0.55rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--tm-border-soft);
+  overflow: hidden;
+}
+
+.tm-subsys__fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(217, 164, 95, 0.85), rgba(85, 183, 255, 0.85));
+  transition: width 0.4s ease;
+}
+
+.tm-subsys__count {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.tm-subsys__count strong {
+  font-size: 0.95rem;
+}
+
+.tm-subsys__count em {
+  color: var(--tm-red);
+  font-style: normal;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 1300px) {
+  .tm-kpis {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .tm-dash-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.4rem;
+  }
+
+  .tm-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.6rem;
+  }
+
+  .tm-queue__row {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+
+  .tm-queue__reason {
+    grid-column: 1 / -1;
+  }
+
+  .tm-subsys__row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.3rem;
+  }
+}
+
+/* === Changes section polish === */
+.tm-change-list__count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.5rem;
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--tm-border-soft);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--tm-muted);
+  font-family: var(--nx-font-mono, ui-monospace, monospace);
+  font-size: 0.68rem;
+  vertical-align: middle;
+}
+
+.tm-change-list--searching .tm-change-card,
+.tm-change-list--searching .tm-change-list__empty {
+  opacity: 0.5;
+  transition: opacity 0.2s ease;
+}
+
+.tm-detail-placeholder .tm-unavailable-state {
+  opacity: 0.75;
+}
+
+/* === Motion === */
+@keyframes tm-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes tm-bar-reveal {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes tm-fill-grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes tm-modal-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes tm-modal-pop {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+  }
+}
+
+@keyframes tm-pulse-blue {
+  0%,
+  100% {
+    box-shadow: 0 0 6px rgba(85, 183, 255, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 14px rgba(85, 183, 255, 0.9);
+  }
+}
+
+@keyframes tm-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Section cross-fade */
+.tm-section-enter-active {
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+}
+
+.tm-section-leave-active {
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease;
+}
+
+.tm-section-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.tm-section-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+/* Dashboard entrance choreography */
+.tm-dash-head {
+  animation: tm-rise 0.35s ease both;
+}
+
+.tm-kpi {
+  animation: tm-rise 0.4s ease both;
+  animation-delay: calc(60ms + var(--tm-stagger, 0) * 45ms);
+}
+
+.tm-grid--dashboard .tm-stack > .tm-panel {
+  animation: tm-rise 0.45s ease both;
+  animation-delay: 140ms;
+}
+
+.tm-grid--dashboard .tm-stack > .tm-panel:nth-child(2) {
+  animation-delay: 230ms;
+}
+
+.tm-subsys {
+  animation: tm-rise 0.45s ease both;
+  animation-delay: 300ms;
+}
+
+.tm-pipeline__bar {
+  animation: tm-bar-reveal 0.6s cubic-bezier(0.25, 1, 0.4, 1) both;
+  animation-delay: 320ms;
+}
+
+.tm-pipeline__coverage-track > span,
+.tm-mywork__track > span,
+.tm-subsys__fill {
+  transform-origin: left center;
+  animation: tm-fill-grow 0.65s cubic-bezier(0.25, 1, 0.4, 1) both;
+  animation-delay: 420ms;
+}
+
+.tm-queue__row,
+.tm-mywork__row,
+.tm-feed__list li {
+  animation: tm-rise 0.35s ease both;
+  animation-delay: calc(220ms + var(--tm-stagger, 0) * 40ms);
+}
+
+/* Other sections: panels rise on section entry */
+.tm-grid--changes > .tm-panel,
+.tm-grid--users > .tm-panel,
+.tm-grid--users .tm-stack > .tm-panel,
+.tm-next-patch-panel,
+.tm-settings {
+  animation: tm-rise 0.4s ease both;
+}
+
+.tm-grid--changes > .tm-detail {
+  animation-delay: 70ms;
+}
+
+.tm-grid--changes > .tm-inspector {
+  animation-delay: 140ms;
+}
+
+.tm-grid--users .tm-stack > .tm-panel:nth-child(2) {
+  animation-delay: 90ms;
+}
+
+.tm-grid--users .tm-stack > .tm-panel:nth-child(3) {
+  animation-delay: 160ms;
+}
+
+/* Modals: fade backdrop, pop panel */
+.tm-modal {
+  animation: tm-modal-fade 0.18s ease both;
+}
+
+.tm-modal__panel {
+  animation: tm-modal-pop 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Live indicators */
+.tm-feed__marker--blue {
+  animation: tm-pulse-blue 2.4s ease-in-out infinite;
+}
+
+.tm-loading,
+.tm-next-patch-loading {
+  animation: tm-breathe 1.7s ease-in-out infinite;
+}
+
+/* Hover micro-interactions */
+.tm-queue__chevron {
+  transition:
+    transform 0.14s ease,
+    color 0.14s ease;
+}
+
+.tm-queue__row:hover .tm-queue__chevron,
+.tm-queue__row:focus-visible .tm-queue__chevron {
+  transform: translateX(3px);
+  color: var(--tm-blue);
+}
+
+.tm-subsys__row:hover .tm-subsys__fill,
+.tm-subsys__row:focus-visible .tm-subsys__fill {
+  filter: brightness(1.25);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tm-dash-head,
+  .tm-kpi,
+  .tm-grid--dashboard .tm-stack > .tm-panel,
+  .tm-subsys,
+  .tm-pipeline__bar,
+  .tm-pipeline__coverage-track > span,
+  .tm-mywork__track > span,
+  .tm-subsys__fill,
+  .tm-queue__row,
+  .tm-mywork__row,
+  .tm-feed__list li,
+  .tm-grid--changes > .tm-panel,
+  .tm-grid--users > .tm-panel,
+  .tm-grid--users .tm-stack > .tm-panel,
+  .tm-next-patch-panel,
+  .tm-settings,
+  .tm-modal,
+  .tm-modal__panel,
+  .tm-feed__marker--blue,
+  .tm-loading,
+  .tm-next-patch-loading {
+    animation: none;
+  }
+
+  .tm-section-enter-active,
+  .tm-section-leave-active {
+    transition: none;
+  }
+
+  .tm-kpi:not(:disabled):hover,
+  .tm-kpi:not(:disabled):focus-visible {
+    transform: none;
   }
 }
 </style>
