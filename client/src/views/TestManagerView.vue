@@ -8438,6 +8438,72 @@ function escapeHtml(value: string) {
   );
 }
 
+interface GithubReference {
+  href: string;
+  label: string;
+}
+
+const GITHUB_REFERENCE_TEXT_PATTERN =
+  /\[[^\]\n]{1,200}\]\((https:\/\/github\.com\/[^\s<>()]+)\)|(https:\/\/github\.com\/[^\s<>()]+)/gi;
+const GITHUB_REFERENCE_TRAILING_PUNCTUATION = /[.,;:!?]+$/;
+
+function parseGithubReferenceUrl(value: string): GithubReference | null {
+  try {
+    const url = new URL(decodeHtmlEntities(value).trim());
+    if (url.protocol !== 'https:' || url.hostname.toLowerCase() !== 'github.com') {
+      return null;
+    }
+
+    const [owner, repo, kind, number] = url.pathname.split('/').filter(Boolean);
+    if (
+      !owner ||
+      !repo ||
+      !['pull', 'issues'].includes(kind) ||
+      !/^[1-9][0-9]*$/.test(number) ||
+      !/^[A-Za-z0-9_.-]+$/.test(owner) ||
+      !/^[A-Za-z0-9_.-]+$/.test(repo)
+    ) {
+      return null;
+    }
+
+    return {
+      href: `https://github.com/${owner}/${repo}/${kind}/${number}`,
+      label: `${owner}/${repo}#${number}`
+    };
+  } catch {
+    return null;
+  }
+}
+
+function githubReferenceAnchor(reference: GithubReference) {
+  return `<a href="${escapeHtml(reference.href)}" class="tm-github-ref" target="_blank" rel="noopener noreferrer" data-github-ref="true">${escapeHtml(reference.label)}</a>`;
+}
+
+function linkifyGithubReferences(value: string) {
+  let cursor = 0;
+  let output = '';
+
+  for (const match of value.matchAll(GITHUB_REFERENCE_TEXT_PATTERN)) {
+    const matchIndex = match.index ?? 0;
+    const rawUrl = match[1] ?? match[2] ?? '';
+    const isMarkdownLink = Boolean(match[1]);
+    const url = isMarkdownLink ? rawUrl : rawUrl.replace(GITHUB_REFERENCE_TRAILING_PUNCTUATION, '');
+    const trailing = isMarkdownLink ? '' : rawUrl.slice(url.length);
+    const reference = parseGithubReferenceUrl(url);
+    if (!reference) {
+      continue;
+    }
+
+    output += escapeHtml(value.slice(cursor, matchIndex));
+    output += githubReferenceAnchor(reference);
+    output += escapeHtml(trailing);
+    cursor = matchIndex + match[0].length;
+  }
+
+  output += escapeHtml(value.slice(cursor));
+  return output;
+}
+
 function toLocalDateTimeInput(value: string | null) {
   if (!value) {
     return null;
@@ -8481,7 +8547,8 @@ const RICH_TEXT_ALLOWED_TAGS = new Set([
   'ol',
   'li',
   'blockquote',
-  'code'
+  'code',
+  'a'
 ]);
 const RICH_TEXT_STRIPPED_TAGS = new Set(['span', 'font']);
 
@@ -8505,6 +8572,17 @@ function normalizeRichTextTag(tag: string) {
     return '<br>';
   }
 
+  if (normalizedName === 'a') {
+    if (match[1]) {
+      return '</a>';
+    }
+    const href = tag.match(/\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i);
+    const reference = href ? parseGithubReferenceUrl(href[1] ?? href[2] ?? href[3] ?? '') : null;
+    return reference
+      ? `<a href="${escapeHtml(reference.href)}" class="tm-github-ref" target="_blank" rel="noopener noreferrer" data-github-ref="true">`
+      : null;
+  }
+
   return match[1] ? `</${normalizedName}>` : `<${normalizedName}>`;
 }
 
@@ -8515,14 +8593,28 @@ function normalizeRichTextHtml(value: string) {
   const tagPattern = /<[^>]*>/g;
   let cursor = 0;
   let normalized = '';
+  let anchorDepth = 0;
 
   for (const match of withoutUnsafeBlocks.matchAll(tagPattern)) {
-    normalized += escapeHtml(decodeHtmlEntities(withoutUnsafeBlocks.slice(cursor, match.index)));
-    normalized += normalizeRichTextTag(match[0]) ?? escapeHtml(decodeHtmlEntities(match[0]));
+    const textSegment = decodeHtmlEntities(withoutUnsafeBlocks.slice(cursor, match.index));
+    normalized += anchorDepth > 0 ? escapeHtml(textSegment) : linkifyGithubReferences(textSegment);
+
+    let normalizedTag = normalizeRichTextTag(match[0]);
+    if (normalizedTag?.startsWith('<a ')) {
+      anchorDepth += 1;
+    } else if (normalizedTag === '</a>') {
+      if (anchorDepth <= 0) {
+        normalizedTag = null;
+      } else {
+        anchorDepth -= 1;
+      }
+    }
+    normalized += normalizedTag ?? escapeHtml(decodeHtmlEntities(match[0]));
     cursor = (match.index ?? 0) + match[0].length;
   }
 
-  normalized += escapeHtml(decodeHtmlEntities(withoutUnsafeBlocks.slice(cursor)));
+  const trailingText = decodeHtmlEntities(withoutUnsafeBlocks.slice(cursor));
+  normalized += anchorDepth > 0 ? escapeHtml(trailingText) : linkifyGithubReferences(trailingText);
   return normalized
     .replace(/(?:\u00a0|&nbsp;)/gi, ' ')
     .replace(/[\u200B-\u200D\uFEFF]/g, '')
@@ -9044,7 +9136,7 @@ const RichTextEditor = defineComponent({
         .replace(/\r\n?/g, '\n')
         .split(/\n{2,}/)
         .map((block) => {
-          const escapedBlock = escapeHtml(block).replace(/\n/g, '<br>');
+          const escapedBlock = linkifyGithubReferences(block).replace(/\n/g, '<br>');
           return `<p>${hasActiveMarks() ? wrapActiveMarks(escapedBlock) : escapedBlock}</p>`;
         })
         .join('');
@@ -14091,6 +14183,43 @@ button.tm-version-badge {
   border: 1px solid rgba(85, 183, 255, 0.22);
   background: rgba(85, 183, 255, 0.08);
   color: #bfe4ff;
+}
+
+.tm-rich :deep(a.tm-github-ref),
+:deep(.tm-editor__surface a.tm-github-ref) {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 0.22rem;
+  color: #9ad8ff;
+  font-weight: 850;
+  line-height: 1.2;
+  text-decoration: none;
+  vertical-align: -0.08em;
+  white-space: nowrap;
+}
+
+.tm-rich :deep(a.tm-github-ref::before),
+:deep(.tm-editor__surface a.tm-github-ref::before) {
+  content: '';
+  width: 0.86em;
+  height: 0.86em;
+  flex: 0 0 auto;
+  background: currentColor;
+  -webkit-mask:
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill='black' d='M12 .5C5.65 .5 .5 5.65 .5 12c0 5.1 3.29 9.42 7.86 10.95.58.1.79-.25.79-.56v-2.07c-3.2.7-3.87-1.37-3.87-1.37-.53-1.35-1.3-1.71-1.3-1.71-1.06-.73.08-.72.08-.72 1.17.08 1.78 1.2 1.78 1.2 1.04 1.78 2.73 1.27 3.4.97.1-.75.4-1.27.74-1.56-2.55-.29-5.23-1.28-5.23-5.69 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.04 0 0 .98-.31 3.2 1.18.93-.26 1.93-.39 2.92-.39.99 0 1.99.13 2.92.39 2.22-1.49 3.19-1.18 3.19-1.18.63 1.58.23 2.75.11 3.04.74.81 1.19 1.83 1.19 3.09 0 4.42-2.69 5.39-5.25 5.68.42.36.79 1.07.79 2.16v3.2c0 .31.21.67.8.56A11.51 11.51 0 0 0 23.5 12C23.5 5.65 18.35 .5 12 .5Z'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  mask:
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill='black' d='M12 .5C5.65 .5 .5 5.65 .5 12c0 5.1 3.29 9.42 7.86 10.95.58.1.79-.25.79-.56v-2.07c-3.2.7-3.87-1.37-3.87-1.37-.53-1.35-1.3-1.71-1.3-1.71-1.06-.73.08-.72.08-.72 1.17.08 1.78 1.2 1.78 1.2 1.04 1.78 2.73 1.27 3.4.97.1-.75.4-1.27.74-1.56-2.55-.29-5.23-1.28-5.23-5.69 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.04 0 0 .98-.31 3.2 1.18.93-.26 1.93-.39 2.92-.39.99 0 1.99.13 2.92.39 2.22-1.49 3.19-1.18 3.19-1.18.63 1.58.23 2.75.11 3.04.74.81 1.19 1.83 1.19 3.09 0 4.42-2.69 5.39-5.25 5.68.42.36.79 1.07.79 2.16v3.2c0 .31.21.67.8.56A11.51 11.51 0 0 0 23.5 12C23.5 5.65 18.35 .5 12 .5Z'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+}
+
+.tm-rich :deep(a.tm-github-ref:hover),
+.tm-rich :deep(a.tm-github-ref:focus-visible),
+:deep(.tm-editor__surface a.tm-github-ref:hover),
+:deep(.tm-editor__surface a.tm-github-ref:focus-visible) {
+  color: #c7ecff;
+  text-decoration: underline;
 }
 
 .tm-progress {

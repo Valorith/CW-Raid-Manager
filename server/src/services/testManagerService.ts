@@ -1096,7 +1096,8 @@ const RICH_TEXT_ALLOWED_TAGS = new Set([
   'ol',
   'li',
   'blockquote',
-  'code'
+  'code',
+  'a'
 ]);
 const RICH_TEXT_STRIPPED_TAGS = new Set(['span', 'font']);
 
@@ -1144,6 +1145,72 @@ function escapeHtml(value: string): string {
   );
 }
 
+type GithubReference = {
+  href: string;
+  label: string;
+};
+
+const GITHUB_REFERENCE_TEXT_PATTERN =
+  /\[[^\]\n]{1,200}\]\((https:\/\/github\.com\/[^\s<>()]+)\)|(https:\/\/github\.com\/[^\s<>()]+)/gi;
+const GITHUB_REFERENCE_TRAILING_PUNCTUATION = /[.,;:!?]+$/;
+
+function parseGithubReferenceUrl(value: string): GithubReference | null {
+  try {
+    const url = new URL(decodeHtmlEntities(value).trim());
+    if (url.protocol !== 'https:' || url.hostname.toLowerCase() !== 'github.com') {
+      return null;
+    }
+
+    const [owner, repo, kind, number] = url.pathname.split('/').filter(Boolean);
+    if (
+      !owner ||
+      !repo ||
+      !['pull', 'issues'].includes(kind) ||
+      !/^[1-9][0-9]*$/.test(number) ||
+      !/^[A-Za-z0-9_.-]+$/.test(owner) ||
+      !/^[A-Za-z0-9_.-]+$/.test(repo)
+    ) {
+      return null;
+    }
+
+    return {
+      href: `https://github.com/${owner}/${repo}/${kind}/${number}`,
+      label: `${owner}/${repo}#${number}`
+    };
+  } catch {
+    return null;
+  }
+}
+
+function githubReferenceAnchor(reference: GithubReference): string {
+  return `<a href="${escapeHtml(reference.href)}" class="tm-github-ref" target="_blank" rel="noopener noreferrer" data-github-ref="true">${escapeHtml(reference.label)}</a>`;
+}
+
+function linkifyGithubReferences(value: string): string {
+  let cursor = 0;
+  let output = '';
+
+  for (const match of value.matchAll(GITHUB_REFERENCE_TEXT_PATTERN)) {
+    const matchIndex = match.index ?? 0;
+    const rawUrl = match[1] ?? match[2] ?? '';
+    const isMarkdownLink = Boolean(match[1]);
+    const url = isMarkdownLink ? rawUrl : rawUrl.replace(GITHUB_REFERENCE_TRAILING_PUNCTUATION, '');
+    const trailing = isMarkdownLink ? '' : rawUrl.slice(url.length);
+    const reference = parseGithubReferenceUrl(url);
+    if (!reference) {
+      continue;
+    }
+
+    output += escapeHtml(value.slice(cursor, matchIndex));
+    output += githubReferenceAnchor(reference);
+    output += escapeHtml(trailing);
+    cursor = matchIndex + match[0].length;
+  }
+
+  output += escapeHtml(value.slice(cursor));
+  return output;
+}
+
 function normalizeRichTextTag(tag: string): string | null {
   const match = tag.match(/^<\s*(\/?)\s*([a-z0-9]+)(?:\s[^>]*)?\s*(\/?)>$/i);
   if (!match) {
@@ -1164,6 +1231,17 @@ function normalizeRichTextTag(tag: string): string | null {
     return '<br>';
   }
 
+  if (normalizedName === 'a') {
+    if (match[1]) {
+      return '</a>';
+    }
+    const href = tag.match(/\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i);
+    const reference = href ? parseGithubReferenceUrl(href[1] ?? href[2] ?? href[3] ?? '') : null;
+    return reference
+      ? `<a href="${escapeHtml(reference.href)}" class="tm-github-ref" target="_blank" rel="noopener noreferrer" data-github-ref="true">`
+      : null;
+  }
+
   return match[1] ? `</${normalizedName}>` : `<${normalizedName}>`;
 }
 
@@ -1174,14 +1252,28 @@ function sanitizeRichText(value: string): string {
   const tagPattern = /<[^>]*>/g;
   let cursor = 0;
   let sanitized = '';
+  let anchorDepth = 0;
 
   for (const match of withoutUnsafeBlocks.matchAll(tagPattern)) {
-    sanitized += escapeHtml(decodeHtmlEntities(withoutUnsafeBlocks.slice(cursor, match.index)));
-    sanitized += normalizeRichTextTag(match[0]) ?? escapeHtml(decodeHtmlEntities(match[0]));
+    const textSegment = decodeHtmlEntities(withoutUnsafeBlocks.slice(cursor, match.index));
+    sanitized += anchorDepth > 0 ? escapeHtml(textSegment) : linkifyGithubReferences(textSegment);
+
+    let sanitizedTag = normalizeRichTextTag(match[0]);
+    if (sanitizedTag?.startsWith('<a ')) {
+      anchorDepth += 1;
+    } else if (sanitizedTag === '</a>') {
+      if (anchorDepth <= 0) {
+        sanitizedTag = null;
+      } else {
+        anchorDepth -= 1;
+      }
+    }
+    sanitized += sanitizedTag ?? escapeHtml(decodeHtmlEntities(match[0]));
     cursor = (match.index ?? 0) + match[0].length;
   }
 
-  sanitized += escapeHtml(decodeHtmlEntities(withoutUnsafeBlocks.slice(cursor)));
+  const trailingText = decodeHtmlEntities(withoutUnsafeBlocks.slice(cursor));
+  sanitized += anchorDepth > 0 ? escapeHtml(trailingText) : linkifyGithubReferences(trailingText);
   return sanitized
     .replace(/(?:\u00a0|&nbsp;)/gi, ' ')
     .replace(/[\u200B-\u200D\uFEFF]/g, '')
