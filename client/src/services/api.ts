@@ -3223,7 +3223,8 @@ export type TestChangeStatus =
   | 'FAILED'
   | 'BLOCKED'
   | 'RENEWED'
-  | 'CLOSED';
+  | 'CLOSED'
+  | 'ARCHIVED';
 
 export type TestChangeListStatusFilter = TestChangeStatus | 'ACTIVE' | '';
 

@@ -595,6 +595,7 @@ enum TestChangeStatus {
   BLOCKED
   RENEWED
   CLOSED
+  ARCHIVED
 }
 
 enum TestChangePriority {

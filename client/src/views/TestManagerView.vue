@@ -1579,7 +1579,7 @@
           <template v-if="authStore.isAdmin">
             <h3>Developer Actions</h3>
             <button
-              v-if="activeChange.status !== 'CLOSED'"
+              v-if="!isTerminalChangeStatus(activeChange.status)"
               type="button"
               class="tm-action tm-action--success"
               @click="openDeveloperActionConfirm('close')"
@@ -1640,11 +1640,18 @@
               </div>
             </div>
             <div class="tm-next-patch__actions">
-              <label v-if="!nextPatchViewIsComplete" class="tm-next-patch-needs-action">
+              <label
+                v-if="!nextPatchLayoutIsBoard && !nextPatchViewIsComplete"
+                class="tm-next-patch-needs-action"
+              >
                 <input v-model="nextPatchNeedsActionOnly" type="checkbox" />
                 <span>Needs Action</span>
               </label>
-              <div class="tm-next-patch-view-toggle" aria-label="Next patch view">
+              <div
+                v-if="!nextPatchLayoutIsBoard"
+                class="tm-next-patch-view-toggle"
+                aria-label="Next patch view"
+              >
                 <button
                   v-for="option in nextPatchViewOptions"
                   :key="option.key"
@@ -1667,30 +1674,52 @@
                   </span>
                 </button>
               </div>
+              <div
+                class="tm-layout-switch"
+                role="radiogroup"
+                aria-label="Next patch layout"
+                :data-active="nextPatchLayout"
+              >
+                <span class="tm-layout-switch__thumb" aria-hidden="true"></span>
+                <button
+                  v-for="option in nextPatchLayoutOptions"
+                  :key="option.key"
+                  type="button"
+                  class="tm-layout-switch__option"
+                  :class="{ 'tm-layout-switch__option--active': nextPatchLayout === option.key }"
+                  role="radio"
+                  :aria-checked="nextPatchLayout === option.key"
+                  @click="setNextPatchLayout(option.key)"
+                >
+                  <svg
+                    v-if="option.key === 'board'"
+                    class="tm-layout-switch__icon"
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                    focusable="false"
+                  >
+                    <rect x="3" y="4" width="5" height="16" rx="1.4" />
+                    <rect x="9.5" y="4" width="5" height="11" rx="1.4" />
+                    <rect x="16" y="4" width="5" height="14" rx="1.4" />
+                  </svg>
+                  <svg
+                    v-else
+                    class="tm-layout-switch__icon"
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                    focusable="false"
+                  >
+                    <path d="M4 6h16" />
+                    <path d="M4 12h16" />
+                    <path d="M4 18h16" />
+                  </svg>
+                  <span>{{ option.label }}</span>
+                </button>
+              </div>
             </div>
           </div>
 
-          <div class="tm-next-patch-stats" aria-label="Next patch summary">
-            <article>
-              <span>{{ nextPatchPrimaryStatLabel }}</span>
-              <strong>{{ visibleNextPatchChanges.length }}</strong>
-              <small>{{ nextPatchPrimaryStatDetail }}</small>
-            </article>
-            <article>
-              <span>Passed</span>
-              <strong>{{ nextPatchPassedCount }}</strong>
-              <small>validated</small>
-            </article>
-            <article>
-              <span>Testers</span>
-              <strong>{{ nextPatchTesterCount }}</strong>
-              <small>records</small>
-            </article>
-            <article>
-              <span>Areas</span>
-              <strong>{{ nextPatchAreaCount }}</strong>
-              <small>subsystems</small>
-            </article>
+          <div class="tm-next-patch-tools" aria-label="Next patch deployment actions">
             <div v-if="canUsePatchNotesGenerator" class="tm-next-patch-reset-strip">
               <button
                 type="button"
@@ -1698,7 +1727,9 @@
                 aria-label="Generate patch notes"
                 title="Generate patch notes"
                 :disabled="
-                  nextPatchLoading || patchNotesGenerating || visibleNextPatchChanges.length === 0
+                  nextPatchLoadingActive ||
+                  patchNotesGenerating ||
+                  nextPatchCompletedQueueCount === 0
                 "
                 @click="openPatchNotesGenerator"
               >
@@ -1716,7 +1747,7 @@
                 <button
                   type="button"
                   class="tm-next-patch-reset-button"
-                  :disabled="nextPatchResetPending || visibleNextPatchChanges.length === 0"
+                  :disabled="nextPatchResetPending || nextPatchCompletedQueueCount === 0"
                   @click="openNextPatchResetConfirm"
                 >
                   <span aria-hidden="true">↻</span>
@@ -1726,7 +1757,174 @@
             </div>
           </div>
 
-          <div v-if="nextPatchLoading" class="tm-next-patch-loading">Loading changes...</div>
+          <div
+            v-if="nextPatchLoadingActive && !hasNextPatchData"
+            class="tm-next-patch-loading"
+          >
+            Loading changes...
+          </div>
+
+          <div
+            v-else-if="nextPatchLayoutIsBoard && nextPatchBoardTotal === 0"
+            class="tm-next-patch-empty"
+          >
+            <span aria-hidden="true">✓</span>
+            <h3>Nothing is queued for the next patch yet.</h3>
+            <p>Changes flagged for inclusion appear here, sorted into pipeline lanes by status.</p>
+          </div>
+
+          <div
+            v-else-if="nextPatchLayoutIsBoard"
+            class="tm-board"
+            :class="{ 'tm-board--dragging': boardDragSourceLane !== null }"
+            aria-label="Next patch board"
+          >
+            <section
+              v-for="lane in nextPatchBoardColumns"
+              :key="lane.key"
+              class="tm-board-lane"
+              :class="[
+                `tm-board-lane--${lane.key}`,
+                {
+                  'tm-board-lane--over': boardDragOverLane === lane.key,
+                  'tm-board-lane--droppable':
+                    boardDragSourceLane !== null && isBoardLaneDropTarget(lane.key),
+                  'tm-board-lane--dim':
+                    boardDragSourceLane !== null &&
+                    boardDragSourceLane !== lane.key &&
+                    !isBoardLaneDropTarget(lane.key),
+                  'tm-board-lane--source': boardDragSourceLane === lane.key
+                }
+              ]"
+              @dragover="handleBoardDragOver(lane.key, $event)"
+              @dragleave="handleBoardDragLeave(lane.key)"
+              @drop="handleBoardDrop(lane.key, $event)"
+            >
+              <header class="tm-board-lane__header">
+                <span class="tm-board-lane__dot" aria-hidden="true"></span>
+                <div class="tm-board-lane__heading">
+                  <h3>{{ lane.title }}</h3>
+                  <small>{{ lane.hint }}</small>
+                </div>
+                <span class="tm-board-lane__count">{{ lane.changes.length }}</span>
+              </header>
+              <div class="tm-board-lane__body">
+                <article
+                  v-for="change in lane.changes"
+                  :key="change.id"
+                  class="tm-board-card"
+                  :class="{
+                    'tm-board-card--dragging': boardDragChangeId === change.id,
+                    'tm-board-card--pending': boardMovePendingId === change.id,
+                    'tm-board-card--draggable': canDragBoardCards
+                  }"
+                  :draggable="canDragBoardCards"
+                  role="button"
+                  tabindex="0"
+                  :aria-label="`Open change #${change.publicId}: ${change.title}`"
+                  @dragstart="handleBoardDragStart(change, $event)"
+                  @dragend="resetBoardDrag"
+                  @click="goToChange(change.id)"
+                  @keydown.enter.prevent="goToChange(change.id)"
+                  @keydown.space.prevent="goToChange(change.id)"
+                >
+                  <span
+                    v-if="canDragBoardCards"
+                    class="tm-board-card__grip"
+                    aria-hidden="true"
+                    title="Drag to change status"
+                  >
+                    <svg viewBox="0 0 24 24" focusable="false">
+                      <circle cx="9" cy="6" r="1.4" />
+                      <circle cx="15" cy="6" r="1.4" />
+                      <circle cx="9" cy="12" r="1.4" />
+                      <circle cx="15" cy="12" r="1.4" />
+                      <circle cx="9" cy="18" r="1.4" />
+                      <circle cx="15" cy="18" r="1.4" />
+                    </svg>
+                  </span>
+                  <div class="tm-board-card__top">
+                    <span
+                      class="tm-priority"
+                      :class="`tm-priority--${change.priority.toLowerCase()}`"
+                      >{{ priorityLabel(change.priority) }}</span
+                    >
+                    <span class="tm-board-card__id">#{{ change.publicId }}</span>
+                    <StatusPill :status="change.status" compact />
+                  </div>
+                  <h4 class="tm-board-card__title">{{ change.title }}</h4>
+                  <p class="tm-board-card__path">{{ change.category }} / {{ change.subsystem }}</p>
+                  <div class="tm-board-card__tags">
+                    <span class="tm-board-card__build">{{
+                      change.targetBuild || 'No target build'
+                    }}</span>
+                    <span
+                      class="tm-version-badge tm-version-badge--compact"
+                      :class="`tm-version-badge--${changeVersionTone(change)}`"
+                      :title="changeVersionTitle(change)"
+                    >
+                      <span aria-hidden="true">v</span>
+                      {{ changeVersionLabel(change) }}
+                    </span>
+                    <span
+                      v-if="lane.key !== 'closed' && !isChangeReadyToTest(change)"
+                      class="tm-readiness-badge tm-readiness-badge--not-ready tm-readiness-badge--compact"
+                      :title="changeReadinessTitle(change)"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="M12 8v5" />
+                        <path d="M12 17h.01" />
+                        <path d="M10.3 4.4 2.8 17.2A2 2 0 0 0 4.5 20h15a2 2 0 0 0 1.7-2.8L13.7 4.4a2 2 0 0 0-3.4 0Z" />
+                      </svg>
+                      Not Ready
+                    </span>
+                  </div>
+                  <div
+                    v-if="change.autoClosePassCount > 0"
+                    class="tm-board-card__auto"
+                    :class="`tm-board-card__auto--${autoCloseTone(change)}`"
+                    :style="{ '--auto-close-progress': `${autoCloseProgressPercent(change)}%` }"
+                    :title="autoCloseDetail(change)"
+                  >
+                    <span>{{ autoCloseListLabel(change) }}</span>
+                    <strong>{{ change.summary.passCount }}/{{ change.autoClosePassCount }}</strong>
+                  </div>
+                  <footer class="tm-board-card__footer">
+                    <span class="tm-board-card__stat" title="Passing testers">
+                      <strong>{{ change.summary.passCount }}</strong>
+                      passed
+                    </span>
+                    <span class="tm-board-card__stat" title="Total testers">
+                      <strong>{{ change.summary.testerCount }}</strong>
+                      testers
+                    </span>
+                    <span class="tm-board-card__stat tm-board-card__stat--checklist" title="Checklist progress">
+                      {{ checklistProgress(change) }}
+                    </span>
+                  </footer>
+                  <span class="tm-board-card__time">{{
+                    change.closedAt
+                      ? `Closed ${relativeTime(change.closedAt)}`
+                      : `Updated ${relativeTime(change.updatedAt)}`
+                  }}</span>
+                </article>
+                <p
+                  v-if="!lane.changes.length"
+                  class="tm-board-lane__empty"
+                  :class="{
+                    'tm-board-lane__empty--target':
+                      boardDragSourceLane !== null && isBoardLaneDropTarget(lane.key)
+                  }"
+                >
+                  {{
+                    boardDragSourceLane !== null && isBoardLaneDropTarget(lane.key)
+                      ? 'Drop to move here'
+                      : 'No changes'
+                  }}
+                </p>
+              </div>
+            </section>
+          </div>
 
           <div v-else-if="visibleNextPatchChanges.length" class="tm-next-patch-list">
             <article
@@ -3046,6 +3244,105 @@
     </div>
 
     <div
+      v-if="boardMovePrompt && boardMovePromptMeta"
+      class="tm-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="board-move-confirm-title"
+      @click.self="closeBoardMovePrompt"
+    >
+      <section
+        class="tm-modal__panel tm-confirm-modal tm-board-move-modal"
+        :class="`tm-confirm-modal--${boardMovePromptMeta.tone}`"
+      >
+        <div class="tm-confirm-modal__header">
+          <span class="tm-confirm-modal__icon" aria-hidden="true">
+            {{ boardMovePromptMeta.icon }}
+          </span>
+          <div>
+            <p>{{ boardMovePromptMeta.eyebrow }}</p>
+            <h2 id="board-move-confirm-title">{{ boardMovePromptMeta.title }}</h2>
+          </div>
+        </div>
+        <p class="tm-confirm-modal__body">{{ boardMovePromptMeta.body }}</p>
+        <div class="tm-confirm-modal__change">
+          <span>Selected change</span>
+          <strong>{{ boardMovePrompt.changeLabel }}</strong>
+        </div>
+
+        <div
+          v-if="boardMovePrompt.kind === 'attention'"
+          class="tm-board-move-choice"
+          role="radiogroup"
+          aria-label="Attention status"
+        >
+          <button
+            type="button"
+            class="tm-board-move-choice__option tm-board-move-choice__option--failed"
+            :class="{
+              'tm-board-move-choice__option--active': boardMoveAttentionStatus === 'FAILED'
+            }"
+            role="radio"
+            :aria-checked="boardMoveAttentionStatus === 'FAILED'"
+            @click="boardMoveAttentionStatus = 'FAILED'"
+          >
+            <span class="tm-board-move-choice__dot" aria-hidden="true"></span>
+            <span class="tm-board-move-choice__copy">
+              <strong>Failed</strong>
+              <small>Testing surfaced a defect</small>
+            </span>
+          </button>
+          <button
+            type="button"
+            class="tm-board-move-choice__option tm-board-move-choice__option--blocked"
+            :class="{
+              'tm-board-move-choice__option--active': boardMoveAttentionStatus === 'BLOCKED'
+            }"
+            role="radio"
+            :aria-checked="boardMoveAttentionStatus === 'BLOCKED'"
+            @click="boardMoveAttentionStatus = 'BLOCKED'"
+          >
+            <span class="tm-board-move-choice__dot" aria-hidden="true"></span>
+            <span class="tm-board-move-choice__copy">
+              <strong>Blocked</strong>
+              <small>Progress is halted by a dependency</small>
+            </span>
+          </button>
+        </div>
+
+        <label class="tm-board-move-field">
+          <span>{{ boardMovePromptMeta.detailLabel }}</span>
+          <textarea
+            v-model="boardMoveDetail"
+            rows="3"
+            maxlength="1000"
+            :placeholder="boardMovePromptMeta.detailPlaceholder"
+          ></textarea>
+        </label>
+
+        <div class="tm-confirm-modal__actions">
+          <button
+            type="button"
+            class="tm-btn tm-btn--ghost"
+            :disabled="Boolean(boardMovePendingId)"
+            @click="closeBoardMovePrompt"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="tm-btn"
+            :class="boardMovePromptMeta.confirmClass"
+            :disabled="Boolean(boardMovePendingId)"
+            @click="confirmBoardMove"
+          >
+            {{ boardMovePendingId ? 'Working...' : boardMovePromptMeta.confirmLabel }}
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div
       v-if="testerRemoveConfirm"
       class="tm-modal"
       role="dialog"
@@ -3106,8 +3403,8 @@
           </div>
         </div>
         <p class="tm-confirm-modal__body">
-          This will remove {{ nextPatchChanges.length }} completed change{{
-            nextPatchChanges.length === 1 ? '' : 's'
+          This will remove {{ nextPatchCompletedQueueCount }} completed change{{
+            nextPatchCompletedQueueCount === 1 ? '' : 's'
           }}
           from the Complete view of Next Patch.
         </p>
@@ -3118,8 +3415,8 @@
             appear in the next patch queue.
           </p>
           <p>
-            Change records, tester notes, checklist history, and closed status are preserved. This
-            only clears their Next Patch flag.
+            Change records, tester notes, and checklist history are preserved. The completed
+            changes move to Archived and leave the Next Patch queue.
           </p>
         </div>
         <div class="tm-confirm-modal__actions">
@@ -4298,6 +4595,22 @@ const nextPatchLoading = ref(false);
 const nextPatchNeedsActionOnly = ref(false);
 const nextPatchViewCache = ref<Partial<Record<NextPatchChangeView, TestChange[]>>>({});
 let nextPatchLoadSequence = 0;
+
+type NextPatchLayout = 'board' | 'list';
+const NEXT_PATCH_LAYOUT_STORAGE_KEY = 'tm.nextPatch.layout';
+const nextPatchLayout = ref<NextPatchLayout>(loadNextPatchLayoutPreference());
+const nextPatchBoardLoading = ref(false);
+let nextPatchBoardLoadSequence = 0;
+
+// Drag-and-drop board state (admin only).
+const boardDragChangeId = ref<string | null>(null);
+const boardDragSourceLane = ref<BoardLaneKey | null>(null);
+const boardDragOverLane = ref<BoardLaneKey | null>(null);
+const boardMovePendingId = ref<string | null>(null);
+// When a lane move needs extra input/confirmation, this prompt is shown.
+const boardMovePrompt = ref<BoardMovePrompt | null>(null);
+const boardMoveDetail = ref('');
+const boardMoveAttentionStatus = ref<Extract<TestChangeStatus, 'FAILED' | 'BLOCKED'>>('FAILED');
 const patchNotesGeneratorOpen = ref(false);
 const patchNotesGenerating = ref(false);
 const patchNotesModel = ref('');
@@ -4433,8 +4746,10 @@ const changeStatuses: TestChangeStatus[] = [
   'FAILED',
   'BLOCKED',
   'RENEWED',
-  'CLOSED'
+  'CLOSED',
+  'ARCHIVED'
 ];
+const TERMINAL_CHANGE_STATUSES = new Set<TestChangeStatus>(['CLOSED', 'ARCHIVED']);
 const detailTabs = ['Overview', 'Testers', 'Coverage', 'Reports', 'History'] as const;
 type DetailTab = (typeof detailTabs)[number];
 const subnavItems = [
@@ -4581,6 +4896,71 @@ const nextPatchViewOptions: Array<{ key: NextPatchChangeView; label: string }> =
   { key: 'complete', label: 'Complete' },
   { key: 'incomplete', label: 'Incomplete' }
 ];
+
+const nextPatchLayoutOptions: Array<{ key: NextPatchLayout; label: string }> = [
+  { key: 'board', label: 'Board' },
+  { key: 'list', label: 'List' }
+];
+
+// Kanban lanes group the 8 raw statuses into 5 meaningful pipeline columns.
+type BoardLaneKey = 'toTest' | 'testing' | 'passed' | 'attention' | 'closed';
+interface BoardLaneDefinition {
+  key: BoardLaneKey;
+  title: string;
+  hint: string;
+  statuses: TestChangeStatus[];
+}
+const NEXT_PATCH_BOARD_LANES: BoardLaneDefinition[] = [
+  {
+    key: 'toTest',
+    title: 'To Test',
+    hint: 'Queued & renewed',
+    statuses: ['SUBMITTED', 'AWAITING_TEST', 'RENEWED']
+  },
+  { key: 'testing', title: 'Testing', hint: 'In progress', statuses: ['TESTING'] },
+  { key: 'passed', title: 'Passed', hint: 'Validated', statuses: ['PASSED'] },
+  {
+    key: 'attention',
+    title: 'Needs Attention',
+    hint: 'Failed or blocked',
+    statuses: ['FAILED', 'BLOCKED']
+  },
+  { key: 'closed', title: 'Closed', hint: 'Shipped', statuses: ['CLOSED', 'ARCHIVED'] }
+];
+const STATUS_TO_BOARD_LANE: Record<TestChangeStatus, BoardLaneKey> = {
+  SUBMITTED: 'toTest',
+  AWAITING_TEST: 'toTest',
+  RENEWED: 'toTest',
+  TESTING: 'testing',
+  PASSED: 'passed',
+  FAILED: 'attention',
+  BLOCKED: 'attention',
+  CLOSED: 'closed',
+  ARCHIVED: 'closed'
+};
+// Only workflow-sensible lane moves are accepted; anything else snaps back on drop.
+const BOARD_LANE_TRANSITIONS: Record<BoardLaneKey, BoardLaneKey[]> = {
+  toTest: ['testing', 'attention', 'closed'],
+  testing: ['toTest', 'passed', 'attention', 'closed'],
+  passed: ['testing', 'attention', 'closed'],
+  attention: ['toTest', 'testing', 'passed', 'closed'],
+  closed: ['toTest']
+};
+const BOARD_PRIORITY_RANK: Record<TestChangePriority, number> = {
+  CRITICAL: 4,
+  HIGH: 3,
+  MEDIUM: 2,
+  LOW: 1
+};
+
+// Some lane drops need confirmation or a required choice before applying.
+type BoardMoveKind = 'attention' | 'closed' | 'renew';
+interface BoardMovePrompt {
+  changeId: string;
+  changeLabel: string;
+  laneKey: BoardLaneKey;
+  kind: BoardMoveKind;
+}
 type CreateChecklistDraft = CreateTestChangePayload['checklist'][number];
 type EditChecklistDraft = NonNullable<UpdateTestChangePayload['checklist']>[number];
 type EditChangeForm = Omit<UpdateTestChangePayload, 'checklist'> & {
@@ -4918,14 +5298,14 @@ const activeChangeReadyToTest = computed(() =>
 );
 const isActivelyTestingViewer = computed(
   () =>
-    activeChange.value?.status !== 'CLOSED' &&
+    Boolean(activeChange.value && !isTerminalChangeStatus(activeChange.value.status)) &&
     activeChangeReadyToTest.value &&
     activeViewerTester.value?.status === 'TESTING' &&
     !activeViewerTester.value.result
 );
 const canUseTesterControls = computed(() => isActivelyTestingViewer.value);
 const canAddTestingNote = computed(() =>
-  Boolean(activeChange.value && activeChange.value.status !== 'CLOSED')
+  Boolean(activeChange.value && !isTerminalChangeStatus(activeChange.value.status))
 );
 const canOpenWebhookInbox = computed(() => authStore.user?.isAdmin === true);
 const showClosedNextPatchPrompt = computed(() => {
@@ -5018,8 +5398,10 @@ const editAutoCloseDetail = computed(() => {
   if (!change) {
     return `Closes after ${target} clean passing review${target === 1 ? '' : 's'}.`;
   }
-  if (change.status === 'CLOSED') {
-    return 'This change is already closed.';
+  if (isTerminalChangeStatus(change.status)) {
+    return change.status === 'ARCHIVED'
+      ? 'This change is already archived.'
+      : 'This change is already closed.';
   }
   const blockers = change.summary.failCount + change.summary.blockedCount;
   if (blockers > 0) {
@@ -5081,8 +5463,9 @@ const versionEditorPreview = computed(() => {
 });
 
 const nextPatchViewIsComplete = computed(() => nextPatchView.value === 'complete');
+const nextPatchLayoutIsBoard = computed(() => nextPatchLayout.value === 'board');
 const canUsePatchNotesGenerator = computed(
-  () => authStore.isAdmin && nextPatchViewIsComplete.value
+  () => authStore.isAdmin && (nextPatchViewIsComplete.value || nextPatchLayoutIsBoard.value)
 );
 const nextPatchNeedsActionFilterActive = computed(
   () => !nextPatchViewIsComplete.value && nextPatchNeedsActionOnly.value
@@ -5092,21 +5475,93 @@ const visibleNextPatchChanges = computed(() =>
     ? nextPatchChanges.value.filter(needsViewerNextPatchAction)
     : nextPatchChanges.value
 );
-const nextPatchPassedCount = computed(() =>
-  visibleNextPatchChanges.value.reduce((total, change) => total + change.summary.passCount, 0)
+// The board ignores the Incomplete/Complete split: it shows every next-patch
+// change at once, merged from both cached views and deduped by id.
+const nextPatchBoardChanges = computed(() => {
+  const byId = new Map<string, TestChange>();
+  (['incomplete', 'complete'] as NextPatchChangeView[]).forEach((view) => {
+    (nextPatchViewCache.value[view] ?? []).forEach((change) => {
+      byId.set(change.id, change);
+    });
+  });
+  return Array.from(byId.values());
+});
+const nextPatchBoardColumns = computed(() => {
+  const buckets: Record<BoardLaneKey, TestChange[]> = {
+    toTest: [],
+    testing: [],
+    passed: [],
+    attention: [],
+    closed: []
+  };
+  for (const change of nextPatchBoardChanges.value) {
+    buckets[STATUS_TO_BOARD_LANE[change.status] ?? 'toTest'].push(change);
+  }
+  return NEXT_PATCH_BOARD_LANES.map((lane) => ({
+    ...lane,
+    changes: buckets[lane.key].slice().sort(compareBoardChanges)
+  }));
+});
+const nextPatchBoardTotal = computed(() => nextPatchBoardChanges.value.length);
+const hasNextPatchData = computed(() =>
+  nextPatchLayoutIsBoard.value
+    ? nextPatchBoardChanges.value.length > 0
+    : nextPatchChanges.value.length > 0
 );
-const nextPatchTesterCount = computed(() =>
-  visibleNextPatchChanges.value.reduce((total, change) => total + change.summary.testerCount, 0)
+const nextPatchLoadingActive = computed(() =>
+  nextPatchLayoutIsBoard.value ? nextPatchBoardLoading.value : nextPatchLoading.value
 );
-const nextPatchAreaCount = computed(
-  () => new Set(visibleNextPatchChanges.value.map((change) => change.subsystem)).size
+const nextPatchCompletedQueueCount = computed(() =>
+  nextPatchLayoutIsBoard.value
+    ? (nextPatchViewCache.value.complete?.length ?? 0)
+    : nextPatchViewIsComplete.value
+      ? visibleNextPatchChanges.value.length
+      : 0
 );
-const nextPatchPrimaryStatLabel = computed(() =>
-  nextPatchViewIsComplete.value ? 'Complete' : 'Incomplete'
-);
-const nextPatchPrimaryStatDetail = computed(() =>
-  nextPatchViewIsComplete.value ? 'changes' : 'open changes'
-);
+const canDragBoardCards = computed(() => authStore.isAdmin);
+const boardMovePromptMeta = computed(() => {
+  const prompt = boardMovePrompt.value;
+  if (!prompt) {
+    return null;
+  }
+  if (prompt.kind === 'attention') {
+    return {
+      eyebrow: 'Needs Attention',
+      title: 'Flag this change',
+      body: 'Choose whether this change failed testing or is blocked, then add an optional reason.',
+      icon: '⚠',
+      tone: 'danger',
+      confirmLabel: 'Apply',
+      confirmClass: 'tm-btn--danger',
+      detailLabel: 'Reason (optional)',
+      detailPlaceholder: 'What failed, or what is blocking progress?'
+    };
+  }
+  if (prompt.kind === 'closed') {
+    return {
+      eyebrow: 'Close Change',
+      title: 'Close this change?',
+      body: 'This marks the change complete and removes it from the active testing workflow.',
+      icon: '🔒',
+      tone: 'success',
+      confirmLabel: 'Close Change',
+      confirmClass: 'tm-btn--success',
+      detailLabel: 'Closing note (optional)',
+      detailPlaceholder: 'Add an optional note for the history log.'
+    };
+  }
+  return {
+    eyebrow: 'Renew Change',
+    title: 'Reopen this change?',
+    body: 'This reopens another testing cycle so testers can validate the change again.',
+    icon: '↻',
+    tone: 'info',
+    confirmLabel: 'Renew Change',
+    confirmClass: 'tm-btn--primary',
+    detailLabel: 'Renewal note (optional)',
+    detailPlaceholder: 'Add an optional note for the history log.'
+  };
+});
 const nextPatchProgressComplete = computed(() => nextPatchCounts.value.completeCount);
 const nextPatchProgressTotal = computed(() => nextPatchCounts.value.totalCount);
 const nextPatchProgressPercent = computed(() =>
@@ -5133,6 +5588,17 @@ const includedPatchNotesCount = computed(
   () => patchNoteDrafts.value.filter((draft) => draft.included).length
 );
 const nextPatchSummaryText = computed(() => {
+  if (nextPatchLayoutIsBoard.value) {
+    if (nextPatchBoardLoading.value && nextPatchBoardChanges.value.length === 0) {
+      return 'Loading the next patch pipeline.';
+    }
+    const total = nextPatchBoardChanges.value.length;
+    if (total === 0) {
+      return 'Changes flagged for the next patch will appear on the board.';
+    }
+    return `${total} change${total === 1 ? '' : 's'} moving through the next patch pipeline.`;
+  }
+
   if (nextPatchLoading.value) {
     return nextPatchViewIsComplete.value
       ? 'Loading completed next patch changes.'
@@ -5312,7 +5778,7 @@ const needsAttentionQueue = computed(() =>
 const myWorkItems = computed(() =>
   dashboardGraphChanges.value.flatMap((change) => {
     const tester = change.viewerTester;
-    if (change.status === 'CLOSED' || !tester || tester.status === 'DONE') {
+    if (isTerminalChangeStatus(change.status) || !tester || tester.status === 'DONE') {
       return [];
     }
     const total = change.summary.checklistCount;
@@ -5583,7 +6049,7 @@ const ATTENTION_FILTER_LABELS: Record<AttentionFilterKey, string> = {
 const ATTENTION_READY_STATUSES: TestChangeStatus[] = ['SUBMITTED', 'AWAITING_TEST', 'RENEWED'];
 
 function matchesAttentionFilter(change: TestChange, filter: AttentionFilterKey) {
-  if (change.status === 'CLOSED') {
+  if (isTerminalChangeStatus(change.status)) {
     return false;
   }
   switch (filter) {
@@ -5649,6 +6115,10 @@ const changeListEmptyMessage = computed(() => {
 
   if (changeStatusFilter.value === 'CLOSED') {
     return 'No closed changes found.';
+  }
+
+  if (changeStatusFilter.value === 'ARCHIVED') {
+    return 'No archived changes found.';
   }
 
   if (changeSearch.value.trim()) {
@@ -5753,6 +6223,295 @@ async function setNextPatchView(view: NextPatchChangeView) {
   const cachedChanges = nextPatchViewCache.value[view];
   nextPatchChanges.value = cachedChanges ? [...cachedChanges] : [];
   await loadNextPatch();
+}
+
+function loadNextPatchLayoutPreference(): NextPatchLayout {
+  if (typeof window === 'undefined') {
+    return 'board';
+  }
+  try {
+    const saved = window.localStorage.getItem(NEXT_PATCH_LAYOUT_STORAGE_KEY);
+    return saved === 'list' ? 'list' : 'board';
+  } catch {
+    return 'board';
+  }
+}
+
+function compareBoardChanges(left: TestChange, right: TestChange) {
+  const priorityDelta =
+    (BOARD_PRIORITY_RANK[right.priority] ?? 0) - (BOARD_PRIORITY_RANK[left.priority] ?? 0);
+  if (priorityDelta !== 0) {
+    return priorityDelta;
+  }
+  return left.publicId - right.publicId;
+}
+
+// Loads both views so the board can show the full pipeline at once.
+async function loadNextPatchBoard() {
+  const sequence = ++nextPatchBoardLoadSequence;
+  const hasCache = Boolean(
+    nextPatchViewCache.value.incomplete && nextPatchViewCache.value.complete
+  );
+  nextPatchBoardLoading.value = !hasCache;
+  try {
+    const [incomplete, complete] = await Promise.all([
+      api.fetchTestManagerNextPatch('incomplete'),
+      api.fetchTestManagerNextPatch('complete')
+    ]);
+    if (sequence !== nextPatchBoardLoadSequence) {
+      return;
+    }
+    cacheNextPatchView('incomplete', incomplete.slice().sort(compareNextPatchChanges));
+    cacheNextPatchView('complete', complete.slice().sort(compareNextPatchChanges));
+    refreshNextPatchCountInBackground();
+  } finally {
+    if (sequence === nextPatchBoardLoadSequence) {
+      nextPatchBoardLoading.value = false;
+    }
+  }
+}
+
+// Refreshes whichever next-patch layout is active.
+async function reloadNextPatchSection() {
+  if (nextPatchLayout.value === 'board') {
+    await loadNextPatchBoard();
+  } else {
+    await loadNextPatch();
+  }
+}
+
+async function setNextPatchLayout(layout: NextPatchLayout) {
+  if (nextPatchLayout.value === layout) {
+    return;
+  }
+  nextPatchLayout.value = layout;
+  if (typeof window !== 'undefined') {
+    try {
+      window.localStorage.setItem(NEXT_PATCH_LAYOUT_STORAGE_KEY, layout);
+    } catch {
+      // Persisting the preference is best-effort.
+    }
+  }
+  resetBoardDrag();
+  await reloadNextPatchSection();
+}
+
+function isValidBoardLaneMove(source: BoardLaneKey, target: BoardLaneKey) {
+  return source !== target && Boolean(BOARD_LANE_TRANSITIONS[source]?.includes(target));
+}
+
+function isBoardLaneDropTarget(laneKey: BoardLaneKey) {
+  if (!boardDragSourceLane.value) {
+    return false;
+  }
+  return isValidBoardLaneMove(boardDragSourceLane.value, laneKey);
+}
+
+// Canonical status applied when a card is dropped into a lane.
+function boardLaneTargetStatus(
+  laneKey: BoardLaneKey,
+  sourceStatus: TestChangeStatus
+): TestChangeStatus {
+  switch (laneKey) {
+    case 'toTest':
+      return isTerminalChangeStatus(sourceStatus) ? 'RENEWED' : 'AWAITING_TEST';
+    case 'testing':
+      return 'TESTING';
+    case 'passed':
+      return 'PASSED';
+    case 'attention':
+      return 'FAILED';
+    case 'closed':
+      return 'CLOSED';
+    default:
+      return sourceStatus;
+  }
+}
+
+function resetBoardDrag() {
+  boardDragChangeId.value = null;
+  boardDragSourceLane.value = null;
+  boardDragOverLane.value = null;
+}
+
+function handleBoardDragStart(change: TestChange, event: DragEvent) {
+  if (!canDragBoardCards.value) {
+    event.preventDefault();
+    return;
+  }
+  boardDragChangeId.value = change.id;
+  boardDragSourceLane.value = STATUS_TO_BOARD_LANE[change.status] ?? 'toTest';
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    // Some browsers require data to be set for the drag to begin.
+    try {
+      event.dataTransfer.setData('text/plain', change.id);
+    } catch {
+      // Ignore environments that disallow setData during dragstart.
+    }
+  }
+}
+
+function handleBoardDragOver(laneKey: BoardLaneKey, event: DragEvent) {
+  if (!boardDragSourceLane.value) {
+    return;
+  }
+  if (isBoardLaneDropTarget(laneKey)) {
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'move';
+    }
+    boardDragOverLane.value = laneKey;
+  } else if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'none';
+  }
+}
+
+function handleBoardDragLeave(laneKey: BoardLaneKey) {
+  if (boardDragOverLane.value === laneKey) {
+    boardDragOverLane.value = null;
+  }
+}
+
+async function handleBoardDrop(laneKey: BoardLaneKey, event: DragEvent) {
+  event.preventDefault();
+  const sourceLane = boardDragSourceLane.value;
+  const changeId = boardDragChangeId.value;
+  resetBoardDrag();
+  if (!changeId || !sourceLane) {
+    return;
+  }
+  // Permission guard: only admins may change a change's status. Anyone else is rejected.
+  if (!authStore.isAdmin) {
+    addToast({
+      title: 'Permission Required',
+      message: 'Only admins can move changes between status lanes.',
+      variant: 'error'
+    });
+    return;
+  }
+  // Invalid (non-workflow) moves snap back without any change.
+  if (!isValidBoardLaneMove(sourceLane, laneKey)) {
+    return;
+  }
+  const change = nextPatchBoardChanges.value.find((entry) => entry.id === changeId);
+  if (!change) {
+    return;
+  }
+
+  const promptKind = boardMovePromptKind(laneKey, change.status);
+  if (promptKind) {
+    openBoardMovePrompt(change, laneKey, promptKind);
+    return;
+  }
+
+  await applyBoardStatus(change, boardLaneTargetStatus(laneKey, change.status));
+}
+
+// Lanes that need a decision or confirmation before the move is applied.
+function boardMovePromptKind(
+  laneKey: BoardLaneKey,
+  sourceStatus: TestChangeStatus
+): BoardMoveKind | null {
+  if (laneKey === 'attention') {
+    // Failed vs Blocked is ambiguous, so the admin must choose.
+    return 'attention';
+  }
+  if (laneKey === 'closed') {
+    return 'closed';
+  }
+  if (laneKey === 'toTest' && isTerminalChangeStatus(sourceStatus)) {
+    // Reopening a terminal change renews its testing cycle.
+    return 'renew';
+  }
+  return null;
+}
+
+function openBoardMovePrompt(change: TestChange, laneKey: BoardLaneKey, kind: BoardMoveKind) {
+  boardMoveDetail.value = '';
+  boardMoveAttentionStatus.value = 'FAILED';
+  boardMovePrompt.value = {
+    changeId: change.id,
+    changeLabel: `#${change.publicId} ${change.title}`,
+    laneKey,
+    kind
+  };
+}
+
+function closeBoardMovePrompt() {
+  if (boardMovePendingId.value) {
+    return;
+  }
+  boardMovePrompt.value = null;
+  boardMoveDetail.value = '';
+}
+
+async function confirmBoardMove() {
+  const prompt = boardMovePrompt.value;
+  if (!prompt || boardMovePendingId.value) {
+    return;
+  }
+  const change = nextPatchBoardChanges.value.find((entry) => entry.id === prompt.changeId);
+  if (!change) {
+    boardMovePrompt.value = null;
+    return;
+  }
+  const targetStatus: TestChangeStatus =
+    prompt.kind === 'attention'
+      ? boardMoveAttentionStatus.value
+      : prompt.kind === 'closed'
+        ? 'CLOSED'
+        : 'RENEWED';
+  const detail = boardMoveDetail.value.trim();
+  const applied = await applyBoardStatus(change, targetStatus, detail || null);
+  if (applied) {
+    boardMovePrompt.value = null;
+    boardMoveDetail.value = '';
+  }
+}
+
+async function applyBoardStatus(
+  change: TestChange,
+  targetStatus: TestChangeStatus,
+  detail: string | null = null
+): Promise<boolean> {
+  if (!authStore.isAdmin) {
+    addToast({
+      title: 'Permission Required',
+      message: 'Only admins can move changes between status lanes.',
+      variant: 'error'
+    });
+    return false;
+  }
+  if (boardMovePendingId.value) {
+    return false;
+  }
+  if (targetStatus === change.status && !detail) {
+    return true;
+  }
+  boardMovePendingId.value = change.id;
+  try {
+    const updated = await api.updateTestChangeStatus(change.id, targetStatus, detail);
+    replaceCachedChange(updated);
+    refreshNextPatchCountInBackground();
+    addToast({
+      title: 'Status Updated',
+      message: `#${updated.publicId} moved to ${statusLabel(
+        updated.status === 'SUBMITTED' ? 'AWAITING_TEST' : updated.status
+      )}.`,
+      variant: 'success'
+    });
+    return true;
+  } catch (error) {
+    addToast({
+      title: 'Status Update Failed',
+      message: getApiErrorMessage(error, 'Unable to update the change status.'),
+      variant: 'error'
+    });
+    return false;
+  } finally {
+    boardMovePendingId.value = null;
+  }
 }
 
 function isNotFoundError(error: unknown) {
@@ -6020,7 +6779,7 @@ async function refreshAfterChangeVersionUpdate(updated: TestChange) {
   } else if (currentSection.value === 'changes') {
     await loadChanges();
   } else if (currentSection.value === 'next-patch') {
-    await loadNextPatch();
+    await reloadNextPatchSection();
   }
 
   await loadNextPatchCount();
@@ -6063,7 +6822,7 @@ async function refreshVersionSensitiveTestManagerData() {
   } else if (currentSection.value === 'changes') {
     await loadChanges();
   } else if (currentSection.value === 'next-patch') {
-    await loadNextPatch();
+    await reloadNextPatchSection();
   }
 
   if (currentSection.value !== 'next-patch') {
@@ -6206,7 +6965,7 @@ async function loadCurrentSection() {
         await openNotesModal();
       }
     } else if (section === 'next-patch') {
-      await loadNextPatch();
+      await reloadNextPatchSection();
     } else if (section === 'users') {
       await loadUsers();
     } else {
@@ -6971,7 +7730,7 @@ function autoCloseTone(change: TestChange) {
   if (autoCloseBlocked(change)) {
     return 'blocked';
   }
-  if (change.status === 'CLOSED') {
+  if (isTerminalChangeStatus(change.status)) {
     return 'closed';
   }
   if (change.summary.passCount >= change.autoClosePassCount) {
@@ -6994,7 +7753,7 @@ function autoCloseLabel(change: TestChange) {
   if (autoCloseBlocked(change)) {
     return 'Auto-close blocked';
   }
-  if (change.status === 'CLOSED') {
+  if (isTerminalChangeStatus(change.status)) {
     return 'Auto-close met';
   }
   return `${change.summary.passCount}/${change.autoClosePassCount} auto-close`;
@@ -7007,7 +7766,7 @@ function autoCloseListLabel(change: TestChange) {
   if (autoCloseBlocked(change)) {
     return 'Blocked';
   }
-  if (change.status === 'CLOSED') {
+  if (isTerminalChangeStatus(change.status)) {
     return 'Met';
   }
   return 'Auto-close';
@@ -7021,7 +7780,7 @@ function autoCloseDetail(change: TestChange) {
   if (blockers > 0) {
     return `${blockers} failing or blocked review${blockers === 1 ? '' : 's'} prevent automatic closing.`;
   }
-  if (change.status === 'CLOSED') {
+  if (isTerminalChangeStatus(change.status)) {
     return `Pass target was ${change.autoClosePassCount}; ${change.summary.passCount} passing review${change.summary.passCount === 1 ? '' : 's'} are registered.`;
   }
   return `Closes automatically at ${change.autoClosePassCount} passing review${change.autoClosePassCount === 1 ? '' : 's'} when no fail or blocked reviews exist.`;
@@ -7647,7 +8406,7 @@ function replaceCachedChange(change: TestChange) {
     }
     const belongsInView =
       change.includeInNextPatch &&
-      (key === 'complete' ? change.status === 'CLOSED' : change.status !== 'CLOSED');
+      (key === 'complete' ? change.status === 'CLOSED' : !isTerminalChangeStatus(change.status));
     const updatedChanges = cachedChanges.filter((entry) => entry.id !== change.id);
     nextPatchCache[key] = (belongsInView ? [...updatedChanges, change] : updatedChanges).sort(
       compareNextPatchChanges
@@ -7673,7 +8432,7 @@ async function setChangeNextPatch(change: TestChange, includeInNextPatch: boolea
     const updated = await api.updateTestChangeNextPatch(change.id, includeInNextPatch);
     replaceCachedChange(updated);
     if (currentSection.value === 'next-patch') {
-      await loadNextPatch();
+      await reloadNextPatchSection();
     } else {
       await loadNextPatchCount();
     }
@@ -7760,7 +8519,7 @@ async function confirmClosedNextPatchPrompt() {
 }
 
 function openNextPatchResetConfirm() {
-  if (!authStore.isAdmin || !nextPatchViewIsComplete.value || nextPatchChanges.value.length === 0) {
+  if (!canUsePatchNotesGenerator.value || nextPatchCompletedQueueCount.value === 0) {
     return;
   }
   nextPatchResetConfirm.value = true;
@@ -7823,7 +8582,7 @@ async function generatePatchNotes() {
 }
 
 function openPatchNotesGenerator() {
-  if (!canUsePatchNotesGenerator.value || visibleNextPatchChanges.value.length === 0) {
+  if (!canUsePatchNotesGenerator.value || nextPatchCompletedQueueCount.value === 0) {
     return;
   }
 
@@ -7907,7 +8666,7 @@ async function confirmNextPatchReset() {
     const result = await api.resetTestManagerNextPatch();
     nextPatchResetConfirm.value = false;
     clearNextPatchCache();
-    await loadNextPatch();
+    await reloadNextPatchSection();
     addToast({
       title: 'Patch List Reset',
       message: `${result.resetCount} change${result.resetCount === 1 ? '' : 's'} cleared from Next Patch.`,
@@ -7976,7 +8735,7 @@ async function toggleTester(user: TestManagerUserSummary, tester: boolean) {
 
 function canStartTesting(change: TestChange) {
   const viewerTester = change.viewerTester;
-  if (change.status === 'CLOSED' || !isChangeReadyToTest(change)) {
+  if (isTerminalChangeStatus(change.status) || !isChangeReadyToTest(change)) {
     return false;
   }
   if (!viewerTester) {
@@ -7990,7 +8749,7 @@ function canStartTesting(change: TestChange) {
 function needsViewerNextPatchAction(change: TestChange) {
   const viewerTester = change.viewerTester;
   return (
-    change.status !== 'CLOSED' &&
+    !isTerminalChangeStatus(change.status) &&
     isChangeReadyToTest(change) &&
     Boolean(
       viewerTester &&
@@ -8202,7 +8961,7 @@ function coverageCellMeta(tester: TestChange['testers'][number], checklistItemId
 
 function canEditViewerChecklist(change: TestChange) {
   return (
-    change.status !== 'CLOSED' &&
+    !isTerminalChangeStatus(change.status) &&
     isChangeReadyToTest(change) &&
     change.viewerTester?.status === 'TESTING' &&
     !change.viewerTester.result
@@ -8340,7 +9099,7 @@ function compareNextPatchChanges(left: TestChange, right: TestChange) {
 function isChangeInCurrentNextPatchView(change: TestChange) {
   return (
     change.includeInNextPatch &&
-    (nextPatchViewIsComplete.value ? change.status === 'CLOSED' : change.status !== 'CLOSED')
+    (nextPatchViewIsComplete.value ? change.status === 'CLOSED' : !isTerminalChangeStatus(change.status))
   );
 }
 
@@ -8374,6 +9133,10 @@ function statusFilterLabel(status: TestChangeStatus) {
   return statusLabel(status);
 }
 
+function isTerminalChangeStatus(status: string | null | undefined) {
+  return TERMINAL_CHANGE_STATUSES.has(status as TestChangeStatus);
+}
+
 function assignmentLabel(assignment: string) {
   if (assignment === 'ADMIN_REQUESTED') {
     return 'Requested';
@@ -8387,6 +9150,10 @@ function isTesterActivelyTesting(tester: TestChange['testers'][number]) {
 
 function viewerChangeListStatus(change: TestChange): { label: string; tone: string } {
   const tester = change.viewerTester;
+
+  if (change.status === 'ARCHIVED') {
+    return { label: 'Archived', tone: 'closed' };
+  }
 
   if (change.status === 'CLOSED') {
     return { label: 'Closed', tone: 'closed' };
@@ -8937,7 +9704,8 @@ const WorkflowTimeline = defineComponent({
     const statusStepMap: Partial<Record<TestChangeStatus, TestChangeStatus>> = {
       AWAITING_TEST: 'SUBMITTED',
       BLOCKED: 'TESTING',
-      FAILED: 'TESTING'
+      FAILED: 'TESTING',
+      ARCHIVED: 'CLOSED'
     };
     const stepIcon = (step: TestChangeStatus, complete: boolean) => {
       if (complete) return '✓';
@@ -8991,8 +9759,8 @@ const WorkflowTimeline = defineComponent({
       const displayedActiveStep =
         viewerHasPassed && activeStep === 'TESTING' ? 'PASSED' : activeStep;
       const activeIndex = steps.indexOf(displayedActiveStep);
-      const skipRenewed = props.change.status === 'CLOSED' && !wasRenewed(props.change);
-      const isTerminalClosed = props.change.status === 'CLOSED';
+      const skipRenewed = isTerminalChangeStatus(props.change.status) && !wasRenewed(props.change);
+      const isTerminalClosed = isTerminalChangeStatus(props.change.status);
       const testingIndex = steps.indexOf('TESTING');
       const skipTesting = activeIndex > testingIndex && !viewerCompletedTesting(props.change);
 
@@ -10338,49 +11106,15 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.24), transparent 72%), #f0c06b;
 }
 
-.tm-next-patch-stats {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.72rem;
-}
-
-.tm-next-patch-stats article {
+.tm-next-patch-tools {
   min-width: 0;
-  display: grid;
-  gap: 0.16rem;
-  padding: 0.78rem 0.85rem;
-  border: 1px solid rgba(213, 196, 164, 0.12);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent), rgba(2, 6, 8, 0.44);
-  box-shadow: inset 0 1px 0 rgba(255, 231, 190, 0.045);
-}
-
-.tm-next-patch-stats span {
-  color: var(--tm-gold);
-  font-size: 0.68rem;
-  font-weight: 800;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-}
-
-.tm-next-patch-stats strong {
-  color: #f8ead1;
-  font-family: Georgia, 'Times New Roman', serif;
-  font-size: 1.85rem;
-  line-height: 1;
-}
-
-.tm-next-patch-stats small {
-  color: var(--tm-muted);
-  font-size: 0.78rem;
 }
 
 .tm-next-patch-reset-strip {
-  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.55rem;
-  margin-top: -0.18rem;
   color: rgba(207, 194, 174, 0.74);
   font-size: 0.74rem;
   font-weight: 800;
@@ -10509,6 +11243,611 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
   opacity: 0.48;
   cursor: default;
   transform: none;
+}
+
+/* ===== Apple-style sliding Board / List toggle ===== */
+.tm-layout-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem;
+  border: 1px solid rgba(213, 196, 164, 0.2);
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 80%), rgba(4, 8, 9, 0.8);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    inset 0 0 0 1px rgba(2, 6, 12, 0.32);
+  isolation: isolate;
+}
+
+.tm-layout-switch__thumb {
+  position: absolute;
+  top: 0.2rem;
+  left: 0.2rem;
+  width: calc(50% - 0.2rem);
+  height: calc(100% - 0.4rem);
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.02)), var(--tm-blue);
+  box-shadow:
+    0 3px 9px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.42);
+  transition: transform 0.36s cubic-bezier(0.34, 1.56, 0.64, 1);
+  z-index: 0;
+}
+
+.tm-layout-switch[data-active='list'] .tm-layout-switch__thumb {
+  transform: translateX(100%);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.02)), var(--tm-gold);
+}
+
+.tm-layout-switch__option {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.36rem;
+  min-height: 1.95rem;
+  padding: 0 0.9rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(232, 221, 206, 0.7);
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.22s ease;
+}
+
+.tm-layout-switch__option--active {
+  color: #06121c;
+}
+
+.tm-layout-switch__icon {
+  width: 0.95rem;
+  height: 0.95rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tm-layout-switch__option:focus-visible {
+  outline: 2px solid rgba(119, 201, 255, 0.62);
+  outline-offset: 3px;
+}
+
+/* ===== Next patch kanban board ===== */
+.tm-board {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(15rem, 1fr);
+  gap: 0.72rem;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.1rem 0.3rem 0.5rem 0.1rem;
+  scrollbar-width: thin;
+  scroll-snap-type: x proximity;
+}
+
+.tm-board--dragging {
+  user-select: none;
+}
+
+.tm-board-lane {
+  --lane: var(--tm-gold);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  scroll-snap-align: start;
+  border: 1px solid var(--tm-border-soft);
+  border-radius: 13px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--lane) 7%, transparent), transparent 32%),
+    rgba(255, 255, 255, 0.012);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    opacity 0.2s ease,
+    transform 0.2s ease;
+}
+
+.tm-board-lane--toTest {
+  --lane: #d9a45f;
+}
+.tm-board-lane--testing {
+  --lane: #55b7ff;
+}
+.tm-board-lane--passed {
+  --lane: #72d66f;
+}
+.tm-board-lane--attention {
+  --lane: #ff6b55;
+}
+.tm-board-lane--closed {
+  --lane: #b88cff;
+}
+
+.tm-board-lane__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.58rem 0.68rem;
+  border-bottom: 1px solid var(--tm-border-soft);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--lane) 6%, transparent), transparent);
+  border-radius: 13px 13px 0 0;
+}
+
+.tm-board-lane__dot {
+  flex: none;
+  width: 0.62rem;
+  height: 0.62rem;
+  border-radius: 50%;
+  background: var(--lane);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--lane) 60%, transparent);
+}
+
+.tm-board-lane__heading {
+  flex: 1;
+  min-width: 0;
+}
+
+.tm-board-lane__heading h3 {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  color: #f6ecda;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tm-board-lane__heading small {
+  display: block;
+  margin-top: 0.06rem;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--tm-muted);
+}
+
+.tm-board-lane__count {
+  flex: none;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--lane) 36%, transparent);
+  color: color-mix(in srgb, var(--lane) 72%, #ffffff);
+  background: color-mix(in srgb, var(--lane) 14%, rgba(0, 0, 0, 0.3));
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+.tm-board-lane__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.55rem;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.tm-board-lane--droppable {
+  border-color: color-mix(in srgb, var(--lane) 48%, transparent);
+}
+
+.tm-board-lane--over {
+  border-color: var(--lane);
+  box-shadow:
+    0 0 0 1px var(--lane),
+    0 0 24px color-mix(in srgb, var(--lane) 30%, transparent),
+    inset 0 0 30px color-mix(in srgb, var(--lane) 9%, transparent);
+  transform: translateY(-2px);
+}
+
+.tm-board-lane--dim {
+  opacity: 0.42;
+}
+
+.tm-board-lane__empty {
+  margin: auto 0;
+  padding: 1.1rem 0.6rem;
+  border: 1px dashed rgba(213, 196, 164, 0.18);
+  border-radius: 9px;
+  text-align: center;
+  color: rgba(185, 173, 157, 0.6);
+  font-size: 0.74rem;
+  font-weight: 800;
+  transition:
+    border-color 0.2s ease,
+    color 0.2s ease,
+    background 0.2s ease;
+}
+
+.tm-board-lane__empty--target {
+  border-color: color-mix(in srgb, var(--lane) 60%, transparent);
+  color: color-mix(in srgb, var(--lane) 70%, #ffffff);
+  background: color-mix(in srgb, var(--lane) 9%, transparent);
+}
+
+/* board cards */
+.tm-board-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.32rem;
+  padding: 0.6rem 0.66rem;
+  border: 1px solid var(--tm-border-soft);
+  border-left: 3px solid color-mix(in srgb, var(--lane) 78%, transparent);
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 60%), rgba(10, 14, 16, 0.72);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    0 6px 14px rgba(0, 0, 0, 0.18);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    opacity 0.16s ease;
+}
+
+.tm-board-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--lane) 40%, var(--tm-border-soft));
+  box-shadow:
+    0 12px 24px rgba(0, 0, 0, 0.32),
+    0 0 0 1px color-mix(in srgb, var(--lane) 22%, transparent);
+}
+
+.tm-board-card:focus-visible {
+  outline: 2px solid rgba(119, 201, 255, 0.66);
+  outline-offset: 2px;
+}
+
+.tm-board-card--draggable {
+  cursor: grab;
+}
+
+.tm-board-card--draggable:active {
+  cursor: grabbing;
+}
+
+.tm-board-card--dragging {
+  opacity: 0.5;
+  transform: scale(0.98) rotate(-0.4deg);
+}
+
+.tm-board-card--pending {
+  pointer-events: none;
+  opacity: 0.65;
+}
+
+.tm-board-card--pending::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    110deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.08) 50%,
+    transparent 70%
+  );
+  background-size: 200% 100%;
+  animation: tm-board-shimmer 1.1s linear infinite;
+}
+
+@keyframes tm-board-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.tm-board-card__grip {
+  position: absolute;
+  top: 0.38rem;
+  right: 0.38rem;
+  width: 1.05rem;
+  height: 1.05rem;
+  opacity: 0;
+  color: var(--tm-muted);
+  pointer-events: none;
+  transition: opacity 0.16s ease;
+}
+
+.tm-board-card__grip svg {
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
+}
+
+.tm-board-card:hover .tm-board-card__grip {
+  opacity: 0.55;
+}
+
+.tm-board-card__top {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.tm-board-card__id {
+  font-size: 0.72rem;
+  font-weight: 900;
+  color: var(--tm-muted);
+}
+
+.tm-board-card__top .tm-status {
+  margin-left: auto;
+}
+
+.tm-board-card__title {
+  margin: 0;
+  font-size: 0.87rem;
+  font-weight: 850;
+  line-height: 1.25;
+  color: #fff3dd;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.tm-board-card__path {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--tm-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tm-board-card__tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.32rem;
+  margin-top: 0.04rem;
+}
+
+.tm-board-card__build {
+  padding: 0.16rem 0.44rem;
+  border: 1px solid rgba(213, 196, 164, 0.18);
+  border-radius: 999px;
+  font-size: 0.67rem;
+  font-weight: 800;
+  color: rgba(232, 221, 206, 0.82);
+  white-space: nowrap;
+}
+
+.tm-board-card__auto {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.06rem;
+  padding: 0.28rem 0.48rem;
+  border: 1px solid color-mix(in srgb, var(--lane) 28%, transparent);
+  border-radius: 7px;
+  overflow: hidden;
+  font-size: 0.66rem;
+  font-weight: 800;
+  color: rgba(232, 221, 206, 0.86);
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.tm-board-card__auto::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: var(--auto-close-progress, 0%);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--lane) 36%, transparent),
+    color-mix(in srgb, var(--lane) 12%, transparent)
+  );
+  transition: width 0.3s ease;
+}
+
+.tm-board-card__auto > * {
+  position: relative;
+  z-index: 1;
+}
+
+.tm-board-card__auto strong {
+  color: #ffffff;
+}
+
+.tm-board-card__footer {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin-top: 0.12rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid rgba(213, 196, 164, 0.1);
+}
+
+.tm-board-card__stat {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--tm-muted);
+}
+
+.tm-board-card__stat strong {
+  color: #f4ead8;
+  font-weight: 900;
+}
+
+.tm-board-card__stat--checklist {
+  margin-left: auto;
+  padding: 0.12rem 0.44rem;
+  border: 1px solid rgba(213, 196, 164, 0.16);
+  border-radius: 999px;
+  color: rgba(232, 221, 206, 0.82);
+}
+
+.tm-board-card__time {
+  margin-top: 0.04rem;
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: rgba(185, 173, 157, 0.7);
+}
+
+/* board move prompt modal */
+.tm-board-move-modal {
+  gap: 0.85rem;
+}
+
+.tm-board-move-choice {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem;
+}
+
+.tm-board-move-choice__option {
+  --choice: var(--tm-red);
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.62rem 0.7rem;
+  border: 1px solid rgba(213, 196, 164, 0.18);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.018);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.16s ease,
+    background 0.16s ease,
+    transform 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.tm-board-move-choice__option--blocked {
+  --choice: var(--tm-gold);
+}
+
+.tm-board-move-choice__option:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--choice) 40%, transparent);
+}
+
+.tm-board-move-choice__option--active {
+  border-color: var(--choice);
+  background: color-mix(in srgb, var(--choice) 12%, rgba(0, 0, 0, 0.2));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--choice) 40%, transparent),
+    0 0 18px color-mix(in srgb, var(--choice) 18%, transparent);
+}
+
+.tm-board-move-choice__option:focus-visible {
+  outline: 2px solid rgba(119, 201, 255, 0.62);
+  outline-offset: 2px;
+}
+
+.tm-board-move-choice__dot {
+  flex: none;
+  width: 0.78rem;
+  height: 0.78rem;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--choice) 60%, transparent);
+  background: transparent;
+  transition: background 0.16s ease;
+}
+
+.tm-board-move-choice__option--active .tm-board-move-choice__dot {
+  background: var(--choice);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--choice) 60%, transparent);
+}
+
+.tm-board-move-choice__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.tm-board-move-choice__copy strong {
+  font-size: 0.84rem;
+  font-weight: 900;
+  color: #f6ecda;
+}
+
+.tm-board-move-choice__copy small {
+  font-size: 0.68rem;
+  color: var(--tm-muted);
+}
+
+.tm-board-move-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.36rem;
+}
+
+.tm-board-move-field > span {
+  font-size: 0.7rem;
+  font-weight: 850;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--tm-muted);
+}
+
+.tm-board-move-field textarea {
+  width: 100%;
+  min-height: 4.4rem;
+  padding: 0.55rem 0.66rem;
+  border: 1px solid rgba(213, 196, 164, 0.2);
+  border-radius: 10px;
+  color: var(--tm-text);
+  background: rgba(4, 8, 9, 0.7);
+  font: inherit;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  resize: vertical;
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.tm-board-move-field textarea:focus {
+  outline: none;
+  border-color: rgba(119, 201, 255, 0.5);
+  box-shadow: 0 0 0 2px rgba(119, 201, 255, 0.2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tm-layout-switch__thumb,
+  .tm-board-lane,
+  .tm-board-card {
+    transition: none;
+  }
+  .tm-board-card--pending::after {
+    animation: none;
+  }
 }
 
 .tm-next-patch-list {
@@ -14740,7 +16079,8 @@ button.tm-version-badge {
   box-shadow: 0 0 6px rgba(217, 164, 95, 0.2);
 }
 
-.tm-status--closed {
+.tm-status--closed,
+.tm-status--archived {
   color: #d8c4ff;
   border-color: rgba(184, 140, 255, 0.54);
   background:
@@ -17931,10 +19271,6 @@ button.tm-version-badge {
     justify-content: flex-start;
   }
 
-  .tm-next-patch-stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .tm-next-patch-card {
     grid-template-columns: 1fr;
     grid-template-rows: auto auto 0.84rem auto auto;
@@ -18164,10 +19500,6 @@ button.tm-version-badge {
   .tm-change-status-counter span {
     font-size: 0.48rem;
   }
-.tm-next-patch-stats {
-    grid-template-columns: 1fr;
-  }
-
   .tm-next-patch-card__main {
     grid-template-columns: 1fr;
   }

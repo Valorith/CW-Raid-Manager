@@ -32,6 +32,14 @@ const OPEN_TEST_RUN_STATUSES: TestRunStatus[] = [
 export type NextPatchChangeView = 'complete' | 'incomplete';
 
 const NEXT_PATCH_COMPLETE_STATUS = TestChangeStatus.CLOSED;
+const TERMINAL_CHANGE_STATUSES: TestChangeStatus[] = [
+  TestChangeStatus.CLOSED,
+  TestChangeStatus.ARCHIVED
+];
+
+function isTerminalChangeStatus(status: TestChangeStatus) {
+  return TERMINAL_CHANGE_STATUSES.includes(status);
+}
 
 export const TEST_MANAGER_PERMISSION_KEYS = [
   'view',
@@ -2440,7 +2448,7 @@ function ensureActiveTestingAssignment<
 function ensureChangeAcceptsTesterInput<
   T extends { status: TestChangeStatus; readyToTest: boolean }
 >(change: T | null): asserts change is T {
-  if (!change || change.status === TestChangeStatus.CLOSED) {
+  if (!change || isTerminalChangeStatus(change.status)) {
     throw new Error('You must be actively testing this change to submit tester input.');
   }
   if (!change.readyToTest) {
@@ -2451,7 +2459,7 @@ function ensureChangeAcceptsTesterInput<
 function ensureChangeAcceptsTestingNote<T extends { status: TestChangeStatus }>(
   change: T | null
 ): asserts change is T {
-  if (!change || change.status === TestChangeStatus.CLOSED) {
+  if (!change || isTerminalChangeStatus(change.status)) {
     throw new Error('Testing notes can only be added while the change is open.');
   }
 }
@@ -2476,7 +2484,7 @@ async function maybeAutoCloseChange(
       }
     }
   });
-  if (!change || change.status === TestChangeStatus.CLOSED || change.autoClosePassCount <= 0) {
+  if (!change || isTerminalChangeStatus(change.status) || change.autoClosePassCount <= 0) {
     return null;
   }
 
@@ -2852,7 +2860,7 @@ export async function getTestManagerDashboard(userId: string) {
   ]);
 
   const serialized = changes.map((change) => serializeChange(change, userId));
-  const open = serialized.filter((change) => change.status !== TestChangeStatus.CLOSED);
+  const open = serialized.filter((change) => !isTerminalChangeStatus(change.status));
   const awaiting = open.filter((change) => TESTING_READY_STATUSES.includes(change.status));
   const inProgress = open.filter((change) => change.status === TestChangeStatus.TESTING);
   const passed = open.filter((change) => change.status === TestChangeStatus.PASSED);
@@ -2906,7 +2914,7 @@ export async function listTestChanges(
 
   const where: Prisma.TestChangeWhereInput = {};
   if (filters.status === 'ACTIVE') {
-    where.status = { not: TestChangeStatus.CLOSED };
+    where.status = { notIn: TERMINAL_CHANGE_STATUSES };
     where.readyToTest = true;
   } else if (filters.status) {
     where.status = filters.status;
@@ -2941,7 +2949,7 @@ export async function listNextPatchChanges(userId: string, view: NextPatchChange
         view === 'complete'
           ? NEXT_PATCH_COMPLETE_STATUS
           : {
-              not: NEXT_PATCH_COMPLETE_STATUS
+              notIn: TERMINAL_CHANGE_STATUSES
             }
     },
     orderBy: [{ publicId: 'asc' }],
@@ -2963,7 +2971,8 @@ export async function countNextPatchChanges(userId: string) {
     }),
     prisma.testChange.count({
       where: {
-        includeInNextPatch: true
+        includeInNextPatch: true,
+        status: { not: TestChangeStatus.ARCHIVED }
       }
     })
   ]);
@@ -3839,7 +3848,10 @@ export async function resetNextPatch(actorUserId: string) {
   await prisma.$transaction(async (tx) => {
     await tx.testChange.updateMany({
       where: { id: { in: changes.map((change) => change.id) } },
-      data: { includeInNextPatch: false }
+      data: {
+        includeInNextPatch: false,
+        status: TestChangeStatus.ARCHIVED
+      }
     });
 
     for (const change of changes) {
@@ -3847,9 +3859,14 @@ export async function resetNextPatch(actorUserId: string) {
         changeId: change.id,
         actorUserId,
         eventType: TestHistoryEventType.STATUS_CHANGED,
-        label: 'Next patch reset',
-        detail: 'This change was cleared from the next patch list after deployment.',
-        metadata: { includeInNextPatch: false, reset: true }
+        label: 'Change archived',
+        detail: 'This change was archived after deployment and cleared from the next patch list.',
+        metadata: {
+          from: TestChangeStatus.CLOSED,
+          to: TestChangeStatus.ARCHIVED,
+          includeInNextPatch: false,
+          reset: true
+        }
       });
     }
   });
@@ -3869,14 +3886,17 @@ export async function setTestChangeStatus(
     throw new Error('Change not found.');
   }
 
-  const closed = status === TestChangeStatus.CLOSED;
+  const terminal = isTerminalChangeStatus(status);
+  const terminalAt = terminal ? existing.closedAt ?? new Date() : null;
+  const terminalById = terminal ? existing.closedById ?? actorUserId : null;
   await prisma.$transaction(async (tx) => {
     await tx.testChange.update({
       where: { id: changeId },
       data: {
         status,
-        closedAt: closed ? new Date() : null,
-        closedById: closed ? actorUserId : null
+        closedAt: terminalAt,
+        closedById: terminalById,
+        ...(status === TestChangeStatus.ARCHIVED ? { includeInNextPatch: false } : {})
       }
     });
 
@@ -3889,7 +3909,12 @@ export async function setTestChangeStatus(
           : status === TestChangeStatus.RENEWED
             ? TestHistoryEventType.CHANGE_RENEWED
             : TestHistoryEventType.STATUS_CHANGED,
-      label: status === TestChangeStatus.CLOSED ? 'Change closed' : `Status changed to ${status}`,
+      label:
+        status === TestChangeStatus.CLOSED
+          ? 'Change closed'
+          : status === TestChangeStatus.ARCHIVED
+            ? 'Change archived'
+            : `Status changed to ${status}`,
       detail: detail?.trim() || null,
       metadata: { from: existing.status, to: status }
     });
@@ -3995,8 +4020,8 @@ export async function volunteerForChange(actorUserId: string, changeId: string) 
     if (!change) {
       throw new Error('Change not found.');
     }
-    if (change.status === TestChangeStatus.CLOSED) {
-      throw new Error('Closed changes cannot be tested.');
+    if (isTerminalChangeStatus(change.status)) {
+      throw new Error('Closed or archived changes cannot be tested.');
     }
     if (!change.readyToTest) {
       throw new Error('This change is not ready for tester input yet.');
@@ -4074,8 +4099,8 @@ export async function retestChange(actorUserId: string, changeId: string) {
     if (!change) {
       throw new Error('Change not found.');
     }
-    if (change.status === TestChangeStatus.CLOSED) {
-      throw new Error('Closed changes cannot be re-tested.');
+    if (isTerminalChangeStatus(change.status)) {
+      throw new Error('Closed or archived changes cannot be re-tested.');
     }
     if (!change.readyToTest) {
       throw new Error('This change is not ready for tester input yet.');
@@ -4149,6 +4174,9 @@ export async function requestTester(
     }
     if (!user) {
       throw new Error('User not found.');
+    }
+    if (isTerminalChangeStatus(change.status)) {
+      throw new Error('Closed or archived changes cannot receive tester requests.');
     }
     requestedTesterName = displayName(user);
 
