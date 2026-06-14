@@ -1,0 +1,4 @@
+interface:
+  display_name: "Nexus"
+  short_description: "Install and use the Nexus CLI"
+  default_prompt: "Use $nexus to install the Nexus CLI if needed, then inspect or update Nexus data."
