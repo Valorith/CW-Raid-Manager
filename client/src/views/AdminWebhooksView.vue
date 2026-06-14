@@ -1968,7 +1968,7 @@
                                 />
                               </svg>
                             </span>
-                            <span>Resolved</span>
+                            <span>Resolve</span>
                           </button>
                           <button
                             class="message-action-menu__item"
@@ -2412,9 +2412,6 @@
         </div>
 
         <footer class="modal__footer payload-modal__footer">
-          <div class="payload-modal__footer-meta">
-            <span class="muted small">Message {{ selectedMessage.id }}</span>
-          </div>
           <div class="payload-modal__footer-actions">
             <button
               class="btn btn--success"
@@ -2436,7 +2433,7 @@
                   stroke-width="2.4"
                 />
               </svg>
-              Resolved
+              Resolve
             </button>
             <button class="btn btn--outline" type="button" @click="toggleArchive(selectedMessage)">
               <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -3882,16 +3879,24 @@ function formatPayloadZoneBadge(message: InboundWebhookMessage): string | null {
 function formatPayloadNpcBadge(message: InboundWebhookMessage): string | null {
   const context = message.scriptErrorContext;
   if (!context) return null;
-  if (context.npcName && context.npcTypeId) {
-    return `${context.npcName} (#${context.npcTypeId})`;
+  const npcName = formatPayloadNpcName(context.npcName);
+  const npcTypeId = context.npcTypeId ? String(context.npcTypeId) : null;
+  if (npcName && npcTypeId && npcName !== npcTypeId) {
+    return `${npcName} (${npcTypeId})`;
   }
-  if (context.npcName) {
-    return context.npcName;
+  if (npcName) {
+    return npcName;
   }
-  if (context.npcTypeId) {
-    return `#${context.npcTypeId}`;
+  if (npcTypeId) {
+    return npcTypeId;
   }
   return null;
+}
+
+function formatPayloadNpcName(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const normalized = value.replace(/#/g, '').replace(/\s+/g, ' ').trim();
+  return normalized.length > 0 ? normalized : null;
 }
 
 function getPayloadNpcBadgeTitle(message: InboundWebhookMessage): string {
@@ -11244,22 +11249,11 @@ input[type='checkbox']:checked::after {
 .payload-modal__footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 0.85rem;
   margin-top: 1rem;
   padding-top: 0.9rem;
   border-top: 1px solid rgba(148, 163, 184, 0.15);
-}
-
-.payload-modal__footer-meta {
-  min-width: 0;
-}
-
-.payload-modal__footer-meta span {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .payload-modal__footer-actions {

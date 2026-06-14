@@ -1027,7 +1027,7 @@ export async function sendManualDiscordSummaryForMessage(messageId: string) {
   return getInboundWebhookMessage(messageId);
 }
 
-export async function resolveInboundWebhookMessage(messageId: string) {
+export async function resolveInboundWebhookMessage(messageId: string, resolvingUserId: string) {
   const message = await prisma.inboundWebhookMessage.findUnique({
     where: { id: messageId },
     include: {
@@ -1095,7 +1095,11 @@ export async function resolveInboundWebhookMessage(messageId: string) {
     await updateActionSummary(messageId, discordAction.id, 'SUCCESS');
     await prisma.inboundWebhookMessage.update({
       where: { id: messageId },
-      data: { archivedAt: new Date() }
+      data: {
+        archivedAt: new Date(),
+        assignedAdminId: resolvingUserId,
+        assignedAt: new Date()
+      }
     });
   } catch (error) {
     await prisma.inboundWebhookActionRun.create({
@@ -2291,7 +2295,8 @@ function readFirstInteger(record: Record<string, unknown> | null, keys: string[]
 }
 
 function parsePositiveInteger(value: unknown): number | null {
-  const text = typeof value === 'number' ? String(value) : normalizeContextToken(value);
+  const text =
+    typeof value === 'number' ? String(value) : normalizeContextToken(value)?.replace(/^#/, '');
   if (!text || !/^\d+$/.test(text)) {
     return null;
   }
@@ -2328,7 +2333,7 @@ function normalizeNpcNameToken(value: unknown): string | null {
   if (!token) {
     return null;
   }
-  const normalized = token.replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+  const normalized = token.replace(/#/g, '').replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
   return normalized.length > 0 ? normalized : null;
 }
 

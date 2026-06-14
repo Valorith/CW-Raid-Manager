@@ -2158,7 +2158,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
       const { messageId } = paramsSchema.parse(request.params);
 
       try {
-        const message = await resolveInboundWebhookMessage(messageId);
+        const message = await resolveInboundWebhookMessage(messageId, request.user.userId);
         return reply.code(201).send({ message });
       } catch (error) {
         request.log.error({ error }, 'Failed to resolve webhook inbox message.');

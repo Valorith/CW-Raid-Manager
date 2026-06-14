@@ -606,6 +606,7 @@ let webhookPendingActionRefreshInFlight = false;
 // Dropdown state for nav menu (hover on fine pointers; tap chevron on touch / no-hover)
 const activeDropdown = ref<string | null>(null);
 let dropdownTimeout: ReturnType<typeof setTimeout> | null = null;
+let lastDropdownPointerPosition: { x: number; y: number } | null = null;
 
 const prefersHoverDropdowns = ref(
   typeof window !== 'undefined' && window.matchMedia('(hover: hover) and (pointer: fine)').matches
@@ -665,11 +666,61 @@ function updateDropdownPosition(name = activeDropdown.value) {
   } as CSSProperties;
 }
 
-async function openDropdown(name: string) {
+function clearDropdownCloseTimer() {
   if (dropdownTimeout) {
     clearTimeout(dropdownTimeout);
     dropdownTimeout = null;
   }
+}
+
+function isPointInRect(
+  point: { x: number; y: number },
+  rect: DOMRect,
+  padding = 0
+) {
+  return (
+    point.x >= rect.left - padding &&
+    point.x <= rect.right + padding &&
+    point.y >= rect.top - padding &&
+    point.y <= rect.bottom + padding
+  );
+}
+
+function isPointerWithinDropdownPath(name: string) {
+  const point = lastDropdownPointerPosition;
+  if (!point) {
+    return false;
+  }
+
+  const anchor = getDropdownAnchor(name);
+  const menu = activeDropdownMenuRef.value;
+  const anchorRect = anchor?.getBoundingClientRect();
+  const menuRect = menu?.getBoundingClientRect();
+
+  if (anchorRect && isPointInRect(point, anchorRect, 8)) {
+    return true;
+  }
+
+  if (menuRect && isPointInRect(point, menuRect, 8)) {
+    return true;
+  }
+
+  if (!anchorRect || !menuRect) {
+    return false;
+  }
+
+  const bridgeRect = {
+    left: Math.min(anchorRect.left, menuRect.left) - 16,
+    right: Math.max(anchorRect.right, menuRect.right) + 16,
+    top: Math.min(anchorRect.bottom, menuRect.top) - 8,
+    bottom: Math.max(anchorRect.bottom, menuRect.top) + 12
+  } as DOMRect;
+
+  return isPointInRect(point, bridgeRect);
+}
+
+async function openDropdown(name: string) {
+  clearDropdownCloseTimer();
   activeDropdown.value = name;
   updateDropdownPosition(name);
   await nextTick();
@@ -677,13 +728,12 @@ async function openDropdown(name: string) {
 }
 
 function closeDropdown(name: string) {
-  if (dropdownTimeout) {
-    clearTimeout(dropdownTimeout);
-  }
+  clearDropdownCloseTimer();
   dropdownTimeout = setTimeout(() => {
-    if (activeDropdown.value === name) {
+    if (activeDropdown.value === name && !isPointerWithinDropdownPath(name)) {
       activeDropdown.value = null;
     }
+    dropdownTimeout = null;
   }, 300);
 }
 
@@ -739,9 +789,27 @@ function onDocumentPointerDown(event: PointerEvent) {
   closeDropdownsFromOutside(event.target as Node);
 }
 
+function onDocumentPointerMove(event: PointerEvent) {
+  lastDropdownPointerPosition = { x: event.clientX, y: event.clientY };
+
+  if (!prefersHoverDropdowns.value || !activeDropdown.value) {
+    return;
+  }
+
+  if (isPointerWithinDropdownPath(activeDropdown.value)) {
+    clearDropdownCloseTimer();
+    return;
+  }
+
+  if (!dropdownTimeout) {
+    closeDropdown(activeDropdown.value);
+  }
+}
+
 function onDocumentKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') {
     activeDropdown.value = null;
+    clearDropdownCloseTimer();
   }
 }
 
@@ -1083,6 +1151,7 @@ onMounted(async () => {
   updateHoverDropdownPreference();
   hoverDropdownMediaQuery.addEventListener('change', updateHoverDropdownPreference);
   document.addEventListener('pointerdown', onDocumentPointerDown, true);
+  document.addEventListener('pointermove', onDocumentPointerMove, true);
   document.addEventListener('keydown', onDocumentKeydown, true);
   window.addEventListener('resize', handleDropdownViewportChange);
   window.addEventListener('scroll', handleDropdownViewportChange, true);
@@ -1119,6 +1188,7 @@ onBeforeUnmount(() => {
   hoverDropdownMediaQuery?.removeEventListener('change', updateHoverDropdownPreference);
   hoverDropdownMediaQuery = null;
   document.removeEventListener('pointerdown', onDocumentPointerDown, true);
+  document.removeEventListener('pointermove', onDocumentPointerMove, true);
   document.removeEventListener('keydown', onDocumentKeydown, true);
   window.removeEventListener('resize', handleDropdownViewportChange);
   window.removeEventListener('scroll', handleDropdownViewportChange, true);
@@ -1611,10 +1681,10 @@ function hasRaidStarted(raid: RaidEventSummary) {
 .nav__dropdown::after {
   content: '';
   position: absolute;
-  top: -1rem;
-  left: -1rem;
-  right: -1rem;
-  height: 1.5rem;
+  top: -1.25rem;
+  left: -1.25rem;
+  right: -1.25rem;
+  height: 2rem;
   pointer-events: auto;
 }
 
