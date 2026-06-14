@@ -1012,6 +1012,215 @@ export async function sendManualDiscordSummaryForMessage(messageId: string) {
   return getInboundWebhookMessage(messageId);
 }
 
+export async function resolveInboundWebhookMessage(messageId: string) {
+  const message = await prisma.inboundWebhookMessage.findUnique({
+    where: { id: messageId },
+    include: {
+      webhook: {
+        include: {
+          actions: {
+            orderBy: { sortOrder: 'asc' }
+          }
+        }
+      },
+      assignedAdmin: {
+        select: { id: true, displayName: true, nickname: true, email: true }
+      },
+      actionRuns: {
+        include: {
+          action: true
+        },
+        orderBy: { createdAt: 'desc' }
+      },
+      labelAssignments: {
+        include: { label: true }
+      }
+    }
+  });
+
+  if (!message) {
+    throw new Error('Webhook message not found.');
+  }
+
+  const discordAction = message.webhook.actions.find(
+    (action) => action.type === 'DISCORD_RELAY' && action.isEnabled
+  );
+  if (!discordAction) {
+    throw new Error('Enabled Discord relay action is not configured.');
+  }
+
+  const discordConfig = normalizeActionConfig(discordAction.config);
+  const discordUrl = getDiscordUrl(discordConfig, message.webhook.devMode);
+  if (!discordUrl?.trim()) {
+    throw new Error(
+      message.webhook.devMode
+        ? 'Dev Discord webhook URL is not configured.'
+        : 'Discord webhook URL is not configured.'
+    );
+  }
+
+  const startedAt = Date.now();
+  const resolvedPayload = buildResolvedDiscordPayload(message);
+
+  try {
+    await sendDiscordRelay(discordUrl.trim(), resolvedPayload, discordConfig, messageId);
+    await prisma.inboundWebhookActionRun.create({
+      data: {
+        messageId,
+        actionId: discordAction.id,
+        status: 'SUCCESS',
+        result: {
+          manual: true,
+          resolved: true,
+          target: message.webhook.devMode ? 'DEV_DISCORD' : 'PRIMARY_DISCORD'
+        },
+        durationMs: Date.now() - startedAt
+      }
+    });
+    await updateActionSummary(messageId, discordAction.id, 'SUCCESS');
+    await prisma.inboundWebhookMessage.update({
+      where: { id: messageId },
+      data: { archivedAt: new Date() }
+    });
+  } catch (error) {
+    await prisma.inboundWebhookActionRun.create({
+      data: {
+        messageId,
+        actionId: discordAction.id,
+        status: 'FAILED',
+        error: error instanceof Error ? error.message : 'Unknown Discord error',
+        result: { manual: true, resolved: true },
+        durationMs: Date.now() - startedAt
+      }
+    });
+    await updateActionSummary(messageId, discordAction.id, 'FAILED');
+    throw error;
+  }
+
+  await applyLabelAutomationIfComplete(messageId);
+  return getInboundWebhookMessage(messageId);
+}
+
+function buildResolvedDiscordPayload(message: {
+  id: string;
+  webhookId: string;
+  receivedAt: Date;
+  sourceIp: string | null;
+  payload: Prisma.JsonValue;
+  rawBody: string | null;
+  status: InboundWebhookMessageStatus;
+  webhook: { id: string; label: string };
+  assignedAdmin?: { displayName: string | null; nickname: string | null; email: string | null } | null;
+  actionRuns: Array<{
+    status: string;
+    result: Prisma.JsonValue | null;
+    createdAt: Date;
+    action: { type: InboundWebhookActionType } | null;
+  }>;
+  labelAssignments?: Array<{ label: { name: string } }>;
+}): DiscordEmbedPayload {
+  const review = getLatestCrashReviewResult(message.actionRuns);
+  const description = getResolvedIssueDescription(message, review);
+  const signature = review?.signature as { exception?: string | null; topFrame?: string | null } | undefined;
+  const messageUrl = clientBaseUrl
+    ? `${clientBaseUrl}/admin/webhooks?messageId=${encodeURIComponent(message.id)}`
+    : null;
+  const labelNames =
+    message.labelAssignments?.map((assignment) => assignment.label.name).filter(Boolean) ?? [];
+  const assignedName =
+    message.assignedAdmin?.nickname ||
+    message.assignedAdmin?.displayName ||
+    message.assignedAdmin?.email ||
+    'Unassigned';
+
+  const fields: DiscordEmbed['fields'] = [
+    {
+      name: 'Issue',
+      value: truncateText(description, 900),
+      inline: false
+    },
+    {
+      name: 'Message ID',
+      value: `\`${truncateText(message.id, 96)}\``,
+      inline: true
+    },
+    {
+      name: 'Webhook',
+      value: truncateText(message.webhook.label || message.webhookId, 120),
+      inline: true
+    },
+    {
+      name: 'Received',
+      value: `<t:${Math.floor(message.receivedAt.getTime() / 1000)}:f>`,
+      inline: true
+    }
+  ];
+
+  if (signature?.exception || signature?.topFrame) {
+    const signatureParts = [
+      signature.exception ? `Type: \`${truncateText(signature.exception, 90)}\`` : '',
+      signature.topFrame ? `Location: \`${truncateText(signature.topFrame, 90)}\`` : ''
+    ].filter(Boolean);
+    fields.push({
+      name: 'Identifier',
+      value: signatureParts.join('\n'),
+      inline: false
+    });
+  }
+
+  fields.push({
+    name: 'Status',
+    value: [
+      `Inbox status: \`${message.status}\``,
+      `Assigned: ${truncateText(assignedName, 90)}`,
+      labelNames.length ? `Labels: ${truncateText(labelNames.join(', '), 160)}` : null
+    ]
+      .filter((line): line is string => Boolean(line))
+      .join('\n'),
+    inline: false
+  });
+
+  if (messageUrl) {
+    fields.push({
+      name: 'Inbox',
+      value: `[Open resolved item](${messageUrl})`,
+      inline: false
+    });
+  }
+
+  return {
+    embeds: [
+      {
+        title: '✅ Issue Resolved',
+        description: 'This webhook inbox item has been marked resolved and archived.',
+        color: DISCORD_EMBED_COLORS.success,
+        fields,
+        footer: { text: 'CWRaidManager Webhook Inbox' },
+        timestamp: new Date().toISOString()
+      }
+    ]
+  };
+}
+
+function getResolvedIssueDescription(
+  message: { payload: Prisma.JsonValue; rawBody: string | null },
+  review: Prisma.JsonObject | null
+): string {
+  const reviewSummary = typeof review?.summary === 'string' ? review.summary.trim() : '';
+  if (reviewSummary) {
+    return reviewSummary;
+  }
+
+  const rawText = buildCrashReviewInput(message.payload, message.rawBody, message.payload)
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (rawText) {
+    return truncateText(rawText, 260);
+  }
+
+  return 'Webhook inbox item marked resolved.';
+}
+
 export async function receiveInboundWebhookMessage(input: InboundWebhookMessageInput) {
   debugLog(`[WEBHOOK RECEIVE] ========== NEW MESSAGE RECEIVED ==========`);
   debugLog(`[WEBHOOK RECEIVE] webhookId: ${input.webhookId}`);

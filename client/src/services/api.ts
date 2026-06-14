@@ -5353,6 +5353,11 @@ export const api = {
     return response.data.message as InboundWebhookMessage;
   },
 
+  async resolveInboundWebhookMessage(messageId: string) {
+    const response = await axios.post(`/api/admin/webhook-inbox/${messageId}/resolve`);
+    return response.data.message as InboundWebhookMessage;
+  },
+
   async deleteInboundWebhookMessage(messageId: string) {
     await axios.delete(`/api/admin/webhook-inbox/${messageId}`);
   },

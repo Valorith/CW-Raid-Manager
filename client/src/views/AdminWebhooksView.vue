@@ -1503,7 +1503,7 @@
           </div>
         </div>
 
-        <article class="card card--table">
+        <article class="card card--table card--inbox-table">
           <table class="table table--inbox">
             <colgroup>
               <col class="inbox-table__col inbox-table__col--checkbox" />
@@ -1629,7 +1629,8 @@
                     'inbox-row--archived': message.archivedAt,
                     'merge-group-row': getMessageMergeGroup(message.id),
                     'merge-group-row--first': isFirstInMergeGroupDisplay(message.id),
-                    'merge-group-row--last': isLastInMergeGroupDisplay(message.id)
+                    'merge-group-row--last': isLastInMergeGroupDisplay(message.id),
+                    'inbox-row--menu-open': isMessageActionMenuOpen(message.id)
                   }"
                 >
                   <td class="table__checkbox-col" @click.stop>
@@ -1789,25 +1790,29 @@
                       </option>
                     </select>
                   </td>
-                  <td class="table__actions" data-label="Open">
-                    <div class="table-action-group">
+                  <td class="table__actions" data-label="Actions">
+                    <div
+                      class="message-action-menu"
+                      :class="{ 'message-action-menu--open': isMessageActionMenuOpen(message.id) }"
+                      @click.stop
+                    >
                       <button
-                        class="btn btn--outline btn--small"
+                        class="message-action-menu__trigger"
                         type="button"
-                        @click="openMessage(message)"
-                      >
-                        View
-                      </button>
-                      <button
-                        class="icon-button icon-button--copy-link"
-                        type="button"
-                        title="Copy inbox item link"
-                        aria-label="Copy inbox item link"
-                        @click.stop="copyInboxMessageLink(message)"
+                        :aria-expanded="isMessageActionMenuOpen(message.id)"
+                        :aria-controls="`message-actions-${message.id}`"
+                        aria-haspopup="menu"
+                        @click.stop="toggleMessageActionMenu(message.id)"
                       >
                         <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <circle cx="5" cy="12" r="1.8" />
+                          <circle cx="12" cy="12" r="1.8" />
+                          <circle cx="19" cy="12" r="1.8" />
+                        </svg>
+                        <span>Actions</span>
+                        <svg class="message-action-menu__chevron" viewBox="0 0 24 24" aria-hidden="true">
                           <path
-                            d="M9.5 14.5 14.5 9.5M8.25 11.25 6.8 12.7a3.35 3.35 0 0 0 4.74 4.74l1.45-1.45M15.75 12.75l1.45-1.45a3.35 3.35 0 0 0-4.74-4.74L11 8"
+                            d="m7 14 5-5 5 5"
                             fill="none"
                             stroke="currentColor"
                             stroke-linecap="round"
@@ -1816,100 +1821,199 @@
                           />
                         </svg>
                       </button>
-                      <button
-                        class="icon-button icon-button--copy-handoff"
-                        type="button"
-                        title="Copy issue handoff package"
-                        aria-label="Copy issue handoff package"
-                        @click.stop="copyIssueHandoff(message)"
-                      >
-                        <span class="handoff-icon" aria-hidden="true"></span>
-                      </button>
-                      <button
-                        class="icon-button icon-button--discord-send"
-                        type="button"
-                        :disabled="
-                          !getDiscordSummarySendState(message).canSend ||
-                          isSendingDiscordSummary(message.id)
-                        "
-                        :title="getDiscordSummarySendState(message).title"
-                        aria-label="Send Discord summary"
-                        @click.stop="sendDiscordSummary(message)"
-                      >
-                        <svg viewBox="0 0 24 24" aria-hidden="true">
-                          <path
-                            d="M5 12h12m-5.5-5.5L17 12l-5.5 5.5"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                          />
-                        </svg>
-                      </button>
-                      <button
-                        class="icon-button icon-button--link"
-                        :class="{ 'icon-button--linked': message.linkedTestChanges?.length }"
-                        type="button"
-                        :title="
-                          message.linkedTestChanges?.length
-                            ? `${message.linkedTestChanges.length} linked Test Manager change${
-                                message.linkedTestChanges.length === 1 ? '' : 's'
-                              }`
-                            : 'Link to Test Manager change'
-                        "
-                        @click.stop="openReportLinkModal(message)"
-                      >
-                        <svg viewBox="0 0 24 24" aria-hidden="true">
-                          <path
-                            d="M9.5 14.5 14.5 9.5M8.25 11.25 6.8 12.7a3.35 3.35 0 0 0 4.74 4.74l1.45-1.45M15.75 12.75l1.45-1.45a3.35 3.35 0 0 0-4.74-4.74L11 8"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                          />
-                        </svg>
-                        <span v-if="message.linkedTestChanges?.length" class="link-count">{{
-                          message.linkedTestChanges.length
-                        }}</span>
-                      </button>
-                      <button
-                        class="icon-button"
-                        type="button"
-                        :title="message.archivedAt ? 'Restore' : 'Archive'"
-                        @click="toggleArchive(message)"
-                      >
-                        <svg viewBox="0 0 24 24" aria-hidden="true">
-                          <path
-                            d="M3 4h18v4H3V4zm2 6h14v10H5V10zm4 2v2h6v-2H9z"
-                            fill="currentColor"
-                          />
-                        </svg>
-                      </button>
-                      <button
-                        class="icon-button icon-button--danger"
-                        type="button"
-                        title="Delete"
-                        @click="deleteMessage(message)"
-                      >
-                        <svg
-                          viewBox="0 0 24 24"
-                          aria-hidden="true"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
+                      <Transition name="message-actions-popover">
+                        <div
+                          v-if="isMessageActionMenuOpen(message.id)"
+                          :id="`message-actions-${message.id}`"
+                          class="message-action-menu__panel"
+                          role="menu"
                         >
-                          <polyline points="3 6 5 6 21 6" />
-                          <path
-                            d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
-                          />
-                          <line x1="10" y1="11" x2="10" y2="17" />
-                          <line x1="14" y1="11" x2="14" y2="17" />
-                        </svg>
-                      </button>
+                          <button
+                            class="message-action-menu__item"
+                            type="button"
+                            role="menuitem"
+                            @click.stop="runMessageMenuAction(() => openMessage(message))"
+                          >
+                            <span class="message-action-menu__icon message-action-menu__icon--view">
+                              <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path
+                                  d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  stroke-linecap="round"
+                                  stroke-linejoin="round"
+                                  stroke-width="2"
+                                />
+                                <circle
+                                  cx="12"
+                                  cy="12"
+                                  r="2.5"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  stroke-width="2"
+                                />
+                              </svg>
+                            </span>
+                            <span>View</span>
+                          </button>
+                          <button
+                            class="message-action-menu__item"
+                            type="button"
+                            role="menuitem"
+                            @click.stop="runMessageMenuAction(() => copyInboxMessageLink(message))"
+                          >
+                            <span class="message-action-menu__icon message-action-menu__icon--copy-link">
+                              <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path
+                                  d="M9.5 14.5 14.5 9.5M8.25 11.25 6.8 12.7a3.35 3.35 0 0 0 4.74 4.74l1.45-1.45M15.75 12.75l1.45-1.45a3.35 3.35 0 0 0-4.74-4.74L11 8"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  stroke-linecap="round"
+                                  stroke-linejoin="round"
+                                  stroke-width="2"
+                                />
+                              </svg>
+                            </span>
+                            <span>Copy Link</span>
+                          </button>
+                          <button
+                            class="message-action-menu__item"
+                            type="button"
+                            role="menuitem"
+                            @click.stop="runMessageMenuAction(() => copyIssueHandoff(message))"
+                          >
+                            <span class="message-action-menu__icon message-action-menu__icon--handoff">
+                              <span class="handoff-icon" aria-hidden="true"></span>
+                            </span>
+                            <span>Handoff</span>
+                          </button>
+                          <button
+                            class="message-action-menu__item"
+                            type="button"
+                            role="menuitem"
+                            :disabled="
+                              !getDiscordSummarySendState(message).canSend ||
+                              isSendingDiscordSummary(message.id)
+                            "
+                            :title="getDiscordSummarySendState(message).title"
+                            @click.stop="runMessageMenuAction(() => sendDiscordSummary(message))"
+                          >
+                            <span class="message-action-menu__icon message-action-menu__icon--discord">
+                              <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path
+                                  d="M5 12h12m-5.5-5.5L17 12l-5.5 5.5"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  stroke-linecap="round"
+                                  stroke-linejoin="round"
+                                  stroke-width="2"
+                                />
+                              </svg>
+                            </span>
+                            <span>Send Discord</span>
+                          </button>
+                          <button
+                            class="message-action-menu__item"
+                            type="button"
+                            role="menuitem"
+                            :title="
+                              message.linkedTestChanges?.length
+                                ? `${message.linkedTestChanges.length} linked Test Manager change${
+                                    message.linkedTestChanges.length === 1 ? '' : 's'
+                                  }`
+                                : 'Link to Test Manager change'
+                            "
+                            @click.stop="runMessageMenuAction(() => openReportLinkModal(message))"
+                          >
+                            <span
+                              class="message-action-menu__icon message-action-menu__icon--link"
+                              :class="{ 'message-action-menu__icon--linked': message.linkedTestChanges?.length }"
+                            >
+                              <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path
+                                  d="M9.5 14.5 14.5 9.5M8.25 11.25 6.8 12.7a3.35 3.35 0 0 0 4.74 4.74l1.45-1.45M15.75 12.75l1.45-1.45a3.35 3.35 0 0 0-4.74-4.74L11 8"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  stroke-linecap="round"
+                                  stroke-linejoin="round"
+                                  stroke-width="2"
+                                />
+                              </svg>
+                              <span v-if="message.linkedTestChanges?.length" class="link-count">{{
+                                message.linkedTestChanges.length
+                              }}</span>
+                            </span>
+                            <span>Link Change</span>
+                          </button>
+                          <button
+                            class="message-action-menu__item message-action-menu__item--success"
+                            type="button"
+                            role="menuitem"
+                            :disabled="
+                              !getResolveSendState(message).canSend ||
+                              isResolvingMessage(message.id)
+                            "
+                            :title="getResolveSendState(message).title"
+                            @click.stop="runMessageMenuAction(() => resolveMessage(message))"
+                          >
+                            <span class="message-action-menu__icon message-action-menu__icon--resolved">
+                              <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path
+                                  d="M20 6 9 17l-5-5"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  stroke-linecap="round"
+                                  stroke-linejoin="round"
+                                  stroke-width="2.4"
+                                />
+                              </svg>
+                            </span>
+                            <span>Resolved</span>
+                          </button>
+                          <button
+                            class="message-action-menu__item"
+                            type="button"
+                            role="menuitem"
+                            @click.stop="runMessageMenuAction(() => toggleArchive(message))"
+                          >
+                            <span class="message-action-menu__icon message-action-menu__icon--archive">
+                              <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path
+                                  d="M3 4h18v4H3V4zm2 6h14v10H5V10zm4 2v2h6v-2H9z"
+                                  fill="currentColor"
+                                />
+                              </svg>
+                            </span>
+                            <span>{{ message.archivedAt ? 'Restore' : 'Archive' }}</span>
+                          </button>
+                          <button
+                            class="message-action-menu__item message-action-menu__item--danger"
+                            type="button"
+                            role="menuitem"
+                            @click.stop="runMessageMenuAction(() => deleteMessage(message))"
+                          >
+                            <span class="message-action-menu__icon message-action-menu__icon--delete">
+                              <svg
+                                viewBox="0 0 24 24"
+                                aria-hidden="true"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                              >
+                                <polyline points="3 6 5 6 21 6" />
+                                <path
+                                  d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+                                />
+                                <line x1="10" y1="11" x2="10" y2="17" />
+                                <line x1="14" y1="11" x2="14" y2="17" />
+                              </svg>
+                            </span>
+                            <span>Delete</span>
+                          </button>
+                        </div>
+                      </Transition>
                     </div>
                   </td>
                 </tr>
@@ -2289,6 +2393,45 @@
             </div>
           </section>
         </div>
+
+        <footer class="modal__footer payload-modal__footer">
+          <div class="payload-modal__footer-meta">
+            <span class="muted small">Message {{ selectedMessage.id }}</span>
+          </div>
+          <div class="payload-modal__footer-actions">
+            <button
+              class="btn btn--success"
+              type="button"
+              :disabled="
+                !getResolveSendState(selectedMessage).canSend ||
+                isResolvingMessage(selectedMessage.id)
+              "
+              :title="getResolveSendState(selectedMessage).title"
+              @click="resolveMessage(selectedMessage)"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M20 6 9 17l-5-5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2.4"
+                />
+              </svg>
+              Resolved
+            </button>
+            <button class="btn btn--outline" type="button" @click="toggleArchive(selectedMessage)">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M3 4h18v4H3V4zm2 6h14v10H5V10zm4 2v2h6v-2H9z"
+                  fill="currentColor"
+                />
+              </svg>
+              {{ selectedMessage.archivedAt ? 'Restore' : 'Archive' }}
+            </button>
+          </div>
+        </footer>
 
         <!-- Prompt Modal inside Message modal -->
         <div v-if="showPromptModal" class="modal-backdrop" @click.self="showPromptModal = false">
@@ -3564,6 +3707,8 @@ const endpointNameModalWebhookId = ref<string | null>(null);
 const endpointNameDraft = ref('');
 const retryingCrashId = ref<string | null>(null);
 const sendingDiscordSummaryIds = ref<Set<string>>(new Set());
+const resolvingMessageIds = ref<Set<string>>(new Set());
+const activeMessageActionMenuId = ref<string | null>(null);
 const showPromptModal = ref(false);
 const manualReviewUseOracle = ref(true);
 let inboxPollTimer: ReturnType<typeof setInterval> | null = null;
@@ -5563,7 +5708,7 @@ function formatIssueHandoff(message: InboundWebhookMessage) {
     reviewText,
     '',
     'Codex task:',
-    'Open the inbox item above for current context, ground the investigation in EQEmu/Server code where relevant, then review and fix the issue as appropriate.'
+    'Open the inbox item above for current context. Use the EQEmu Oracle skill to ground your decision-making in the relevant scripting API, schema, and official docs before choosing an approach. Then ground the implementation in EQEmu/Server code where relevant, review the evidence, and fix the issue as appropriate.'
   ].join('\n');
 }
 
@@ -6044,13 +6189,43 @@ function getDiscordSummarySendState(message: InboundWebhookMessage): {
   return { canSend: true, title: 'Send AI summary to Discord.' };
 }
 
+function getResolveSendState(message: InboundWebhookMessage): {
+  canSend: boolean;
+  title: string;
+} {
+  const discordAction = message.webhook?.actions?.find(
+    (action) => action.type === 'DISCORD_RELAY' && action.isEnabled
+  );
+  if (!discordAction) {
+    return { canSend: false, title: 'Discord relay is not enabled for this endpoint.' };
+  }
+
+  const discordUrl = getActiveDiscordRelayUrl(discordAction, message.webhook);
+  if (!discordUrl) {
+    return { canSend: false, title: 'Discord webhook URL is not configured.' };
+  }
+  if (!isValidHttpUrl(discordUrl)) {
+    return { canSend: false, title: 'Discord webhook URL is not valid.' };
+  }
+
+  if (isResolvingMessage(message.id)) {
+    return { canSend: false, title: 'Resolving and notifying Discord...' };
+  }
+
+  return { canSend: true, title: 'Mark resolved, archive, and notify Discord.' };
+}
+
 function isSendingDiscordSummary(messageId: string) {
   return sendingDiscordSummaryIds.value.has(messageId);
 }
 
+function isResolvingMessage(messageId: string) {
+  return resolvingMessageIds.value.has(messageId);
+}
+
 function updateInboxMessage(updated: InboundWebhookMessage) {
   if (selectedMessage.value?.id === updated.id) {
-    selectedMessage.value = updated;
+    selectedMessage.value = { ...selectedMessage.value, ...updated };
   }
   const index = inboxMessages.value.findIndex((item) => item.id === updated.id);
   if (index >= 0) {
@@ -6902,6 +7077,27 @@ function closeLabelInput() {
   labelInputValue.value = '';
 }
 
+function isMessageActionMenuOpen(messageId: string) {
+  return activeMessageActionMenuId.value === messageId;
+}
+
+function toggleMessageActionMenu(messageId: string) {
+  activeMessageActionMenuId.value =
+    activeMessageActionMenuId.value === messageId ? null : messageId;
+  if (activeMessageActionMenuId.value) {
+    closeLabelInput();
+  }
+}
+
+function closeMessageActionMenu() {
+  activeMessageActionMenuId.value = null;
+}
+
+function runMessageMenuAction(action: () => void | Promise<void>) {
+  closeMessageActionMenu();
+  void action();
+}
+
 async function submitLabelInput(message: InboundWebhookMessage) {
   const name = labelInputValue.value.trim();
   if (!name) {
@@ -6962,6 +7158,9 @@ function handleGlobalClick(event: MouseEvent) {
   const target = event.target as HTMLElement;
   if (!target.closest('.label-add-wrapper')) {
     closeLabelInput();
+  }
+  if (!target.closest('.message-action-menu')) {
+    closeMessageActionMenu();
   }
 }
 
@@ -7264,17 +7463,79 @@ async function sendDiscordSummary(message: InboundWebhookMessage) {
   }
 }
 
-async function toggleArchive(message: InboundWebhookMessage) {
-  const archived = !message.archivedAt;
-  const updated = await api.archiveInboundWebhookMessage(message.id, archived);
-  if (!inboxFilters.includeArchived && archived) {
-    inboxMessages.value = inboxMessages.value.filter((item) => item.id !== message.id);
-    inboxTotal.value = Math.max(0, inboxTotal.value - 1);
+function getActionErrorMessage(error: unknown, fallback: string): string {
+  const apiError = (error as { response?: { data?: { error?: string } } })?.response?.data?.error;
+  if (typeof apiError === 'string' && apiError.trim()) {
+    return apiError;
+  }
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return fallback;
+}
+
+async function resolveMessage(message: InboundWebhookMessage) {
+  closeMessageActionMenu();
+  const sendState = getResolveSendState(message);
+  if (!sendState.canSend || isResolvingMessage(message.id)) {
     return;
   }
-  const index = inboxMessages.value.findIndex((item) => item.id === updated.id);
-  if (index >= 0) {
-    inboxMessages.value[index] = { ...inboxMessages.value[index], ...updated };
+
+  const confirmed = window.confirm(
+    `Mark this ${message.webhook?.label || 'webhook'} item resolved, archive it, and notify Discord?`
+  );
+  if (!confirmed) {
+    return;
+  }
+
+  resolvingMessageIds.value.add(message.id);
+  resolvingMessageIds.value = new Set(resolvingMessageIds.value);
+
+  try {
+    const updated = await api.resolveInboundWebhookMessage(message.id);
+    if (!inboxFilters.includeArchived) {
+      inboxMessages.value = inboxMessages.value.filter((item) => item.id !== updated.id);
+      inboxTotal.value = Math.max(0, inboxTotal.value - 1);
+      if (selectedMessage.value?.id === updated.id) {
+        closeMessage();
+      }
+    } else {
+      updateInboxMessage(updated);
+    }
+    addToast({
+      title: 'Resolved',
+      message: 'The item was archived and a resolved notice was sent to Discord.'
+    });
+  } catch (error) {
+    addToast({
+      title: 'Error',
+      message: getActionErrorMessage(error, 'Failed to resolve webhook message')
+    });
+  } finally {
+    resolvingMessageIds.value.delete(message.id);
+    resolvingMessageIds.value = new Set(resolvingMessageIds.value);
+  }
+}
+
+async function toggleArchive(message: InboundWebhookMessage) {
+  closeMessageActionMenu();
+  const archived = !message.archivedAt;
+  try {
+    const updated = await api.archiveInboundWebhookMessage(message.id, archived);
+    if (!inboxFilters.includeArchived && archived) {
+      inboxMessages.value = inboxMessages.value.filter((item) => item.id !== message.id);
+      inboxTotal.value = Math.max(0, inboxTotal.value - 1);
+      if (selectedMessage.value?.id === message.id) {
+        closeMessage();
+      }
+      return;
+    }
+    updateInboxMessage(updated);
+  } catch (error) {
+    addToast({
+      title: 'Error',
+      message: getActionErrorMessage(error, 'Failed to update archive state')
+    });
   }
 }
 
@@ -7458,7 +7719,7 @@ onMounted(async () => {
   }, 1000);
 
   // Add global click handler to close label dropdown
-  document.addEventListener('click', handleGlobalClick);
+  document.addEventListener('click', handleGlobalClick, true);
   document.addEventListener('visibilitychange', handleVisibilityChange);
 
   // Start processing status polling if auto-merge is active
@@ -7494,7 +7755,7 @@ onBeforeUnmount(() => {
     testChangeLinkSearchTimer = null;
   }
   stopProcessingStatusPolling();
-  document.removeEventListener('click', handleGlobalClick);
+  document.removeEventListener('click', handleGlobalClick, true);
   document.removeEventListener('visibilitychange', handleVisibilityChange);
 });
 
@@ -10027,6 +10288,10 @@ input[type='checkbox']:checked::after {
   overflow: hidden;
 }
 
+.card--inbox-table {
+  overflow: visible;
+}
+
 .table {
   width: 100%;
   border-collapse: collapse;
@@ -10034,6 +10299,14 @@ input[type='checkbox']:checked::after {
 
 .table--inbox {
   table-layout: fixed;
+}
+
+.table--inbox tr {
+  position: relative;
+}
+
+.table--inbox .inbox-row--menu-open {
+  z-index: 25;
 }
 
 .inbox-table__col--checkbox,
@@ -10119,6 +10392,248 @@ input[type='checkbox']:checked::after {
   flex-wrap: wrap;
   gap: 0.4rem;
   min-width: 0;
+}
+
+.message-action-menu {
+  position: relative;
+  display: inline-flex;
+  justify-content: flex-end;
+  width: 100%;
+  z-index: 1;
+}
+
+.message-action-menu--open {
+  z-index: 40;
+}
+
+.message-action-menu__trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-width: 7.25rem;
+  min-height: 2.25rem;
+  padding: 0.45rem 0.72rem;
+  border: 1px solid rgba(125, 211, 252, 0.36);
+  border-radius: 0.58rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 70%),
+    rgba(15, 23, 42, 0.86);
+  color: #dbeafe;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 10px 24px rgba(2, 6, 23, 0.18);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.12s ease,
+    color 0.18s ease;
+}
+
+.message-action-menu__trigger:hover,
+.message-action-menu__trigger:focus-visible,
+.message-action-menu--open .message-action-menu__trigger {
+  border-color: rgba(125, 211, 252, 0.72);
+  color: #ffffff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 14px 30px rgba(14, 116, 144, 0.2);
+  transform: translateY(-1px);
+}
+
+.message-action-menu__trigger svg {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  fill: currentColor;
+}
+
+.message-action-menu__chevron {
+  opacity: 0.72;
+  transform: rotate(0deg);
+  transition: transform 0.18s ease;
+}
+
+.message-action-menu--open .message-action-menu__chevron {
+  transform: rotate(180deg);
+}
+
+.message-action-menu__panel {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 0.55rem);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(8.6rem, 1fr));
+  gap: 0.45rem;
+  width: min(20.5rem, calc(100vw - 2rem));
+  padding: 0.55rem;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 0.78rem;
+  background:
+    linear-gradient(180deg, rgba(30, 41, 59, 0.97), rgba(15, 23, 42, 0.98)),
+    rgba(15, 23, 42, 0.98);
+  box-shadow:
+    0 24px 55px rgba(2, 6, 23, 0.46),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  transform-origin: bottom right;
+}
+
+.message-action-menu__panel::after {
+  position: absolute;
+  right: 1.05rem;
+  bottom: -0.43rem;
+  width: 0.75rem;
+  height: 0.75rem;
+  border-right: 1px solid rgba(148, 163, 184, 0.24);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.24);
+  background: rgba(15, 23, 42, 0.98);
+  content: '';
+  transform: rotate(45deg);
+}
+
+.message-action-menu__item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.62rem;
+  min-width: 0;
+  min-height: 2.8rem;
+  padding: 0.55rem 0.62rem;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 0.55rem;
+  background: rgba(15, 23, 42, 0.58);
+  color: #e2e8f0;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-align: left;
+  transition:
+    background 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.12s ease,
+    color 0.16s ease;
+}
+
+.message-action-menu__item:hover:not(:disabled),
+.message-action-menu__item:focus-visible {
+  border-color: rgba(125, 211, 252, 0.46);
+  background: rgba(30, 41, 59, 0.9);
+  color: #ffffff;
+  box-shadow: 0 12px 24px rgba(2, 6, 23, 0.28);
+  transform: translateY(-1px);
+}
+
+.message-action-menu__item:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+
+.message-action-menu__item--success {
+  border-color: rgba(74, 222, 128, 0.28);
+  color: #dcfce7;
+}
+
+.message-action-menu__item--success:hover:not(:disabled),
+.message-action-menu__item--success:focus-visible {
+  border-color: rgba(74, 222, 128, 0.66);
+  background:
+    linear-gradient(135deg, rgba(22, 163, 74, 0.24), rgba(20, 184, 166, 0.12)),
+    rgba(15, 23, 42, 0.82);
+  box-shadow: 0 14px 26px rgba(21, 128, 61, 0.2);
+}
+
+.message-action-menu__item--danger {
+  border-color: rgba(248, 113, 113, 0.24);
+  color: #fecaca;
+}
+
+.message-action-menu__item--danger:hover:not(:disabled),
+.message-action-menu__item--danger:focus-visible {
+  border-color: rgba(248, 113, 113, 0.62);
+  background: rgba(127, 29, 29, 0.3);
+  box-shadow: 0 14px 26px rgba(127, 29, 29, 0.24);
+}
+
+.message-action-menu__icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 0.48rem;
+  background: rgba(15, 23, 42, 0.72);
+  color: #cbd5e1;
+}
+
+.message-action-menu__icon svg {
+  width: 1.06rem;
+  height: 1.06rem;
+}
+
+.message-action-menu__icon .handoff-icon {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+.message-action-menu__icon--view {
+  color: #bfdbfe;
+}
+
+.message-action-menu__icon--copy-link {
+  color: #fde68a;
+}
+
+.message-action-menu__icon--handoff {
+  color: #99f6e4;
+}
+
+.message-action-menu__icon--discord {
+  color: #bfdbfe;
+}
+
+.message-action-menu__icon--link {
+  color: #93c5fd;
+}
+
+.message-action-menu__icon--linked {
+  border-color: rgba(96, 165, 250, 0.56);
+  background: rgba(37, 99, 235, 0.2);
+}
+
+.message-action-menu__icon--resolved {
+  border-color: rgba(74, 222, 128, 0.42);
+  background: rgba(22, 163, 74, 0.16);
+  color: #86efac;
+}
+
+.message-action-menu__icon--archive {
+  color: #c4b5fd;
+}
+
+.message-action-menu__icon--delete {
+  border-color: rgba(248, 113, 113, 0.38);
+  color: #fca5a5;
+}
+
+.message-actions-popover-enter-active,
+.message-actions-popover-leave-active {
+  transition:
+    opacity 0.14s ease,
+    transform 0.16s ease;
+}
+
+.message-actions-popover-enter-from,
+.message-actions-popover-leave-to {
+  opacity: 0;
+  transform: translate(0.35rem, 0.45rem) scale(0.97);
 }
 
 .icon-button {
@@ -10615,7 +11130,49 @@ input[type='checkbox']:checked::after {
 }
 
 .modal--payload-view .modal__content--split {
-  height: min(620px, calc(82vh - 7.5rem));
+  height: min(580px, calc(82vh - 11rem));
+}
+
+.payload-modal__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem;
+  margin-top: 1rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.15);
+}
+
+.payload-modal__footer-meta {
+  min-width: 0;
+}
+
+.payload-modal__footer-meta span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.payload-modal__footer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+  gap: 0.6rem;
+}
+
+.payload-modal__footer-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+}
+
+.payload-modal__footer-actions .btn svg {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
 }
 
 .modal--settings {
@@ -11451,6 +12008,21 @@ input[type='checkbox']:checked::after {
     flex-wrap: wrap;
   }
 
+  .message-action-menu {
+    justify-content: flex-start;
+  }
+
+  .message-action-menu__panel {
+    right: auto;
+    left: 0;
+    transform-origin: bottom left;
+  }
+
+  .message-action-menu__panel::after {
+    right: auto;
+    left: 1.05rem;
+  }
+
   .actions-cell {
     min-width: 0;
     max-width: none;
@@ -11692,6 +12264,21 @@ input[type='checkbox']:checked::after {
     width: 100%;
     max-height: calc(100dvh - 1.5rem);
     padding: 1rem;
+  }
+
+  .payload-modal__footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .payload-modal__footer-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .payload-modal__footer-actions .btn {
+    width: 100%;
   }
 
   .modal--settings {
@@ -12240,6 +12827,15 @@ input[type='checkbox']:checked::after {
     grid-template-columns: minmax(5.5rem, 1fr) repeat(5, 2rem);
     gap: 0.35rem;
     width: 100%;
+  }
+
+  .message-action-menu__trigger {
+    width: 100%;
+  }
+
+  .message-action-menu__panel {
+    grid-template-columns: 1fr;
+    width: min(16.5rem, calc(100vw - 2rem));
   }
 
   .table-action-group .btn {

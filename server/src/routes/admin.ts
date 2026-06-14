@@ -69,6 +69,7 @@ import {
   listInboundWebhookMessagesEnhanced,
   listCrashTelemetryReports,
   listInboundWebhooks,
+  resolveInboundWebhookMessage,
   retryCrashReviewForMessage,
   sendManualDiscordSummaryForMessage,
   updateInboundWebhook,
@@ -2144,6 +2145,30 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
       });
 
       return { message: updated };
+    }
+  );
+
+  server.post(
+    '/webhook-inbox/:messageId/resolve',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({ messageId: z.string() });
+      const { messageId } = paramsSchema.parse(request.params);
+
+      try {
+        const message = await resolveInboundWebhookMessage(messageId);
+        return reply.code(201).send({ message });
+      } catch (error) {
+        request.log.error({ error }, 'Failed to resolve webhook inbox message.');
+        if (error instanceof Error && error.message.includes('not found')) {
+          return reply.notFound(error.message);
+        }
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to resolve webhook message.'
+        );
+      }
     }
   );
 
