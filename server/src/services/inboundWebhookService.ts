@@ -17,6 +17,7 @@ import { appConfig } from '../config/appConfig.js';
 import { staticZoneNameMap } from '../data/zoneNames.js';
 import { isEqDbConfigured, queryEqDb } from '../utils/eqDb.js';
 import { prisma } from '../utils/prisma.js';
+import { resolvePublicClientBaseUrl } from '../utils/publicClientUrl.js';
 
 // ============================================================================
 // SERVICE LOADED - AUTO-MERGE VERSION 2.0
@@ -153,52 +154,8 @@ const processingWebhooks = new Set<string>();
 // Track groups currently being processed to prevent concurrent processing
 const processingGroups = new Set<string>();
 
-// Resolve client base URL for building links
-const clientBaseUrl = resolveClientBaseUrl();
-
-function resolveClientBaseUrl(): string | null {
-  const candidates = [
-    appConfig.clientUrl,
-    process.env.CLIENT_URL,
-    process.env.PUBLIC_CLIENT_URL,
-    process.env.PUBLIC_URL,
-    process.env.WEB_URL,
-    process.env.APP_URL,
-    process.env.SITE_URL,
-    process.env.URL,
-    process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined,
-    process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : undefined,
-    process.env.RENDER_EXTERNAL_URL,
-    process.env.DEPLOYMENT_URL
-  ];
-
-  const normalizedCandidates = candidates
-    .map((value) => {
-      if (!value || typeof value !== 'string') return null;
-      const trimmed = value.trim();
-      if (!trimmed) return null;
-      const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
-      try {
-        const url = new URL(withScheme);
-        return `${url.protocol}//${url.host}`.replace(/\/$/, '');
-      } catch {
-        return null;
-      }
-    })
-    .filter((value): value is string => Boolean(value));
-
-  const isLocalHost = (value: string): boolean => {
-    try {
-      const { hostname } = new URL(value);
-      return hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('127.') || hostname.endsWith('.local');
-    } catch {
-      return false;
-    }
-  };
-
-  const nonLocal = normalizedCandidates.find((value) => !isLocalHost(value));
-  return nonLocal ?? normalizedCandidates[0] ?? null;
-}
+// Resolve public client base URL for Discord links. Localhost is intentionally rejected.
+const clientBaseUrl = resolvePublicClientBaseUrl('Webhook Inbox Discord links');
 
 export interface InboundWebhookRetentionPolicy {
   mode: 'indefinite' | 'days' | 'maxCount';
@@ -1075,7 +1032,7 @@ export async function resolveInboundWebhookMessage(messageId: string, resolvingU
   }
 
   const startedAt = Date.now();
-  const resolvedPayload = buildResolvedDiscordPayload(message);
+  const resolvedPayload = await buildResolvedDiscordPayload(message);
 
   try {
     await sendDiscordRelay(discordUrl.trim(), resolvedPayload, discordConfig, messageId);
@@ -1120,7 +1077,7 @@ export async function resolveInboundWebhookMessage(messageId: string, resolvingU
   return getInboundWebhookMessage(messageId);
 }
 
-function buildResolvedDiscordPayload(message: {
+async function buildResolvedDiscordPayload(message: {
   id: string;
   webhookId: string;
   receivedAt: Date;
@@ -1137,10 +1094,11 @@ function buildResolvedDiscordPayload(message: {
     action: { type: InboundWebhookActionType } | null;
   }>;
   labelAssignments?: Array<{ label: { name: string } }>;
-}): DiscordEmbedPayload {
+}): Promise<DiscordEmbedPayload> {
   const review = getLatestCrashReviewResult(message.actionRuns);
   const description = getResolvedIssueDescription(message, review);
   const signature = review?.signature as { exception?: string | null; topFrame?: string | null } | undefined;
+  const scriptErrorContext = await getScriptErrorContext(message.payload, message.rawBody);
   const messageUrl = clientBaseUrl
     ? `${clientBaseUrl}/admin/webhooks?messageId=${encodeURIComponent(message.id)}`
     : null;
@@ -1187,6 +1145,15 @@ function buildResolvedDiscordPayload(message: {
     });
   }
 
+  const contextLines = formatResolvedDiscordContext(scriptErrorContext);
+  if (contextLines.length > 0) {
+    fields.push({
+      name: 'Context',
+      value: contextLines.join('\n'),
+      inline: false
+    });
+  }
+
   fields.push({
     name: 'Status',
     value: [
@@ -1219,6 +1186,44 @@ function buildResolvedDiscordPayload(message: {
       }
     ]
   };
+}
+
+function formatResolvedDiscordContext(context: ScriptErrorContext | null): string[] {
+  if (!context) {
+    return [];
+  }
+
+  const lines: string[] = [];
+  const zoneLabel = formatScriptErrorZoneLabel(context);
+  const npcName = formatNpcDisplayName(context.npcName, null);
+
+  if (zoneLabel) {
+    lines.push(`Zone: ${zoneLabel}`);
+  }
+  if (npcName) {
+    lines.push(`NPC: ${truncateText(npcName, 160)}`);
+  }
+  if (context.npcTypeId) {
+    lines.push(`NPC Type ID: \`${context.npcTypeId}\``);
+  }
+  if (context.scriptFile) {
+    lines.push(`Script: \`${truncateText(context.scriptFile, 160)}\``);
+  }
+
+  return lines;
+}
+
+function formatScriptErrorZoneLabel(context: ScriptErrorContext): string | null {
+  if (context.zoneName && context.zoneShortName) {
+    return `${truncateText(context.zoneName, 120)} (\`${truncateText(context.zoneShortName, 60)}\`)`;
+  }
+  if (context.zoneName) {
+    return truncateText(context.zoneName, 160);
+  }
+  if (context.zoneShortName) {
+    return `\`${truncateText(context.zoneShortName, 80)}\``;
+  }
+  return null;
 }
 
 function getResolvedIssueDescription(

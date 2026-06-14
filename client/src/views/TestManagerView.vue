@@ -6276,6 +6276,7 @@ const pipelineAriaLabel = computed(
 
 const needsAttentionQueue = computed(() =>
   dashboardGraphChanges.value
+    .filter((change) => isAttentionReadyChange(change))
     .flatMap((change) => {
       if (change.summary.failCount > 0) {
         return [{ change, score: 400, reason: 'Failing', tone: 'red' }];
@@ -6286,7 +6287,7 @@ const needsAttentionQueue = computed(() =>
       if (change.priority === 'CRITICAL' || change.priority === 'HIGH') {
         return [{ change, score: 200, reason: 'High priority', tone: 'red' }];
       }
-      if (ATTENTION_READY_STATUSES.includes(change.status) && change.summary.testerCount === 0) {
+      if (change.summary.testerCount === 0) {
         return [{ change, score: 100, reason: 'Needs testers', tone: 'blue' }];
       }
       return [];
@@ -6572,13 +6573,17 @@ const ATTENTION_FILTER_LABELS: Record<AttentionFilterKey, string> = {
 
 const ATTENTION_READY_STATUSES: TestChangeStatus[] = ['SUBMITTED', 'AWAITING_TEST', 'RENEWED'];
 
+function isAttentionReadyChange(change: TestChange) {
+  return ATTENTION_READY_STATUSES.includes(change.status) && isChangeReadyToTest(change);
+}
+
 function matchesAttentionFilter(change: TestChange, filter: AttentionFilterKey) {
   if (isTerminalChangeStatus(change.status)) {
     return false;
   }
   switch (filter) {
     case 'awaiting':
-      return ATTENTION_READY_STATUSES.includes(change.status);
+      return isAttentionReadyChange(change);
     case 'mine':
       return Boolean(change.viewerTester && change.viewerTester.status !== 'DONE');
     case 'failing':
@@ -8309,6 +8314,24 @@ function resetEditForm() {
   };
 }
 
+function editChecklistHasChanged(checklist: NonNullable<UpdateTestChangePayload['checklist']>) {
+  const currentChecklist = activeChange.value?.checklist ?? [];
+  if (checklist.length !== currentChecklist.length) {
+    return true;
+  }
+
+  return checklist.some((item, index) => {
+    const current = currentChecklist[index];
+    return (
+      !current ||
+      item.id !== current.id ||
+      item.title !== current.title ||
+      (item.details ?? null) !== (current.details || null) ||
+      (item.category ?? null) !== (current.category || null)
+    );
+  });
+}
+
 function normalizeContextLinkDrafts(
   links: TestChangeContextLink[] | undefined
 ): TestChangeContextLink[] {
@@ -8463,8 +8486,11 @@ async function saveEditChange() {
     const dueAt = editForm.value.dueAt?.trim()
       ? new Date(editForm.value.dueAt).toISOString()
       : null;
-    const updated = await api.updateTestChange(activeChange.value.id, {
-      ...editForm.value,
+    const payload: UpdateTestChangePayload = {
+      title: editForm.value.title,
+      category: editForm.value.category,
+      subsystem: editForm.value.subsystem,
+      priority: editForm.value.priority,
       description: normalizeRichTextHtml(editForm.value.description),
       targetBuild: editForm.value.targetBuild?.trim() || null,
       testServerVersion: editForm.value.testServerVersion?.trim() || null,
@@ -8473,13 +8499,24 @@ async function saveEditChange() {
       includeInNextPatch: editForm.value.includeInNextPatch ?? true,
       autoClosePassCount: normalizeAutoClosePassCount(editForm.value.autoClosePassCount),
       dueAt,
-      checklist
-    });
+      assignedToId: editForm.value.assignedToId
+    };
+    if (editChecklistHasChanged(checklist)) {
+      payload.checklist = checklist;
+    }
+
+    const updated = await api.updateTestChange(activeChange.value.id, payload);
     replaceCachedChange(updated);
     selectedChange.value = updated;
     editOpen.value = false;
     resetEditForm();
     await loadChanges();
+  } catch (error) {
+    addToast({
+      title: 'Change Save Failed',
+      message: getApiErrorMessage(error, 'Unable to save change.'),
+      variant: 'error'
+    });
   } finally {
     editSaving.value = false;
   }
@@ -9893,10 +9930,10 @@ function changeVersionTitle(change: TestChange, includeEditHint = false) {
 
 function priorityLabel(priority: TestChangePriority) {
   const labels: Record<TestChangePriority, string> = {
-    CRITICAL: 'P1',
-    HIGH: 'P1',
-    MEDIUM: 'P2',
-    LOW: 'P3'
+    CRITICAL: 'Crit',
+    HIGH: 'High',
+    MEDIUM: 'Med',
+    LOW: 'Low'
   };
   return labels[priority];
 }
@@ -11514,13 +11551,13 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
   width: 100%;
   min-height: 0;
   overflow: visible;
-  align-items: start;
+  align-items: stretch;
 }
 
 .tm-grid--dashboard > .tm-stack {
-  height: auto;
-  grid-template-rows: auto auto;
-  align-content: start;
+  height: 100%;
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: stretch;
   overflow: visible;
 }
 
@@ -17104,58 +17141,69 @@ button.tm-version-badge {
 }
 
 .tm-priority {
-  --tm-priority-color: var(--tm-gold);
-  --tm-priority-bg: rgba(217, 164, 95, 0.14);
-  --tm-priority-glow: rgba(217, 164, 95, 0.2);
+  --tm-priority-color: #f1d06d;
+  --tm-priority-bg: rgba(241, 208, 109, 0.13);
+  --tm-priority-border: rgba(241, 208, 109, 0.46);
+  --tm-priority-glow: rgba(241, 208, 109, 0.14);
   position: relative;
-  gap: 0.38rem;
-  min-width: 4.05rem;
-  padding: 0.34rem 0.7rem;
+  gap: 0.42rem;
+  min-width: 4.35rem;
+  padding: 0.32rem 0.68rem;
   border-radius: 999px;
   color: var(--tm-priority-color);
-  border-color: var(--tm-priority-color);
+  border-color: var(--tm-priority-border);
   background:
-    linear-gradient(135deg, var(--tm-priority-bg), rgba(255, 255, 255, 0.035)),
-    rgba(6, 10, 11, 0.72);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.075), transparent 80%),
+    linear-gradient(135deg, var(--tm-priority-bg), rgba(255, 255, 255, 0.025)),
+    rgba(5, 9, 11, 0.82);
   box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.055),
-    0 0 14px var(--tm-priority-glow);
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 -10px 18px rgba(0, 0, 0, 0.12),
+    0 0 16px var(--tm-priority-glow);
   font-weight: 800;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
+  line-height: 1;
+  text-transform: none;
 }
 
 .tm-priority::before {
   content: '';
-  width: 0.46rem;
-  height: 0.46rem;
+  width: 0.42rem;
+  height: 0.42rem;
   flex: 0 0 auto;
   border-radius: 50%;
   background: currentColor;
-  box-shadow: 0 0 10px currentColor;
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, currentColor 16%, transparent),
+    0 0 11px currentColor;
 }
 
 .tm-priority--critical {
-  --tm-priority-color: var(--tm-red);
-  --tm-priority-bg: rgba(255, 107, 85, 0.17);
-  --tm-priority-glow: rgba(255, 107, 85, 0.24);
+  --tm-priority-color: #ff7b72;
+  --tm-priority-bg: rgba(255, 84, 84, 0.18);
+  --tm-priority-border: rgba(255, 123, 114, 0.58);
+  --tm-priority-glow: rgba(255, 84, 84, 0.22);
 }
 
 .tm-priority--high {
-  --tm-priority-color: #ff9d5c;
-  --tm-priority-bg: rgba(255, 157, 92, 0.16);
-  --tm-priority-glow: rgba(255, 157, 92, 0.22);
+  --tm-priority-color: #ffad5c;
+  --tm-priority-bg: rgba(255, 143, 69, 0.16);
+  --tm-priority-border: rgba(255, 173, 92, 0.54);
+  --tm-priority-glow: rgba(255, 143, 69, 0.18);
 }
 
 .tm-priority--medium {
-  --tm-priority-color: var(--tm-gold);
-  --tm-priority-bg: rgba(217, 164, 95, 0.14);
-  --tm-priority-glow: rgba(217, 164, 95, 0.18);
+  --tm-priority-color: #f1d06d;
+  --tm-priority-bg: rgba(241, 208, 109, 0.13);
+  --tm-priority-border: rgba(241, 208, 109, 0.46);
+  --tm-priority-glow: rgba(241, 208, 109, 0.14);
 }
 
 .tm-priority--low {
-  --tm-priority-color: var(--tm-blue);
-  --tm-priority-bg: rgba(85, 183, 255, 0.13);
-  --tm-priority-glow: rgba(85, 183, 255, 0.17);
+  --tm-priority-color: #72d6a5;
+  --tm-priority-bg: rgba(74, 203, 137, 0.13);
+  --tm-priority-border: rgba(114, 214, 165, 0.44);
+  --tm-priority-glow: rgba(74, 203, 137, 0.14);
 }
 
 .tm-report-list {

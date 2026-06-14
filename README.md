@@ -57,6 +57,7 @@ Then update `server/.env` with your local values:
 
 - `DATABASE_URL`: MySQL connection string for your local database.
 - `CLIENT_URL`: usually `http://localhost:5173`.
+- `DISCORD_PUBLIC_CLIENT_URL`: optional live site URL for Discord webhook links when local `CLIENT_URL` points at localhost.
 - `SESSION_SECRET`: long random string for local sessions.
 - OAuth settings: at least one provider must be configured if you need to sign in locally.
 
@@ -199,6 +200,7 @@ Railway can host both the Fastify API and the Vue client behind a single project
    The script `scripts/run-with-db-url.cjs` derives `DATABASE_URL` automatically from the standard Railway MySQL variables, so you do not need to duplicate the connection string. Make sure the following keys are defined:
 
    - `CLIENT_URL` – Base URL for the deployed client (usually `https://<railway-domain>`). When absent, the server falls back to the generated `RAILWAY_STATIC_URL`.
+   - `DISCORD_PUBLIC_CLIENT_URL` or `PUBLIC_CLIENT_URL` – Optional override for Discord webhook links. Localhost URLs are ignored so local actions do not post localhost links.
    - `SESSION_SECRET` – Long, random string used to sign cookies and JWTs.
    - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` – OAuth credentials configured for the Railway domain.
    - `GOOGLE_CALLBACK_URL` – Must exactly match the Google console redirect (`https://<railway-domain>/api/auth/google/callback`).

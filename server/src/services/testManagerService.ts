@@ -14,8 +14,8 @@ import {
 import { ensureAdmin } from './adminService.js';
 import { generatePatchNotesForChanges } from './geminiPatchNotesService.js';
 import { buildCrashReviewInput } from './inboundWebhookService.js';
-import { appConfig } from '../config/appConfig.js';
 import { prisma } from '../utils/prisma.js';
+import { resolvePublicClientBaseUrl } from '../utils/publicClientUrl.js';
 
 const TESTING_READY_STATUSES: TestChangeStatus[] = [
   TestChangeStatus.SUBMITTED,
@@ -2201,6 +2201,7 @@ const TEST_MANAGER_DISCORD_EVENT_META: Record<
 };
 
 const TEST_MANAGER_DISCORD_AVATAR_PATH = '/cw-nexus-logo.png';
+const testManagerDiscordClientBaseUrl = resolvePublicClientBaseUrl('Test Manager Discord links');
 
 function formatLabel(value: string): string {
   return value
@@ -2213,18 +2214,24 @@ function truncateDiscord(value: string, maxLength: number): string {
   return value.length > maxLength ? `${value.slice(0, Math.max(0, maxLength - 1))}…` : value;
 }
 
-function buildClientAssetUrl(pathname: string): string {
-  return new URL(pathname, `${appConfig.clientUrl.replace(/\/$/, '')}/`).toString();
+function buildClientAssetUrl(pathname: string): string | null {
+  if (!testManagerDiscordClientBaseUrl) {
+    return null;
+  }
+
+  return new URL(pathname, `${testManagerDiscordClientBaseUrl}/`).toString();
 }
 
 function buildChangeUrl(
   change: SerializedChange,
   tab?: DiscordDeepLinkTab,
   focus?: 'notes'
-): string {
-  const url = new URL(
-    `${appConfig.clientUrl.replace(/\/$/, '')}/test-manager/changes/${change.id}`
-  );
+): string | null {
+  if (!testManagerDiscordClientBaseUrl) {
+    return null;
+  }
+
+  const url = new URL(`${testManagerDiscordClientBaseUrl}/test-manager/changes/${change.id}`);
 
   if (tab && tab !== 'Overview') {
     url.searchParams.set('tab', tab);
@@ -2311,13 +2318,12 @@ function buildTestManagerDiscordPayload(
     input.event === 'note.added' ? 'notes' : undefined
   );
   const coverageUrl = buildChangeUrl(input.change, 'Coverage');
+  const changeLabel = `#${input.change.publicId} ${truncateDiscord(input.change.title, 80)}`;
   const summary = input.change.summary;
   const fields: Array<{ name: string; value: string; inline?: boolean }> = [
     {
       name: 'Change',
-      value: isDeletedChange
-        ? `#${input.change.publicId} ${truncateDiscord(input.change.title, 80)}`
-        : `[#${input.change.publicId} ${truncateDiscord(input.change.title, 80)}](${changeUrl})`
+      value: !isDeletedChange && changeUrl ? `[${changeLabel}](${changeUrl})` : changeLabel
     },
     { name: 'Status', value: formatLabel(input.change.status), inline: true },
     { name: 'Priority', value: formatLabel(input.change.priority), inline: true },
@@ -2332,14 +2338,21 @@ function buildTestManagerDiscordPayload(
       value: `${summary.testerCount} testers • ${summary.passCount} passed • ${summary.failCount} failed • ${summary.blockedCount} blocked`,
       inline: false
     },
-    {
-      name: 'Open In Test Manager',
-      value: isDeletedChange
-        ? 'Deleted change record no longer has an active page.'
-        : `[${discordDeepLinkLabelForEvent(input.event)}](${changeUrl})`,
-      inline: false
-    }
   ];
+
+  if (isDeletedChange) {
+    fields.push({
+      name: 'Open In Test Manager',
+      value: 'Deleted change record no longer has an active page.',
+      inline: false
+    });
+  } else if (changeUrl) {
+    fields.push({
+      name: 'Open In Test Manager',
+      value: `[${discordDeepLinkLabelForEvent(input.event)}](${changeUrl})`,
+      inline: false
+    });
+  }
 
   if (input.metadata?.testerName) {
     fields.push({ name: 'Tester', value: String(input.metadata.testerName), inline: true });
@@ -2364,7 +2377,7 @@ function buildTestManagerDiscordPayload(
     const checklistItemTitle = truncateDiscord(String(input.metadata.checklistItemTitle), 140);
     fields.push({
       name: 'Checklist Item',
-      value: input.event.startsWith('checklist.')
+      value: input.event.startsWith('checklist.') && coverageUrl
         ? `[${checklistItemTitle}](${coverageUrl})`
         : checklistItemTitle
     });
@@ -2374,15 +2387,16 @@ function buildTestManagerDiscordPayload(
   }
 
   const detail = truncateDiscord(input.detail?.trim() || `${meta.label} in Test Manager.`, 600);
+  const avatarUrl = buildClientAssetUrl(TEST_MANAGER_DISCORD_AVATAR_PATH);
 
   return {
     username: 'Test Manager',
-    avatar_url: buildClientAssetUrl(TEST_MANAGER_DISCORD_AVATAR_PATH),
+    ...(avatarUrl ? { avatar_url: avatarUrl } : {}),
     allowed_mentions: { parse: [] },
     embeds: [
       {
         title: meta.label,
-        ...(isDeletedChange ? {} : { url: changeUrl }),
+        ...(changeUrl ? { url: changeUrl } : {}),
         description: detail,
         color:
           input.metadata?.result === TestResult.FAIL
@@ -2873,7 +2887,9 @@ export async function getTestManagerDashboard(userId: string) {
 
   const serialized = changes.map((change) => serializeChange(change, userId));
   const open = serialized.filter((change) => !isTerminalChangeStatus(change.status));
-  const awaiting = open.filter((change) => TESTING_READY_STATUSES.includes(change.status));
+  const awaiting = open.filter(
+    (change) => TESTING_READY_STATUSES.includes(change.status) && change.readyToTest
+  );
   const inProgress = open.filter((change) => change.status === TestChangeStatus.TESTING);
   const passed = open.filter((change) => change.status === TestChangeStatus.PASSED);
   const failed = open.filter((change) => change.status === TestChangeStatus.FAILED);

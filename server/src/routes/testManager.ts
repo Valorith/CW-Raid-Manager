@@ -129,6 +129,7 @@ async function requireCanManageTesters(
 const richTextSchema = z.string().max(50000);
 const currentServerVersionSchema = z.string().trim().max(80).nullable();
 const testServerVersionSchema = currentServerVersionSchema.optional();
+const testChangeChecklistSchemaLimit = 600;
 const contextLinkSchema = z.object({
   id: z.string().trim().max(64).optional(),
   kind: z.enum(['DISCORD', 'GITHUB', 'DOCUMENT', 'OTHER']).optional(),
@@ -288,7 +289,7 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
               category: z.string().trim().max(80).nullable().optional()
             })
           )
-          .max(30)
+          .max(testChangeChecklistSchemaLimit)
           .default([])
       });
       const parsed = bodySchema.safeParse(request.body ?? {});
@@ -381,7 +382,7 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
               category: z.string().trim().max(80).nullable().optional()
             })
           )
-          .max(30)
+          .max(testChangeChecklistSchemaLimit)
           .optional()
       });
       const params = paramsSchema.safeParse(request.params);
