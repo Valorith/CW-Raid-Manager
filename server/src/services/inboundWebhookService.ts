@@ -14,6 +14,8 @@ import {
 import { reviewCrashReport, sortCrashReportSegments } from './geminiCrashReviewService.js';
 import { queueUserNotification } from './userNotificationService.js';
 import { appConfig } from '../config/appConfig.js';
+import { staticZoneNameMap } from '../data/zoneNames.js';
+import { isEqDbConfigured, queryEqDb } from '../utils/eqDb.js';
 import { prisma } from '../utils/prisma.js';
 
 // ============================================================================
@@ -268,6 +270,16 @@ export interface InboundWebhookMessageInput {
   rawBody?: string | null;
   headers?: Record<string, unknown>;
   sourceIp?: string | null;
+}
+
+export interface ScriptErrorContext {
+  zoneShortName: string | null;
+  zoneName: string | null;
+  npcTypeId: number | null;
+  npcName: string | null;
+  npcNameSource: 'payload' | 'scriptFile' | 'eqDb' | null;
+  scriptFile: string | null;
+  packageName: string | null;
 }
 
 const GEMINI_TIMEOUT_MS = 120_000;
@@ -631,9 +643,12 @@ export async function getInboundWebhookMessage(messageId: string, userId?: strin
 
   if (!message) return null;
 
+  const scriptErrorContext = await getScriptErrorContext(message.payload, message.rawBody);
+
   // Transform to include computed fields for consistency with enhanced list
   return {
     ...message,
+    scriptErrorContext,
     labels: message.labelAssignments.map((la) => la.label),
     linkedTestChanges: message.testChangeLinks.map((link) => ({
       id: link.id,
@@ -2093,6 +2108,228 @@ export function buildCrashReviewInput(
   } catch {
     return String(payload ?? fallbackPayload ?? '');
   }
+}
+
+async function getScriptErrorContext(
+  payload: unknown,
+  rawBody: string | null | undefined
+): Promise<ScriptErrorContext | null> {
+  const context = extractScriptErrorContext(payload, rawBody);
+  if (!context) {
+    return null;
+  }
+
+  if (context.npcTypeId && !context.npcName && isEqDbConfigured()) {
+    const npcName = await lookupNpcTypeName(context.npcTypeId);
+    if (npcName) {
+      context.npcName = npcName;
+      context.npcNameSource = 'eqDb';
+    }
+  }
+
+  if (!context.zoneShortName && !context.zoneName && !context.npcTypeId && !context.npcName) {
+    return null;
+  }
+
+  return context;
+}
+
+function extractScriptErrorContext(
+  payload: unknown,
+  rawBody: string | null | undefined
+): ScriptErrorContext | null {
+  const record = extractPayloadRecord(payload, rawBody ?? null);
+  const text = buildCrashReviewInput(payload, rawBody, payload);
+  const strippedText = stripLightMarkdown(text);
+  const packageName = extractBracketValue(strippedText, 'Package');
+  const scriptPath = extractQuestScriptPath(strippedText);
+  const zoneToken =
+    readFirstString(record, [
+      'zone_short_name',
+      'zoneShortName',
+      'zone_shortname',
+      'zoneShortname',
+      'short_name',
+      'zone'
+    ]) ||
+    extractBracketValue(strippedText, 'Zone') ||
+    scriptPath?.zoneShortName ||
+    null;
+  const { zoneShortName, zoneName } = resolveScriptErrorZone(zoneToken);
+  let npcTypeId =
+    readFirstInteger(record, [
+      'npc_type_id',
+      'npcTypeId',
+      'npcTypeID',
+      'npc_typeid',
+      'npcid',
+      'npc_id'
+    ]) ?? null;
+  let npcName = readFirstString(record, [
+    'npc_name',
+    'npcName',
+    'npc',
+    'npc_display_name',
+    'npcDisplayName'
+  ]);
+  let npcNameSource: ScriptErrorContext['npcNameSource'] = npcName ? 'payload' : null;
+
+  const packageNpcToken = packageName?.match(/^qst_npc_(.+)$/i)?.[1] ?? null;
+  if (packageNpcToken) {
+    const packageNpcTypeId = parsePositiveInteger(packageNpcToken);
+    if (packageNpcTypeId) {
+      npcTypeId ??= packageNpcTypeId;
+    } else if (!npcName) {
+      npcName = formatNpcDisplayName(packageNpcToken, null);
+      npcNameSource = 'payload';
+    }
+  }
+
+  if (scriptPath?.fileStem) {
+    const scriptNpcTypeId = parsePositiveInteger(scriptPath.fileStem);
+    if (scriptNpcTypeId) {
+      npcTypeId ??= scriptNpcTypeId;
+    } else if (!npcName) {
+      npcName = formatNpcDisplayName(scriptPath.fileStem, null);
+      npcNameSource = 'scriptFile';
+    }
+  }
+
+  if (npcName && parsePositiveInteger(npcName)) {
+    npcTypeId ??= parsePositiveInteger(npcName);
+    npcName = null;
+    npcNameSource = null;
+  } else if (npcName) {
+    npcName = formatNpcDisplayName(npcName, null) ?? npcName;
+  }
+
+  const scriptFile = scriptPath
+    ? `${scriptPath.zoneShortName ? `${scriptPath.zoneShortName}/` : ''}${scriptPath.fileStem}.pl`
+    : null;
+
+  if (!zoneShortName && !zoneName && !npcTypeId && !npcName && !packageName && !scriptFile) {
+    return null;
+  }
+
+  return {
+    zoneShortName,
+    zoneName,
+    npcTypeId,
+    npcName,
+    npcNameSource,
+    scriptFile,
+    packageName
+  };
+}
+
+function extractBracketValue(text: string, label: string): string | null {
+  const match = text.match(new RegExp(`${label}\\s*\\[([^\\]]+)\\]`, 'i'));
+  return normalizeContextToken(match?.[1]);
+}
+
+function extractQuestScriptPath(text: string): { zoneShortName: string | null; fileStem: string } | null {
+  const match = text.match(/(?:^|[\s"'`])\.?\/?quests[\\/]+([^\\/\s]+)[\\/]+([^\\/\s]+)\.pl\b/i);
+  if (!match) {
+    return null;
+  }
+  const fileStem = normalizeContextToken(match[2]);
+  if (!fileStem) {
+    return null;
+  }
+  return {
+    zoneShortName: normalizeContextToken(match[1]),
+    fileStem
+  };
+}
+
+function resolveScriptErrorZone(value: string | null): Pick<ScriptErrorContext, 'zoneShortName' | 'zoneName'> {
+  const normalized = normalizeContextToken(value);
+  if (!normalized) {
+    return { zoneShortName: null, zoneName: null };
+  }
+  const mappedName = staticZoneNameMap[normalized.toLowerCase()] ?? null;
+  return {
+    zoneShortName: normalized,
+    zoneName: mappedName
+  };
+}
+
+function normalizeContextToken(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const normalized = stripLightMarkdown(value)
+    .replace(/^[\s[\]`"'{}()]+|[\s[\]`"'{}()]+$/g, '')
+    .trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function readFirstString(record: Record<string, unknown> | null, keys: string[]): string | null {
+  if (!record) {
+    return null;
+  }
+  for (const key of keys) {
+    const value = normalizeContextToken(record[key]);
+    if (value) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function readFirstInteger(record: Record<string, unknown> | null, keys: string[]): number | null {
+  if (!record) {
+    return null;
+  }
+  for (const key of keys) {
+    const value = parsePositiveInteger(record[key]);
+    if (value) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function parsePositiveInteger(value: unknown): number | null {
+  const text = typeof value === 'number' ? String(value) : normalizeContextToken(value);
+  if (!text || !/^\d+$/.test(text)) {
+    return null;
+  }
+  const parsed = Number.parseInt(text, 10);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+async function lookupNpcTypeName(npcTypeId: number): Promise<string | null> {
+  try {
+    const rows = await queryEqDb<Array<{ name?: string | null; lastname?: string | null }>>(
+      'SELECT name, lastname FROM npc_types WHERE id = ? LIMIT 1',
+      [npcTypeId]
+    );
+    const row = rows[0];
+    if (!row) {
+      return null;
+    }
+    return formatNpcDisplayName(row.name, row.lastname);
+  } catch (error) {
+    debugLog(`[Webhook Inbox] Failed to look up NPC type ${npcTypeId}:`, error);
+    return null;
+  }
+}
+
+function formatNpcDisplayName(name: string | null | undefined, lastname: string | null | undefined): string | null {
+  const baseName = normalizeNpcNameToken(name);
+  const lastName = normalizeNpcNameToken(lastname);
+  const displayName = [baseName, lastName].filter(Boolean).join(' ');
+  return displayName || null;
+}
+
+function normalizeNpcNameToken(value: unknown): string | null {
+  const token = normalizeContextToken(value);
+  if (!token) {
+    return null;
+  }
+  const normalized = token.replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+  return normalized.length > 0 ? normalized : null;
 }
 
 /**

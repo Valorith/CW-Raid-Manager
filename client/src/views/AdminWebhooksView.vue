@@ -2111,6 +2111,23 @@
             <p class="muted small">
               {{ selectedMessage.webhook?.label || selectedMessage.webhookId }}
             </p>
+            <div v-if="hasPayloadContextBadges(selectedMessage)" class="payload-context-badges">
+              <span
+                v-if="formatPayloadZoneBadge(selectedMessage)"
+                class="payload-context-badge payload-context-badge--zone"
+              >
+                <span class="payload-context-badge__label">Zone</span>
+                <span>{{ formatPayloadZoneBadge(selectedMessage) }}</span>
+              </span>
+              <span
+                v-if="formatPayloadNpcBadge(selectedMessage)"
+                class="payload-context-badge payload-context-badge--npc"
+                :title="getPayloadNpcBadgeTitle(selectedMessage)"
+              >
+                <span class="payload-context-badge__label">NPC</span>
+                <span>{{ formatPayloadNpcBadge(selectedMessage) }}</span>
+              </span>
+            </div>
           </div>
           <button class="icon-button" @click="closeMessage" aria-label="Close message">✕</button>
         </header>
@@ -3848,6 +3865,49 @@ const selectedMessageGitHubScriptLink = computed<ScriptGitHubLink | null>(() => 
   if (!selectedMessage.value) return null;
   return getScriptGitHubLink(getCrashReportText(selectedMessage.value));
 });
+
+function hasPayloadContextBadges(message: InboundWebhookMessage): boolean {
+  return Boolean(formatPayloadZoneBadge(message) || formatPayloadNpcBadge(message));
+}
+
+function formatPayloadZoneBadge(message: InboundWebhookMessage): string | null {
+  const context = message.scriptErrorContext;
+  if (!context) return null;
+  if (context.zoneName && context.zoneShortName) {
+    return `${context.zoneName} (${context.zoneShortName})`;
+  }
+  return context.zoneName || context.zoneShortName || null;
+}
+
+function formatPayloadNpcBadge(message: InboundWebhookMessage): string | null {
+  const context = message.scriptErrorContext;
+  if (!context) return null;
+  if (context.npcName && context.npcTypeId) {
+    return `${context.npcName} (#${context.npcTypeId})`;
+  }
+  if (context.npcName) {
+    return context.npcName;
+  }
+  if (context.npcTypeId) {
+    return `#${context.npcTypeId}`;
+  }
+  return null;
+}
+
+function getPayloadNpcBadgeTitle(message: InboundWebhookMessage): string {
+  const context = message.scriptErrorContext;
+  if (!context) return 'NPC context';
+  if (context.npcNameSource === 'eqDb') {
+    return 'NPC name resolved from npc_types using the NPC type ID.';
+  }
+  if (context.npcNameSource === 'scriptFile') {
+    return 'NPC name inferred from the quest script filename.';
+  }
+  if (context.npcNameSource === 'payload') {
+    return 'NPC name provided by the webhook payload.';
+  }
+  return context.npcTypeId ? 'NPC type ID from the webhook payload.' : 'NPC context';
+}
 
 const crashTelemetrySummary = ref<CrashTelemetrySummary | null>(null);
 const crashTelemetryLoading = ref(false);
@@ -11127,6 +11187,54 @@ input[type='checkbox']:checked::after {
   width: min(1100px, 86vw);
   max-height: min(82vh, 780px);
   padding: 1.25rem;
+}
+
+.payload-context-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.55rem;
+}
+
+.payload-context-badge {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: min(100%, 24rem);
+  gap: 0.38rem;
+  padding: 0.32rem 0.56rem;
+  border: 1px solid rgba(125, 211, 252, 0.28);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.72);
+  color: #dbeafe;
+  font-size: 0.73rem;
+  font-weight: 750;
+  line-height: 1.15;
+}
+
+.payload-context-badge > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.payload-context-badge__label {
+  flex: 0 0 auto;
+  color: rgba(147, 197, 253, 0.82);
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.payload-context-badge--npc {
+  border-color: rgba(74, 222, 128, 0.28);
+  color: #dcfce7;
+}
+
+.payload-context-badge--npc .payload-context-badge__label {
+  color: rgba(134, 239, 172, 0.86);
 }
 
 .modal--payload-view .modal__content--split {

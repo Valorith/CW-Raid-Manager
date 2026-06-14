@@ -1708,6 +1708,15 @@ export interface InboundWebhookMessage {
   linkedTestChanges?: WebhookMessageLinkedTestChange[];
   mergedFromIds?: string[] | null;
   mergedAt?: string | null;
+  scriptErrorContext?: {
+    zoneShortName?: string | null;
+    zoneName?: string | null;
+    npcTypeId?: number | null;
+    npcName?: string | null;
+    npcNameSource?: 'payload' | 'scriptFile' | 'eqDb' | null;
+    scriptFile?: string | null;
+    packageName?: string | null;
+  } | null;
 }
 
 export interface CrashTelemetryReport {
