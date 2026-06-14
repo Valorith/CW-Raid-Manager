@@ -1906,21 +1906,6 @@
                   @keydown.enter.prevent="goToChange(change.id)"
                   @keydown.space.prevent="goToChange(change.id)"
                 >
-                  <span
-                    v-if="canDragBoardCards"
-                    class="tm-board-card__grip"
-                    aria-hidden="true"
-                    title="Drag to change status"
-                  >
-                    <svg viewBox="0 0 24 24" focusable="false">
-                      <circle cx="9" cy="6" r="1.4" />
-                      <circle cx="15" cy="6" r="1.4" />
-                      <circle cx="9" cy="12" r="1.4" />
-                      <circle cx="15" cy="12" r="1.4" />
-                      <circle cx="9" cy="18" r="1.4" />
-                      <circle cx="15" cy="18" r="1.4" />
-                    </svg>
-                  </span>
                   <div class="tm-board-card__top">
                     <span
                       class="tm-priority"
@@ -1929,6 +1914,25 @@
                     >
                     <span class="tm-board-card__id">#{{ change.publicId }}</span>
                     <StatusPill :status="change.status" compact />
+                    <button
+                      v-if="canDragBoardCards"
+                      type="button"
+                      class="tm-board-card__move"
+                      :class="{ 'tm-board-card__move--open': boardMoveMenuId === change.id }"
+                      :aria-label="`Move change #${change.publicId} to another lane`"
+                      aria-haspopup="true"
+                      :aria-expanded="boardMoveMenuId === change.id"
+                      title="Move to another lane"
+                      @click.stop="toggleBoardMoveMenu(change, $event)"
+                      @keydown.enter.stop
+                      @keydown.space.stop
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <circle cx="12" cy="5" r="1.7" />
+                        <circle cx="12" cy="12" r="1.7" />
+                        <circle cx="12" cy="19" r="1.7" />
+                      </svg>
+                    </button>
                   </div>
                   <h4 class="tm-board-card__title">{{ change.title }}</h4>
                   <p class="tm-board-card__path">{{ change.category }} / {{ change.subsystem }}</p>
@@ -3419,6 +3423,46 @@
         </div>
       </section>
     </div>
+
+    <Teleport to="body">
+      <div
+        v-if="boardMoveMenuChange"
+        class="tm-board-menu-backdrop"
+        @click="closeBoardMoveMenu"
+      ></div>
+      <div
+        v-if="boardMoveMenuChange && boardMoveMenuPos"
+        ref="boardMoveMenuEl"
+        class="tm-board-menu"
+        :class="{ 'tm-board-menu--up': boardMoveMenuPos.openUp }"
+        role="menu"
+        :aria-label="`Move change #${boardMoveMenuChange.publicId} to another lane`"
+        :style="{ top: `${boardMoveMenuPos.top}px`, left: `${boardMoveMenuPos.left}px` }"
+        @keydown.esc="closeBoardMoveMenu"
+      >
+        <p class="tm-board-menu__label">
+          Move <strong>#{{ boardMoveMenuChange.publicId }}</strong> to
+        </p>
+        <button
+          v-for="target in boardMoveTargets(boardMoveMenuChange)"
+          :key="target.key"
+          type="button"
+          role="menuitem"
+          class="tm-board-menu__item"
+          @click="moveBoardCardToLane(boardMoveMenuChange, target.key)"
+        >
+          <span
+            class="tm-board-menu__dot"
+            :class="`tm-board-menu__dot--${target.key}`"
+            aria-hidden="true"
+          ></span>
+          <span class="tm-board-menu__text">
+            <strong>{{ target.title }}</strong>
+            <small>{{ target.hint }}</small>
+          </span>
+        </button>
+      </div>
+    </Teleport>
 
     <div
       v-if="testerRemoveConfirm"
@@ -5011,6 +5055,12 @@ const boardMovePendingId = ref<string | null>(null);
 const boardMovePrompt = ref<BoardMovePrompt | null>(null);
 const boardMoveDetail = ref('');
 const boardMoveAttentionStatus = ref<Extract<TestChangeStatus, 'FAILED' | 'BLOCKED'>>('FAILED');
+// Tap/keyboard move menu — the no-drag path for touch & keyboard users (teleported popover).
+const boardMoveMenuId = ref<string | null>(null);
+const boardMoveMenuChange = ref<TestChange | null>(null);
+const boardMoveMenuPos = ref<{ top: number; left: number; openUp: boolean } | null>(null);
+const boardMoveMenuEl = ref<HTMLElement | null>(null);
+let boardMoveMenuTrigger: HTMLElement | null = null;
 const patchNotesGeneratorOpen = ref(false);
 const patchNotesGenerating = ref(false);
 const patchNotesModel = ref('');
@@ -6766,6 +6816,7 @@ async function setNextPatchLayout(layout: NextPatchLayout) {
       // Persisting the preference is best-effort.
     }
   }
+  closeBoardMoveMenu();
   resetBoardDrag();
   await reloadNextPatchSection();
 }
@@ -6802,6 +6853,92 @@ function boardLaneTargetStatus(
   }
 }
 
+// ===== Tap / keyboard move menu (no-drag path for touch & keyboard users) =====
+// Valid destination lanes for a card, mirroring the drag transition rules.
+function boardMoveTargets(change: TestChange): BoardLaneDefinition[] {
+  const sourceLane = STATUS_TO_BOARD_LANE[change.status] ?? 'toTest';
+  const targets = BOARD_LANE_TRANSITIONS[sourceLane] ?? [];
+  return NEXT_PATCH_BOARD_LANES.filter((lane) => targets.includes(lane.key));
+}
+
+function toggleBoardMoveMenu(change: TestChange, event: MouseEvent) {
+  if (boardMoveMenuId.value === change.id) {
+    closeBoardMoveMenu();
+    return;
+  }
+  const trigger = event.currentTarget as HTMLElement | null;
+  if (!trigger) {
+    return;
+  }
+  const rect = trigger.getBoundingClientRect();
+  // Flip the menu above the trigger when there is not enough room below it.
+  const estimatedHeight = 56 + boardMoveTargets(change).length * 48;
+  const openUp = window.innerHeight - rect.bottom < estimatedHeight + 16;
+  boardMoveMenuTrigger = trigger;
+  boardMoveMenuPos.value = {
+    top: openUp ? rect.top - 6 : rect.bottom + 6,
+    left: rect.right,
+    openUp
+  };
+  boardMoveMenuChange.value = change;
+  boardMoveMenuId.value = change.id;
+  nextTick(() => {
+    boardMoveMenuEl.value?.querySelector<HTMLElement>('.tm-board-menu__item')?.focus();
+  });
+}
+
+function closeBoardMoveMenu() {
+  const trigger = boardMoveMenuTrigger;
+  boardMoveMenuTrigger = null;
+  boardMoveMenuId.value = null;
+  boardMoveMenuChange.value = null;
+  boardMoveMenuPos.value = null;
+  // Return focus to the trigger for keyboard users when it is still on-screen.
+  if (trigger && typeof document !== 'undefined' && document.contains(trigger)) {
+    trigger.focus();
+  }
+}
+
+// Tap/keyboard equivalent of dropping a card into a lane — reuses the drag-drop logic.
+async function moveBoardCardToLane(change: TestChange, laneKey: BoardLaneKey) {
+  closeBoardMoveMenu();
+  if (!canDragBoardCards.value) {
+    return;
+  }
+  const sourceLane = STATUS_TO_BOARD_LANE[change.status] ?? 'toTest';
+  if (!isValidBoardLaneMove(sourceLane, laneKey)) {
+    return;
+  }
+  const promptKind = boardMovePromptKind(laneKey, change.status);
+  if (promptKind) {
+    openBoardMovePrompt(change, laneKey, promptKind);
+    return;
+  }
+  await applyBoardStatus(change, boardLaneTargetStatus(laneKey, change.status));
+}
+
+// Dismiss the move menu when the viewport shifts under it (it is fixed-positioned).
+watch(boardMoveMenuId, (id) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  if (id) {
+    window.addEventListener('resize', closeBoardMoveMenu);
+    window.addEventListener('scroll', closeBoardMoveMenu, true);
+  } else {
+    window.removeEventListener('resize', closeBoardMoveMenu);
+    window.removeEventListener('scroll', closeBoardMoveMenu, true);
+  }
+});
+
+onBeforeUnmount(() => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.removeEventListener('resize', closeBoardMoveMenu);
+  window.removeEventListener('scroll', closeBoardMoveMenu, true);
+});
+
 function resetBoardDrag() {
   boardDragChangeId.value = null;
   boardDragSourceLane.value = null;
@@ -6813,6 +6950,7 @@ function handleBoardDragStart(change: TestChange, event: DragEvent) {
     event.preventDefault();
     return;
   }
+  closeBoardMoveMenu();
   boardDragChangeId.value = change.id;
   boardDragSourceLane.value = STATUS_TO_BOARD_LANE[change.status] ?? 'toTest';
   if (event.dataTransfer) {
@@ -12243,26 +12381,60 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
   }
 }
 
-.tm-board-card__grip {
-  position: absolute;
-  top: 0.38rem;
-  right: 0.38rem;
-  width: 1.05rem;
-  height: 1.05rem;
-  opacity: 0;
+.tm-board-card__move {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
   color: var(--tm-muted);
-  pointer-events: none;
-  transition: opacity 0.16s ease;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.16s ease,
+    color 0.16s ease,
+    border-color 0.16s ease,
+    background 0.16s ease;
 }
 
-.tm-board-card__grip svg {
-  width: 100%;
-  height: 100%;
+.tm-board-card__move svg {
+  width: 1rem;
+  height: 1rem;
   fill: currentColor;
 }
 
-.tm-board-card:hover .tm-board-card__grip {
-  opacity: 0.55;
+.tm-board-card__move:hover {
+  color: #f4ead8;
+  border-color: color-mix(in srgb, var(--lane) 42%, transparent);
+  background: color-mix(in srgb, var(--lane) 12%, rgba(0, 0, 0, 0.25));
+}
+
+.tm-board-card__move:focus-visible {
+  outline: 2px solid rgba(119, 201, 255, 0.66);
+  outline-offset: 2px;
+}
+
+.tm-board-card__move--open {
+  color: #f4ead8;
+  border-color: color-mix(in srgb, var(--lane) 52%, transparent);
+  background: color-mix(in srgb, var(--lane) 16%, rgba(0, 0, 0, 0.3));
+}
+
+/* Reveal on hover/focus for pointer users; always visible where hover is unavailable (touch). */
+.tm-board-card:hover .tm-board-card__move,
+.tm-board-card:focus-within .tm-board-card__move,
+.tm-board-card__move--open {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .tm-board-card__move {
+    opacity: 1;
+  }
 }
 
 .tm-board-card__top {
@@ -12517,13 +12689,170 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
   box-shadow: 0 0 0 2px rgba(119, 201, 255, 0.2);
 }
 
+/* ===== Tap / keyboard move menu (teleported to body) ===== */
+.tm-board-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  background: transparent;
+}
+
+.tm-board-menu {
+  position: fixed;
+  z-index: 9001;
+  min-width: 12.5rem;
+  max-width: 16rem;
+  transform: translateX(-100%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.4rem;
+  border: 1px solid var(--tm-border-soft);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(21, 27, 30, 0.99), rgba(12, 16, 18, 0.99));
+  box-shadow:
+    0 18px 44px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  animation: tm-board-menu-in 0.14s ease;
+}
+
+.tm-board-menu--up {
+  transform: translate(-100%, -100%);
+}
+
+@keyframes tm-board-menu-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.tm-board-menu__label {
+  margin: 0;
+  padding: 0.28rem 0.5rem 0.34rem;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--tm-muted);
+}
+
+.tm-board-menu__label strong {
+  color: #f4ead8;
+  font-weight: 900;
+}
+
+.tm-board-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.46rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 0.14s ease,
+    border-color 0.14s ease;
+}
+
+.tm-board-menu__item:hover,
+.tm-board-menu__item:focus-visible {
+  outline: none;
+  border-color: var(--tm-border-soft);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.tm-board-menu__dot {
+  flex: none;
+  width: 0.62rem;
+  height: 0.62rem;
+  border-radius: 50%;
+  background: var(--tm-muted);
+  box-shadow: 0 0 9px currentColor;
+}
+
+.tm-board-menu__dot--toTest {
+  background: #d9a45f;
+  color: rgba(217, 164, 95, 0.55);
+}
+.tm-board-menu__dot--testing {
+  background: #55b7ff;
+  color: rgba(85, 183, 255, 0.55);
+}
+.tm-board-menu__dot--passed {
+  background: #72d66f;
+  color: rgba(114, 214, 111, 0.55);
+}
+.tm-board-menu__dot--attention {
+  background: #ff6b55;
+  color: rgba(255, 107, 85, 0.55);
+}
+.tm-board-menu__dot--closed {
+  background: #b88cff;
+  color: rgba(184, 140, 255, 0.55);
+}
+
+.tm-board-menu__text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.02rem;
+  min-width: 0;
+}
+
+.tm-board-menu__text strong {
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: #f6ecda;
+}
+
+.tm-board-menu__text small {
+  font-size: 0.65rem;
+  color: var(--tm-muted);
+}
+
+/* ===== Board responsive: stack lanes vertically on narrow screens ===== */
+@media (max-width: 720px) {
+  .tm-board {
+    grid-auto-flow: row;
+    grid-auto-columns: auto;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.6rem;
+    overflow-x: hidden;
+    scroll-snap-type: none;
+    padding-right: 0.1rem;
+  }
+
+  .tm-board-lane {
+    scroll-snap-align: none;
+  }
+
+  /* Stacked lanes flow within the board's own scroll instead of each scrolling internally. */
+  .tm-board-lane__body {
+    overflow-y: visible;
+  }
+
+  /* Touch can't drag — give the lane accent a touch more weight as the primary cue. */
+  .tm-board-card {
+    border-left-width: 4px;
+  }
+
+  .tm-board-menu {
+    min-width: 13.5rem;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .tm-layout-switch__thumb,
   .tm-board-lane,
-  .tm-board-card {
+  .tm-board-card,
+  .tm-board-card__move {
     transition: none;
   }
-  .tm-board-card--pending::after {
+  .tm-board-card--pending::after,
+  .tm-board-menu {
     animation: none;
   }
 }
