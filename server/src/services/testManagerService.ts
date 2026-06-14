@@ -2053,7 +2053,17 @@ function serializeChange(change: ChangeSerializeRecord, viewerUserId?: string) {
     })
   }));
 
-  const checklistCompleted = change.checklist.filter((item) =>
+  // A checklist item with children is a "sub-checklist" group container; its completion is
+  // derived from its children and it never stores its own progress. Coverage/progress stats
+  // therefore count only leaf items (standalone items and sub-items).
+  const childCountByParent = new Map<string, number>();
+  for (const item of change.checklist) {
+    if (item.parentId) {
+      childCountByParent.set(item.parentId, (childCountByParent.get(item.parentId) ?? 0) + 1);
+    }
+  }
+  const leafItems = change.checklist.filter((item) => (childCountByParent.get(item.id) ?? 0) === 0);
+  const checklistCompleted = leafItems.filter((item) =>
     testerRows.some((tester) =>
       tester.checklistProgress.some(
         (progress) => progress.checklistItemId === item.id && progress.completed
@@ -2093,7 +2103,9 @@ function serializeChange(change: ChangeSerializeRecord, viewerUserId?: string) {
       title: item.title,
       details: item.details ?? '',
       category: item.category ?? '',
-      sortOrder: item.sortOrder
+      sortOrder: item.sortOrder,
+      parentId: item.parentId ?? null,
+      childCount: childCountByParent.get(item.id) ?? 0
     })),
     testers: testerRows,
     notes: change.notes.map((note) => ({
@@ -2129,14 +2141,14 @@ function serializeChange(change: ChangeSerializeRecord, viewerUserId?: string) {
       blockedCount: testerRows.filter((tester) => tester.result === TestResult.BLOCKED).length,
       inProgressCount: testerRows.filter((tester) => tester.status === TestRunStatus.TESTING)
         .length,
-      checklistCount: change.checklist.length,
+      checklistCount: leafItems.length,
       checklistCompleted,
       checklistProgressTotal: testerRows.reduce(
         (total, tester) =>
           total + tester.checklistProgress.filter((progress) => progress.completed).length,
         0
       ),
-      checklistProgressPossible: testerRows.length * change.checklist.length
+      checklistProgressPossible: testerRows.length * leafItems.length
     },
     viewerTester
   };
@@ -4383,7 +4395,7 @@ export async function updateTesterChecklistProgress(
       }),
       tx.testChangeChecklistItem.findFirst({
         where: { id: checklistItemId, changeId },
-        select: { id: true, title: true }
+        select: { id: true, title: true, children: { select: { id: true } } }
       })
     ]);
     if (!change) {
@@ -4402,26 +4414,34 @@ export async function updateTesterChecklistProgress(
     });
     ensureActiveTestingAssignment(tester);
 
-    await tx.testChangeChecklistProgress.upsert({
-      where: {
-        testerId_checklistItemId: {
+    // A group (sub-checklist) has no progress row of its own — toggling it fans the
+    // completed state out to every child item. Leaf items keep their existing behavior.
+    const childIds = checklistItem.children.map((child) => child.id);
+    const isGroup = childIds.length > 0;
+    const targetIds = isGroup ? childIds : [checklistItem.id];
+
+    for (const targetId of targetIds) {
+      await tx.testChangeChecklistProgress.upsert({
+        where: {
+          testerId_checklistItemId: {
+            testerId: tester.id,
+            checklistItemId: targetId
+          }
+        },
+        update: {
+          completed: hasCompleted ? completed : undefined,
+          completedAt: hasCompleted ? (completed ? new Date() : null) : undefined,
+          notesHtml: isGroup ? undefined : notesHtml
+        },
+        create: {
           testerId: tester.id,
-          checklistItemId
+          checklistItemId: targetId,
+          completed: hasCompleted ? completed : false,
+          completedAt: hasCompleted && completed ? new Date() : null,
+          notesHtml: isGroup ? null : (notesHtml ?? null)
         }
-      },
-      update: {
-        completed: hasCompleted ? completed : undefined,
-        completedAt: hasCompleted ? (completed ? new Date() : null) : undefined,
-        notesHtml
-      },
-      create: {
-        testerId: tester.id,
-        checklistItemId,
-        completed: hasCompleted ? completed : false,
-        completedAt: hasCompleted && completed ? new Date() : null,
-        notesHtml: notesHtml ?? null
-      }
-    });
+      });
+    }
 
     await appendHistory(tx, {
       changeId,
@@ -4433,12 +4453,15 @@ export async function updateTesterChecklistProgress(
           : 'Checklist item reopened'
         : 'Checklist item note updated',
       detail: hasCompleted
-        ? `${displayName(actor)} ${completed ? 'completed' : 'reopened'} "${checklistItem.title}".`
+        ? `${displayName(actor)} ${completed ? 'completed' : 'reopened'} "${checklistItem.title}"${
+            isGroup ? ` (${targetIds.length} sub-item${targetIds.length === 1 ? '' : 's'})` : ''
+          }.`
         : `${displayName(actor)} updated notes for "${checklistItem.title}".`,
       metadata: {
         checklistItemId,
         completed: hasCompleted ? completed : undefined,
-        notesUpdated: hasNotes
+        notesUpdated: hasNotes,
+        isGroup
       }
     });
   });
@@ -4529,10 +4552,19 @@ export async function deleteTestChangeChecklistItem(
   await prisma.$transaction(async (tx) => {
     const checklistItem = await tx.testChangeChecklistItem.findFirst({
       where: { id: checklistItemId, changeId },
-      select: { id: true, title: true }
+      select: { id: true, title: true, children: { select: { id: true } } }
     });
     if (!checklistItem) {
       throw new Error('Checklist item not found for this change.');
+    }
+
+    // When deleting a sub-checklist group, remove its child items first (the FK uses
+    // ON DELETE SET NULL, so they would otherwise be orphaned as standalone items).
+    const childCount = checklistItem.children.length;
+    if (childCount > 0) {
+      await tx.testChangeChecklistItem.deleteMany({
+        where: { parentId: checklistItem.id }
+      });
     }
 
     await tx.testChangeChecklistItem.delete({
@@ -4543,12 +4575,164 @@ export async function deleteTestChangeChecklistItem(
       changeId,
       actorUserId,
       eventType: TestHistoryEventType.CHECKLIST_UPDATED,
-      label: 'Checklist item deleted',
-      detail: `Checklist item "${checklistItem.title}" was deleted.`,
+      label: childCount > 0 ? 'Sub-checklist deleted' : 'Checklist item deleted',
+      detail:
+        childCount > 0
+          ? `Sub-checklist "${checklistItem.title}" and its ${childCount} item${
+              childCount === 1 ? '' : 's'
+            } were deleted.`
+          : `Checklist item "${checklistItem.title}" was deleted.`,
       metadata: {
         checklistItemId: checklistItem.id,
-        checklistItemTitle: checklistItem.title
+        checklistItemTitle: checklistItem.title,
+        childCount
       }
+    });
+  });
+
+  return getTestChange(changeId, actorUserId);
+}
+
+// Normalize raw sub-checklist lines from the editor textarea: trim, cap title length,
+// drop blank lines, and bound the total count.
+function normalizeChecklistItemTitles(rawItems: string[]): string[] {
+  return rawItems
+    .map((item) => item.trim().slice(0, 191))
+    .filter((item) => item.length > 0)
+    .slice(0, 500);
+}
+
+export async function createTestChangeChecklistGroup(
+  actorUserId: string,
+  changeId: string,
+  input: { title: string; category?: string | null; items: string[] }
+) {
+  await ensureAdmin(actorUserId);
+
+  const title = input.title.trim();
+  if (!title) {
+    throw new Error('Sub-checklist name is required.');
+  }
+  const category = input.category?.trim() || null;
+  const items = normalizeChecklistItemTitles(input.items);
+  if (items.length === 0) {
+    throw new Error('Add at least one sub-checklist item.');
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const change = await tx.testChange.findUnique({
+      where: { id: changeId },
+      select: {
+        id: true,
+        checklist: {
+          orderBy: { sortOrder: 'desc' },
+          select: { sortOrder: true },
+          take: 1
+        }
+      }
+    });
+    if (!change) {
+      throw new Error('Change not found.');
+    }
+
+    let sortOrder = (change.checklist[0]?.sortOrder ?? -1) + 1;
+    const group = await tx.testChangeChecklistItem.create({
+      data: { changeId, title, details: null, category, sortOrder }
+    });
+    sortOrder += 1;
+    for (const itemTitle of items) {
+      await tx.testChangeChecklistItem.create({
+        data: { changeId, parentId: group.id, title: itemTitle, details: null, category, sortOrder }
+      });
+      sortOrder += 1;
+    }
+
+    await appendHistory(tx, {
+      changeId,
+      actorUserId,
+      eventType: TestHistoryEventType.CHECKLIST_UPDATED,
+      label: 'Sub-checklist added',
+      detail: `Sub-checklist "${title}" with ${items.length} item${
+        items.length === 1 ? '' : 's'
+      } was added.`,
+      metadata: { checklistItemId: group.id, checklistItemTitle: title, childCount: items.length }
+    });
+  });
+
+  return getTestChange(changeId, actorUserId);
+}
+
+export async function updateTestChangeChecklistGroup(
+  actorUserId: string,
+  changeId: string,
+  groupId: string,
+  input: { title: string; category?: string | null; items: string[] }
+) {
+  await ensureAdmin(actorUserId);
+
+  const title = input.title.trim();
+  if (!title) {
+    throw new Error('Sub-checklist name is required.');
+  }
+  const category = input.category?.trim() || null;
+  const items = normalizeChecklistItemTitles(input.items);
+  if (items.length === 0) {
+    throw new Error('Add at least one sub-checklist item.');
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const group = await tx.testChangeChecklistItem.findFirst({
+      where: { id: groupId, changeId },
+      select: { id: true, sortOrder: true, children: { select: { id: true, title: true } } }
+    });
+    if (!group) {
+      throw new Error('Sub-checklist not found for this change.');
+    }
+
+    await tx.testChangeChecklistItem.update({
+      where: { id: group.id },
+      data: { title, category }
+    });
+
+    // Reconcile children by trimmed title: matched titles keep their tester progress,
+    // new lines are created, removed lines are deleted. sortOrder follows textarea order.
+    const existing = [...group.children];
+    const usedExistingIds = new Set<string>();
+    let sortOrder = group.sortOrder + 1;
+    for (const itemTitle of items) {
+      const match = existing.find(
+        (child) => !usedExistingIds.has(child.id) && child.title === itemTitle
+      );
+      if (match) {
+        usedExistingIds.add(match.id);
+        await tx.testChangeChecklistItem.update({
+          where: { id: match.id },
+          data: { sortOrder, category }
+        });
+      } else {
+        await tx.testChangeChecklistItem.create({
+          data: { changeId, parentId: group.id, title: itemTitle, details: null, category, sortOrder }
+        });
+      }
+      sortOrder += 1;
+    }
+
+    const removedIds = existing
+      .filter((child) => !usedExistingIds.has(child.id))
+      .map((child) => child.id);
+    if (removedIds.length > 0) {
+      await tx.testChangeChecklistItem.deleteMany({ where: { id: { in: removedIds } } });
+    }
+
+    await appendHistory(tx, {
+      changeId,
+      actorUserId,
+      eventType: TestHistoryEventType.CHECKLIST_UPDATED,
+      label: 'Sub-checklist updated',
+      detail: `Sub-checklist "${title}" now has ${items.length} item${
+        items.length === 1 ? '' : 's'
+      }.`,
+      metadata: { checklistItemId: group.id, checklistItemTitle: title, childCount: items.length }
     });
   });
 

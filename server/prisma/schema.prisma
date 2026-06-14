@@ -1468,6 +1468,7 @@ model TestChange {
 model TestChangeChecklistItem {
   id          String     @id @default(cuid())
   changeId    String
+  parentId    String?
   title       String     @db.VarChar(191)
   details     String?    @db.VarChar(1000)
   category    String?    @db.VarChar(80)
@@ -1475,9 +1476,12 @@ model TestChangeChecklistItem {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
   change      TestChange @relation(fields: [changeId], references: [id], onDelete: Cascade)
+  parent      TestChangeChecklistItem?  @relation("ChecklistItemChildren", fields: [parentId], references: [id], onDelete: SetNull)
+  children    TestChangeChecklistItem[] @relation("ChecklistItemChildren")
   testerProgress TestChangeChecklistProgress[]
 
   @@index([changeId, sortOrder])
+  @@index([parentId])
 }
 
 model TestChangeTester {

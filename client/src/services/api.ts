@@ -3294,6 +3294,8 @@ export interface TestChangeChecklistItem {
   details: string;
   category: string;
   sortOrder: number;
+  parentId: string | null;
+  childCount: number;
 }
 
 export interface TestChangeTester {
@@ -3529,6 +3531,12 @@ export interface UpdateTestChangeChecklistItemPayload {
   title: string;
   details?: string | null;
   category?: string | null;
+}
+
+export interface ChecklistGroupPayload {
+  title: string;
+  category?: string | null;
+  items: string[];
 }
 
 export type UpdateTestChangePayload = Omit<CreateTestChangePayload, 'checklist'> & {
@@ -3797,6 +3805,29 @@ export const api = {
       `/api/test-manager/changes/${encodeURIComponent(changeId)}/checklist/${encodeURIComponent(
         checklistItemId
       )}`
+    );
+    return response.data.change;
+  },
+  async createTestChangeChecklistGroup(
+    changeId: string,
+    payload: ChecklistGroupPayload
+  ): Promise<TestChange> {
+    const response = await axios.post(
+      `/api/test-manager/changes/${encodeURIComponent(changeId)}/checklist/groups`,
+      payload
+    );
+    return response.data.change;
+  },
+  async updateTestChangeChecklistGroup(
+    changeId: string,
+    groupId: string,
+    payload: ChecklistGroupPayload
+  ): Promise<TestChange> {
+    const response = await axios.put(
+      `/api/test-manager/changes/${encodeURIComponent(changeId)}/checklist/groups/${encodeURIComponent(
+        groupId
+      )}`,
+      payload
     );
     return response.data.change;
   },

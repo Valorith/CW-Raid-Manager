@@ -17,6 +17,8 @@ import {
   addTestChangeChecklistItem,
   countNextPatchChanges,
   createTestChange,
+  createTestChangeChecklistGroup,
+  updateTestChangeChecklistGroup,
   deleteChangeNote,
   deleteTestChange,
   deleteTestChangeChecklistItem,
@@ -839,6 +841,68 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
       } catch (error) {
         return reply.badRequest(
           error instanceof Error ? error.message : 'Unable to delete checklist item.'
+        );
+      }
+    }
+  );
+
+  const checklistGroupBodySchema = z.object({
+    title: z.string().trim().min(1).max(191),
+    category: z.string().trim().max(80).nullable().optional(),
+    items: z.array(z.string()).min(1).max(500)
+  });
+
+  server.post(
+    '/changes/:changeId/checklist/groups',
+    { preHandler: [authenticate, requireCanView, requireAdmin] },
+    async (request, reply) => {
+      const paramsSchema = z.object({ changeId: z.string().min(1) });
+      const params = paramsSchema.safeParse(request.params);
+      const body = checklistGroupBodySchema.safeParse(request.body ?? {});
+      if (!params.success || !body.success) {
+        return reply.badRequest('Invalid sub-checklist payload.');
+      }
+
+      try {
+        const change = await createTestChangeChecklistGroup(
+          request.user.userId,
+          params.data.changeId,
+          body.data
+        );
+        return { change };
+      } catch (error) {
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to create sub-checklist.'
+        );
+      }
+    }
+  );
+
+  server.put(
+    '/changes/:changeId/checklist/groups/:groupId',
+    { preHandler: [authenticate, requireCanView, requireAdmin] },
+    async (request, reply) => {
+      const paramsSchema = z.object({
+        changeId: z.string().min(1),
+        groupId: z.string().min(1)
+      });
+      const params = paramsSchema.safeParse(request.params);
+      const body = checklistGroupBodySchema.safeParse(request.body ?? {});
+      if (!params.success || !body.success) {
+        return reply.badRequest('Invalid sub-checklist payload.');
+      }
+
+      try {
+        const change = await updateTestChangeChecklistGroup(
+          request.user.userId,
+          params.data.changeId,
+          params.data.groupId,
+          body.data
+        );
+        return { change };
+      } catch (error) {
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to update sub-checklist.'
         );
       }
     }

@@ -1095,15 +1095,21 @@
                 </span>
               </div>
             </article>
-            <article v-if="canEditViewerChecklist(activeChange)" class="tm-testing-checklist">
+            <article
+              v-if="canEditViewerChecklist(activeChange) || authStore.isAdmin"
+              class="tm-testing-checklist"
+            >
               <div class="tm-section-title tm-section-title--detail">
                 <div>
                   <h3>Testing Checklist</h3>
-                  <p>Track your own test progress for this change.</p>
+                  <p v-if="viewerCanEditChecklist">Track your own test progress for this change.</p>
+                  <p v-else>
+                    Manage this change's checklist. Start testing to record your own progress.
+                  </p>
                 </div>
                 <span
                   >{{ viewerChecklistCompleted(activeChange) }} /
-                  {{ activeChange.checklist.length }}</span
+                  {{ activeChange.summary.checklistCount }}</span
                 >
               </div>
               <div class="tm-testing-checklist__table">
@@ -1119,6 +1125,19 @@
                   <span v-if="authStore.isAdmin" class="tm-testing-checklist__add">
                     <button
                       type="button"
+                      class="tm-checklist-add-btn tm-checklist-add-btn--group"
+                      aria-label="Add sub-checklist"
+                      title="Add sub-checklist"
+                      @click="openSubchecklistEditor()"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path
+                          d="M3 5h10v2H3V5Zm0 6h10v2H3v-2Zm0 6h10v2H3v-2Zm14.5-9.5 1.4 1.4-4 4-2.6-2.6 1.4-1.4 1.2 1.2 2.6-2.6Zm0 6 1.4 1.4-4 4-2.6-2.6 1.4-1.4 1.2 1.2 2.6-2.6Z"
+                        />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
                       class="tm-checklist-add-btn"
                       aria-label="Add checklist item"
                       title="Add checklist item"
@@ -1129,38 +1148,73 @@
                   </span>
                 </div>
                 <div
-                  v-for="(item, index) in activeChange.checklist"
+                  v-for="(item, index) in topLevelChecklist"
                   :key="item.id"
                   class="tm-testing-checklist__row"
                   :class="{
-                    'tm-testing-checklist__row--complete': isViewerChecklistItemComplete(item.id),
-                    'tm-testing-checklist__row--admin': authStore.isAdmin
+                    'tm-testing-checklist__row--complete': topLevelItemComplete(item),
+                    'tm-testing-checklist__row--admin': authStore.isAdmin,
+                    'tm-testing-checklist__row--group': isChecklistGroup(item)
                   }"
                 >
                   <span>
                     <input
                       type="checkbox"
-                      :checked="isViewerChecklistItemComplete(item.id)"
+                      :checked="topLevelItemComplete(item)"
+                      :disabled="!viewerCanEditChecklist"
+                      :indeterminate.prop="
+                        isChecklistGroup(item) &&
+                        groupCompletedCount(item) > 0 &&
+                        !isGroupComplete(item)
+                      "
                       @change="
-                        updateChecklistProgress(
-                          item.id,
-                          ($event.target as HTMLInputElement).checked
-                        )
+                        onTopLevelToggle(item, ($event.target as HTMLInputElement).checked, $event)
                       "
                     />
                   </span>
                   <span>
                     <strong>{{ index + 1 }}. {{ item.title }}</strong>
-                    <small>{{ item.details }}</small>
+                    <small
+                      v-if="isChecklistGroup(item)"
+                      class="tm-testing-checklist__group-tag"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path
+                          d="M3 5h10v2H3V5Zm0 6h10v2H3v-2Zm0 6h10v2H3v-2Zm14.5-9.5 1.4 1.4-4 4-2.6-2.6 1.4-1.4 1.2 1.2 2.6-2.6Z"
+                        />
+                      </svg>
+                      Sub-checklist · {{ item.childCount }} item{{ item.childCount === 1 ? '' : 's' }}
+                    </small>
+                    <small v-else>{{ item.details }}</small>
                   </span>
                   <span>{{ item.category || activeChange.category }}</span>
                   <span>
                     <button
+                      v-if="isChecklistGroup(item)"
+                      type="button"
+                      class="tm-subchecklist-open-btn"
+                      :class="{ 'tm-subchecklist-open-btn--done': isGroupComplete(item) }"
+                      :aria-label="`Open sub-checklist ${item.title}`"
+                      :title="`Open ${item.title}`"
+                      @click="openSubchecklistViewer(item.id)"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path
+                          d="M4 5h2v2H4V5Zm4 0h12v2H8V5ZM4 11h2v2H4v-2Zm4 0h12v2H8v-2ZM4 17h2v2H4v-2Zm4 0h12v2H8v-2Z"
+                        />
+                      </svg>
+                      <span class="tm-subchecklist-open-btn__badge"
+                        >{{ groupCompletedCount(item) }}/{{ item.childCount }}</span
+                      >
+                    </button>
+                    <button
+                      v-else
                       type="button"
                       class="tm-checklist-note-btn"
                       :class="{
                         'tm-checklist-note-btn--has-note': hasViewerChecklistItemNote(item.id)
                       }"
+                      :disabled="!viewerCanEditChecklist"
                       :aria-label="
                         hasViewerChecklistItemNote(item.id)
                           ? 'Edit checklist item note'
@@ -1177,12 +1231,31 @@
                   <span
                     class="tm-testing-checklist__status"
                     :class="{
-                      'tm-testing-checklist__status--done': isViewerChecklistItemComplete(item.id)
+                      'tm-testing-checklist__status--done': topLevelItemComplete(item)
                     }"
                   >
-                    {{ isViewerChecklistItemComplete(item.id) ? 'Complete' : 'Pending' }}
+                    <template v-if="isChecklistGroup(item)"
+                      >{{ groupCompletedCount(item) }} / {{ item.childCount }}</template
+                    >
+                    <template v-else>{{
+                      isViewerChecklistItemComplete(item.id) ? 'Complete' : 'Pending'
+                    }}</template>
                   </span>
                   <span v-if="authStore.isAdmin" class="tm-testing-checklist__delete">
+                    <button
+                      v-if="isChecklistGroup(item)"
+                      type="button"
+                      class="tm-checklist-edit-btn"
+                      :aria-label="`Edit sub-checklist ${item.title}`"
+                      :title="`Edit ${item.title}`"
+                      @click.stop="openSubchecklistEditor(item)"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path
+                          d="M4 20h4L18.5 9.5l-4-4L4 16v4Zm13.1-12.9 1.4-1.4a1 1 0 0 0 0-1.4l-2.6-2.6a1 1 0 0 0-1.4 0l-1.4 1.4 4 4Z"
+                        />
+                      </svg>
+                    </button>
                     <button
                       type="button"
                       class="tm-checklist-delete-btn"
@@ -1331,12 +1404,17 @@
                   <strong>{{ tester.user?.displayName ?? 'Tester' }}</strong>
                   <small
                     >{{ testerChecklistCompleted(tester) }} /
-                    {{ activeChange.checklist.length }}</small
+                    {{ activeChange.summary.checklistCount }}</small
                   >
                 </span>
               </div>
-              <div v-for="(item, index) in activeChange.checklist" :key="item.id">
+              <div v-for="(item, index) in leafChecklistItems" :key="item.id">
                 <span class="tm-coverage-matrix__item">
+                  <small
+                    v-if="item.parentId"
+                    class="tm-coverage-matrix__group"
+                    >{{ checklistGroupName(item.parentId) }}</small
+                  >
                   <strong>{{ index + 1 }}. {{ item.title }}</strong>
                   <small>{{ item.details }}</small>
                 </span>
@@ -3453,12 +3531,21 @@
           <span class="tm-confirm-modal__icon" aria-hidden="true">⌫</span>
           <div>
             <p>Checklist</p>
-            <h2 id="checklist-delete-confirm-title">Delete checklist item?</h2>
+            <h2 id="checklist-delete-confirm-title">
+              {{ checklistDeleteConfirm.childCount > 0 ? 'Delete sub-checklist?' : 'Delete checklist item?' }}
+            </h2>
           </div>
         </div>
         <p class="tm-confirm-modal__body">
-          This deletes "{{ checklistDeleteConfirm.title }}" and removes its progress for every
-          tester.
+          <template v-if="checklistDeleteConfirm.childCount > 0">
+            This deletes "{{ checklistDeleteConfirm.title }}" and all
+            {{ checklistDeleteConfirm.childCount }} of its sub-items, removing their progress for
+            every tester.
+          </template>
+          <template v-else>
+            This deletes "{{ checklistDeleteConfirm.title }}" and removes its progress for every
+            tester.
+          </template>
         </p>
         <div class="tm-confirm-modal__actions">
           <button type="button" class="tm-btn tm-btn--ghost" @click="closeChecklistDeleteConfirm">
@@ -3959,6 +4046,319 @@
           </button>
         </div>
       </form>
+    </div>
+
+    <div
+      v-if="subchecklistEditorOpen"
+      class="tm-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="subchecklist-editor-title"
+    >
+      <form
+        class="tm-modal__panel tm-subchecklist-editor"
+        @submit.prevent="saveSubchecklistEditor"
+      >
+        <div class="tm-panel__header">
+          <div>
+            <p class="tm-modal-eyebrow">
+              {{ subchecklistEditorGroupId ? 'Edit Sub-checklist' : 'New Sub-checklist' }}
+            </p>
+            <h2 id="subchecklist-editor-title">
+              {{ subchecklistEditorForm.title.trim() || 'Sub-checklist' }}
+            </h2>
+            <p v-if="activeChange">#{{ activeChange.publicId }} {{ activeChange.title }}</p>
+          </div>
+          <button
+            type="button"
+            class="tm-icon-btn"
+            :disabled="subchecklistEditorSaving"
+            @click="closeSubchecklistEditor"
+          >
+            ×
+          </button>
+        </div>
+
+        <div class="tm-subchecklist-editor__meta">
+          <label>
+            <span>Name</span>
+            <input
+              v-model="subchecklistEditorForm.title"
+              class="tm-input"
+              type="text"
+              maxlength="191"
+              placeholder="e.g. Verify each spell tooltip"
+              required
+            />
+          </label>
+          <label>
+            <span>Category</span>
+            <input
+              v-model="subchecklistEditorForm.category"
+              class="tm-input"
+              type="text"
+              maxlength="80"
+              placeholder="Uses the change category if blank"
+            />
+          </label>
+        </div>
+
+        <div class="tm-subchecklist-editor__body">
+          <div class="tm-subchecklist-editor__field">
+            <div class="tm-subchecklist-editor__field-label">
+              <span class="tm-subchecklist-editor__field-title">Items</span>
+              <span class="tm-subchecklist-editor__hint">
+                Each line becomes one item — paste a list to add many at once.
+              </span>
+            </div>
+            <textarea
+              v-model="subchecklistEditorForm.text"
+              class="tm-textarea tm-subchecklist-editor__textarea"
+              spellcheck="false"
+              placeholder="Paste or type one item per line…&#10;Goblin Slayer&#10;Frostbite Ring&#10;Cloak of Shadows"
+            ></textarea>
+            <div class="tm-subchecklist-editor__toolbar">
+              <div class="tm-subchecklist-editor__stats">
+                <span class="tm-subchecklist-editor__stat tm-subchecklist-editor__stat--strong">
+                  {{ subchecklistEditorStats.items }} item{{
+                    subchecklistEditorStats.items === 1 ? '' : 's'
+                  }}
+                </span>
+                <span v-if="subchecklistEditorStats.blanks" class="tm-subchecklist-editor__stat">
+                  {{ subchecklistEditorStats.blanks }} blank skipped
+                </span>
+                <span
+                  v-if="subchecklistEditorStats.duplicates"
+                  class="tm-subchecklist-editor__stat tm-subchecklist-editor__stat--warn"
+                >
+                  {{ subchecklistEditorStats.duplicates }} duplicate{{
+                    subchecklistEditorStats.duplicates === 1 ? '' : 's'
+                  }}
+                </span>
+                <span
+                  v-if="subchecklistEditorStats.overflow"
+                  class="tm-subchecklist-editor__stat tm-subchecklist-editor__stat--warn"
+                >
+                  {{ subchecklistEditorStats.overflow }} over 500 limit dropped
+                </span>
+              </div>
+              <div class="tm-subchecklist-editor__tools">
+                <button
+                  type="button"
+                  class="tm-mini-btn"
+                  :disabled="!subchecklistEditorCanTidy"
+                  title="Trim whitespace and remove blank lines"
+                  @click="tidySubchecklistText"
+                >
+                  Tidy
+                </button>
+                <button
+                  type="button"
+                  class="tm-mini-btn"
+                  :disabled="!subchecklistEditorStats.duplicates"
+                  title="Remove duplicate lines (keeps the first)"
+                  @click="dedupeSubchecklistText"
+                >
+                  Dedupe
+                </button>
+                <button
+                  type="button"
+                  class="tm-mini-btn tm-mini-btn--danger"
+                  :disabled="!subchecklistEditorForm.text.length"
+                  title="Clear all items"
+                  @click="clearSubchecklistText"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <aside class="tm-subchecklist-editor__preview">
+            <div class="tm-subchecklist-editor__preview-head">
+              <span>Preview</span>
+              <span class="tm-subchecklist-editor__count"
+                >{{ subchecklistEditorItems.length }} item{{
+                  subchecklistEditorItems.length === 1 ? '' : 's'
+                }}</span
+              >
+            </div>
+            <ol v-if="subchecklistEditorItems.length" class="tm-subchecklist-editor__preview-list">
+              <li v-for="(line, i) in subchecklistEditorItems" :key="i" :title="line">{{ line }}</li>
+            </ol>
+            <p v-else class="tm-subchecklist-editor__preview-empty">
+              Items will appear here as you type or paste.
+            </p>
+          </aside>
+        </div>
+
+        <div class="tm-subchecklist-editor__actions">
+          <button
+            type="button"
+            class="tm-btn tm-btn--ghost"
+            :disabled="subchecklistEditorSaving"
+            @click="closeSubchecklistEditor"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            class="tm-btn tm-btn--primary"
+            :disabled="
+              subchecklistEditorSaving ||
+              !subchecklistEditorItems.length ||
+              !subchecklistEditorForm.title.trim()
+            "
+          >
+            {{
+              subchecklistEditorSaving
+                ? 'Saving…'
+                : subchecklistEditorGroupId
+                  ? 'Save Sub-checklist'
+                  : 'Create Sub-checklist'
+            }}
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <div
+      v-if="subchecklistViewerOpen && activeSubchecklistGroup"
+      class="tm-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="subchecklist-viewer-title"
+      @click.self="closeSubchecklistViewer"
+    >
+      <section class="tm-modal__panel tm-subchecklist-viewer">
+        <div class="tm-panel__header">
+          <div>
+            <p class="tm-modal-eyebrow">Sub-checklist</p>
+            <h2 id="subchecklist-viewer-title">{{ activeSubchecklistGroup.title }}</h2>
+          </div>
+          <button
+            type="button"
+            class="tm-icon-btn"
+            aria-label="Close"
+            @click="closeSubchecklistViewer"
+          >
+            ×
+          </button>
+        </div>
+
+        <div class="tm-subchecklist-viewer__progress">
+          <div
+            class="tm-subchecklist-viewer__bar"
+            :class="{ 'tm-subchecklist-viewer__bar--done': isGroupComplete(activeSubchecklistGroup) }"
+            role="progressbar"
+            :aria-valuemin="0"
+            :aria-valuemax="activeSubchecklistGroup.childCount"
+            :aria-valuenow="groupCompletedCount(activeSubchecklistGroup)"
+          >
+            <span :style="{ width: subchecklistViewerPercent + '%' }"></span>
+          </div>
+          <span class="tm-subchecklist-viewer__count"
+            >{{ groupCompletedCount(activeSubchecklistGroup) }} /
+            {{ activeSubchecklistGroup.childCount }}</span
+          >
+        </div>
+
+        <ul class="tm-subchecklist-viewer__list">
+          <li
+            v-for="(child, i) in activeSubchecklistChildren"
+            :key="child.id"
+            class="tm-subchecklist-viewer__item"
+            :class="{
+              'tm-subchecklist-viewer__item--done': isViewerChecklistItemComplete(child.id)
+            }"
+          >
+            <label>
+              <input
+                type="checkbox"
+                :checked="isViewerChecklistItemComplete(child.id)"
+                :disabled="!viewerCanEditChecklist"
+                @change="
+                  updateChecklistProgress(
+                    child.id,
+                    ($event.target as HTMLInputElement).checked,
+                    false
+                  )
+                "
+              />
+              <span class="tm-subchecklist-viewer__index">{{ i + 1 }}</span>
+              <span class="tm-subchecklist-viewer__text">{{ child.title }}</span>
+            </label>
+          </li>
+        </ul>
+
+        <div class="tm-subchecklist-viewer__actions">
+          <button
+            v-if="viewerCanEditChecklist"
+            type="button"
+            class="tm-btn tm-btn--ghost"
+            :disabled="isGroupComplete(activeSubchecklistGroup)"
+            @click="requestGroupComplete(activeSubchecklistGroup, true)"
+          >
+            Mark all complete
+          </button>
+          <button type="button" class="tm-btn tm-btn--primary" @click="closeSubchecklistViewer">
+            Done
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div
+      v-if="groupCompleteConfirm"
+      class="tm-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="group-complete-confirm-title"
+      @click.self="closeGroupCompleteConfirm"
+    >
+      <section class="tm-modal__panel tm-confirm-modal">
+        <div class="tm-confirm-modal__header">
+          <span class="tm-confirm-modal__icon" aria-hidden="true">
+            {{ groupCompleteConfirm.complete ? '✓' : '↺' }}
+          </span>
+          <div>
+            <p>Sub-checklist</p>
+            <h2 id="group-complete-confirm-title">
+              {{ groupCompleteConfirm.complete ? 'Complete all items?' : 'Reopen all items?' }}
+            </h2>
+          </div>
+        </div>
+        <p class="tm-confirm-modal__body">
+          This {{ groupCompleteConfirm.complete ? 'marks' : 'reopens' }} all
+          {{ groupCompleteConfirm.total }} item{{ groupCompleteConfirm.total === 1 ? '' : 's' }} in
+          "{{ groupCompleteConfirm.title }}"
+          {{ groupCompleteConfirm.complete ? 'as complete' : '' }}.
+        </p>
+        <div class="tm-confirm-modal__actions">
+          <button
+            type="button"
+            class="tm-btn tm-btn--ghost"
+            :disabled="groupCompleteConfirmSaving"
+            @click="closeGroupCompleteConfirm"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="tm-btn tm-btn--primary"
+            :disabled="groupCompleteConfirmSaving"
+            @click="confirmGroupComplete"
+          >
+            {{
+              groupCompleteConfirmSaving
+                ? 'Working…'
+                : groupCompleteConfirm.complete
+                  ? 'Complete All'
+                  : 'Reopen All'
+            }}
+          </button>
+        </div>
+      </section>
     </div>
 
     <div
@@ -4708,6 +5108,23 @@ const checklistNoteItemId = ref<string | null>(null);
 const checklistNotePromptItemId = ref<string | null>(null);
 const checklistAddOpen = ref(false);
 const checklistAddSaving = ref(false);
+const subchecklistEditorOpen = ref(false);
+const subchecklistEditorSaving = ref(false);
+const subchecklistEditorGroupId = ref<string | null>(null);
+const subchecklistEditorForm = ref<{ title: string; category: string; text: string }>({
+  title: '',
+  category: '',
+  text: ''
+});
+const subchecklistViewerOpen = ref(false);
+const subchecklistViewerGroupId = ref<string | null>(null);
+const groupCompleteConfirm = ref<{
+  groupId: string;
+  title: string;
+  total: number;
+  complete: boolean;
+} | null>(null);
+const groupCompleteConfirmSaving = ref(false);
 const coverageNote = ref<CoverageNoteView | null>(null);
 const selectedWebhookReport = ref<TestChangeWebhookReport | null>(null);
 const webhookReportModalTab = ref<WebhookReportModalTab>('raw');
@@ -5287,6 +5704,63 @@ const contextLinkDisplayCount = computed(() =>
 const activeChecklistNoteItem = computed(() =>
   activeChange.value?.checklist.find((item) => item.id === checklistNoteItemId.value)
 );
+// Top-level checklist rows: standalone items and sub-checklist groups (children are hidden
+// from the main list and surfaced through the group's viewer modal instead).
+const topLevelChecklist = computed(() =>
+  (activeChange.value?.checklist ?? []).filter((item) => item.parentId === null)
+);
+// Leaf items used for the coverage matrix and tester progress counts.
+const leafChecklistItems = computed(() =>
+  (activeChange.value?.checklist ?? []).filter((item) => item.childCount === 0)
+);
+const activeSubchecklistGroup = computed(
+  () =>
+    activeChange.value?.checklist.find((item) => item.id === subchecklistViewerGroupId.value) ?? null
+);
+const activeSubchecklistChildren = computed(() =>
+  subchecklistViewerGroupId.value ? childrenOf(subchecklistViewerGroupId.value) : []
+);
+const subchecklistEditorItems = computed(() =>
+  parseSubchecklistText(subchecklistEditorForm.value.text)
+);
+const subchecklistEditorStats = computed(() => {
+  const lines = subchecklistEditorForm.value.text.split(/\r?\n/);
+  // Ignore a single trailing empty line (a trailing newline shouldn't read as a skipped blank).
+  const considered = [...lines];
+  if (considered.length && considered[considered.length - 1].trim() === '') {
+    considered.pop();
+  }
+  const blanks = considered.filter((line) => line.trim().length === 0).length;
+  const nonBlank = lines.map((line) => line.trim()).filter((line) => line.length > 0);
+  const seen = new Set<string>();
+  let duplicates = 0;
+  for (const line of nonBlank) {
+    if (seen.has(line)) {
+      duplicates += 1;
+    } else {
+      seen.add(line);
+    }
+  }
+  return {
+    items: Math.min(nonBlank.length, 500),
+    blanks,
+    duplicates,
+    overflow: Math.max(0, nonBlank.length - 500)
+  };
+});
+const subchecklistEditorCanTidy = computed(
+  () => subchecklistEditorForm.value.text !== subchecklistEditorItems.value.join('\n')
+);
+const viewerCanEditChecklist = computed(() =>
+  activeChange.value ? canEditViewerChecklist(activeChange.value) : false
+);
+const subchecklistViewerPercent = computed(() => {
+  const group = activeSubchecklistGroup.value;
+  if (!group || group.childCount === 0) {
+    return 0;
+  }
+  return Math.round((groupCompletedCount(group) / group.childCount) * 100);
+});
 const checklistNotePromptItem = computed(() =>
   activeChange.value?.checklist.find((item) => item.id === checklistNotePromptItemId.value)
 );
@@ -8124,7 +8598,11 @@ async function deleteNote(note: TestChangeNote) {
   }
 }
 
-async function updateChecklistProgress(checklistItemId: string, completed: boolean) {
+async function updateChecklistProgress(
+  checklistItemId: string,
+  completed: boolean,
+  promptNote = true
+) {
   if (!activeChange.value || !canEditViewerChecklist(activeChange.value)) {
     feedbackError.value =
       'Checklist items can only be updated while this change is ready to test and you are actively testing it.';
@@ -8137,8 +8615,208 @@ async function updateChecklistProgress(checklistItemId: string, completed: boole
     { completed }
   );
   await loadChanges();
-  if (completed) {
+  if (completed && promptNote) {
     checklistNotePromptItemId.value = checklistItemId;
+  }
+}
+
+function parseSubchecklistText(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .slice(0, 500);
+}
+
+function childrenOf(groupId: string) {
+  return (activeChange.value?.checklist ?? []).filter((item) => item.parentId === groupId);
+}
+
+function isChecklistGroup(item: TestChange['checklist'][number]) {
+  return item.childCount > 0;
+}
+
+function groupCompletedCount(group: TestChange['checklist'][number]) {
+  return childrenOf(group.id).filter((child) => isViewerChecklistItemComplete(child.id)).length;
+}
+
+function isGroupComplete(group: TestChange['checklist'][number]) {
+  return group.childCount > 0 && groupCompletedCount(group) === group.childCount;
+}
+
+function topLevelItemComplete(item: TestChange['checklist'][number]) {
+  return isChecklistGroup(item)
+    ? isGroupComplete(item)
+    : isViewerChecklistItemComplete(item.id);
+}
+
+function checklistGroupName(parentId: string) {
+  return activeChange.value?.checklist.find((item) => item.id === parentId)?.title ?? '';
+}
+
+function onTopLevelToggle(
+  item: TestChange['checklist'][number],
+  checked: boolean,
+  event: Event
+) {
+  if (isChecklistGroup(item)) {
+    // The group checkbox is a derived display of its children; keep it honest while the
+    // confirmation prompt decides the real outcome.
+    const target = event.target as HTMLInputElement;
+    target.checked = isGroupComplete(item);
+    requestGroupComplete(item, checked);
+    return;
+  }
+  void updateChecklistProgress(item.id, checked);
+}
+
+function requestGroupComplete(group: TestChange['checklist'][number], complete: boolean) {
+  groupCompleteConfirm.value = {
+    groupId: group.id,
+    title: group.title,
+    total: group.childCount,
+    complete
+  };
+}
+
+function closeGroupCompleteConfirm() {
+  if (groupCompleteConfirmSaving.value) {
+    return;
+  }
+  groupCompleteConfirm.value = null;
+}
+
+async function confirmGroupComplete() {
+  const confirm = groupCompleteConfirm.value;
+  if (!confirm || !activeChange.value || groupCompleteConfirmSaving.value) {
+    return;
+  }
+  groupCompleteConfirmSaving.value = true;
+  try {
+    await updateChecklistProgress(confirm.groupId, confirm.complete, false);
+    groupCompleteConfirm.value = null;
+  } catch (error) {
+    addToast({
+      title: 'Update Failed',
+      message: getApiErrorMessage(error, 'Unable to update the sub-checklist.'),
+      variant: 'error'
+    });
+  } finally {
+    groupCompleteConfirmSaving.value = false;
+  }
+}
+
+function openSubchecklistViewer(groupId: string) {
+  subchecklistViewerGroupId.value = groupId;
+  subchecklistViewerOpen.value = true;
+}
+
+function closeSubchecklistViewer() {
+  subchecklistViewerOpen.value = false;
+  subchecklistViewerGroupId.value = null;
+}
+
+function openSubchecklistEditor(group?: TestChange['checklist'][number]) {
+  if (!authStore.isAdmin || !activeChange.value) {
+    return;
+  }
+  if (group) {
+    subchecklistEditorGroupId.value = group.id;
+    subchecklistEditorForm.value = {
+      title: group.title,
+      category: group.category || '',
+      text: childrenOf(group.id)
+        .map((child) => child.title)
+        .join('\n')
+    };
+  } else {
+    subchecklistEditorGroupId.value = null;
+    subchecklistEditorForm.value = { title: '', category: '', text: '' };
+  }
+  subchecklistEditorOpen.value = true;
+}
+
+function closeSubchecklistEditor() {
+  if (subchecklistEditorSaving.value) {
+    return;
+  }
+  subchecklistEditorOpen.value = false;
+}
+
+function tidySubchecklistText() {
+  subchecklistEditorForm.value.text = subchecklistEditorItems.value.join('\n');
+}
+
+function dedupeSubchecklistText() {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const line of subchecklistEditorForm.value.text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+  subchecklistEditorForm.value.text = out.join('\n');
+}
+
+function clearSubchecklistText() {
+  subchecklistEditorForm.value.text = '';
+}
+
+async function saveSubchecklistEditor() {
+  if (!authStore.isAdmin || !activeChange.value || subchecklistEditorSaving.value) {
+    return;
+  }
+
+  const title = subchecklistEditorForm.value.title.trim();
+  const items = subchecklistEditorItems.value;
+  if (!title) {
+    addToast({
+      title: 'Name Required',
+      message: 'Give the sub-checklist a name before saving.',
+      variant: 'warning'
+    });
+    return;
+  }
+  if (!items.length) {
+    addToast({
+      title: 'Items Required',
+      message: 'Add at least one sub-checklist item (one per line).',
+      variant: 'warning'
+    });
+    return;
+  }
+
+  subchecklistEditorSaving.value = true;
+  try {
+    const payload = {
+      title,
+      category: subchecklistEditorForm.value.category.trim() || null,
+      items
+    };
+    const groupId = subchecklistEditorGroupId.value;
+    const updated = groupId
+      ? await api.updateTestChangeChecklistGroup(activeChange.value.id, groupId, payload)
+      : await api.createTestChangeChecklistGroup(activeChange.value.id, payload);
+    replaceCachedChange(updated);
+    selectedChange.value = updated;
+    subchecklistEditorOpen.value = false;
+    addToast({
+      title: groupId ? 'Sub-checklist Updated' : 'Sub-checklist Created',
+      message: `"${title}" with ${items.length} item${items.length === 1 ? '' : 's'}.`,
+      variant: 'success'
+    });
+    await loadChanges();
+  } catch (error) {
+    addToast({
+      title: 'Sub-checklist Save Failed',
+      message: getApiErrorMessage(error, 'Unable to save sub-checklist.'),
+      variant: 'error'
+    });
+  } finally {
+    subchecklistEditorSaving.value = false;
   }
 }
 
@@ -17622,6 +18300,19 @@ button.tm-version-badge {
   background: rgba(14, 72, 120, 0.16);
 }
 
+.tm-checklist-note-btn:disabled {
+  cursor: default;
+  opacity: 0.4;
+  border-color: var(--tm-border-soft);
+  color: var(--tm-muted);
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.tm-testing-checklist__row input[type='checkbox']:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
 .tm-checklist-note-modal {
   max-width: 42rem;
 }
@@ -17703,6 +18394,560 @@ button.tm-version-badge {
   justify-content: flex-end;
   gap: 0.6rem;
   padding-top: 0.2rem;
+}
+
+/* ---- Sub-checklist (group) row ---- */
+.tm-testing-checklist__add {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.18rem;
+  justify-self: end;
+}
+
+.tm-checklist-add-btn--group {
+  font-size: 1rem;
+}
+
+.tm-checklist-add-btn--group svg {
+  width: 1.05rem;
+  height: 1.05rem;
+  fill: currentColor;
+}
+
+.tm-checklist-edit-btn {
+  width: 1.72rem;
+  height: 1.72rem;
+  border: 0;
+  border-radius: 0.45rem;
+  background: transparent;
+  color: rgba(213, 196, 164, 0.45);
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    color 160ms ease,
+    transform 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.tm-checklist-edit-btn svg {
+  width: 1rem;
+  height: 1rem;
+  fill: currentColor;
+}
+
+.tm-checklist-edit-btn:hover,
+.tm-checklist-edit-btn:focus-visible {
+  background: rgba(217, 164, 95, 0.1);
+  color: rgba(243, 214, 166, 0.95);
+  transform: translateY(-1px);
+  box-shadow: 0 0 0 3px rgba(217, 164, 95, 0.08);
+}
+
+.tm-checklist-edit-btn:focus-visible {
+  outline: 2px solid rgba(85, 183, 255, 0.7);
+  outline-offset: 2px;
+}
+
+.tm-testing-checklist__row--group {
+  box-shadow: inset 3px 0 0 rgba(217, 164, 95, 0.55);
+}
+
+.tm-testing-checklist__row--group.tm-testing-checklist__row--complete {
+  box-shadow: inset 3px 0 0 rgba(111, 213, 121, 0.65);
+}
+
+.tm-testing-checklist__group-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  color: var(--tm-gold);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.tm-testing-checklist__group-tag svg {
+  width: 0.86rem;
+  height: 0.86rem;
+  fill: currentColor;
+  flex-shrink: 0;
+}
+
+.tm-subchecklist-open-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 2rem;
+  padding: 0 0.6rem;
+  border: 1px solid rgba(217, 164, 95, 0.42);
+  border-radius: 999px;
+  background: rgba(217, 164, 95, 0.1);
+  color: var(--tm-gold);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease,
+    transform 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.tm-subchecklist-open-btn svg {
+  width: 1.02rem;
+  height: 1.02rem;
+  fill: currentColor;
+}
+
+.tm-subchecklist-open-btn__badge {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.tm-subchecklist-open-btn:hover,
+.tm-subchecklist-open-btn:focus-visible {
+  border-color: rgba(243, 214, 166, 0.8);
+  background: rgba(217, 164, 95, 0.18);
+  transform: translateY(-1px);
+  box-shadow: 0 0 0 3px rgba(217, 164, 95, 0.1);
+}
+
+.tm-subchecklist-open-btn:focus-visible {
+  outline: 2px solid rgba(85, 183, 255, 0.7);
+  outline-offset: 2px;
+}
+
+.tm-subchecklist-open-btn--done {
+  border-color: rgba(111, 213, 121, 0.7);
+  background: rgba(46, 96, 44, 0.22);
+  color: var(--tm-green);
+}
+
+/* ---- Sub-checklist editor modal ---- */
+/* Compound selector raises specificity above the base .tm-modal__panel rule, which is
+   defined later in the file and would otherwise override display/width/gap. */
+.tm-modal__panel.tm-subchecklist-editor {
+  max-width: 72rem;
+  width: min(72rem, 96vw);
+  max-height: min(88vh, 50rem);
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 1.1rem;
+  min-height: 0;
+}
+
+.tm-subchecklist-editor > .tm-panel__header,
+.tm-subchecklist-editor__meta,
+.tm-subchecklist-editor__actions {
+  flex: 0 0 auto;
+}
+
+.tm-subchecklist-editor__meta {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 0.7rem;
+}
+
+.tm-subchecklist-editor__meta label {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.tm-subchecklist-editor__meta label > span,
+.tm-subchecklist-editor__field-title {
+  color: var(--tm-gold);
+  font-size: 0.74rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tm-subchecklist-editor__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  gap: 0.7rem;
+  align-items: stretch;
+}
+
+.tm-subchecklist-editor__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+  min-height: 0;
+}
+
+.tm-subchecklist-editor__field-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.tm-subchecklist-editor__hint {
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 500;
+  font-size: 0.72rem;
+  color: var(--tm-muted);
+}
+
+.tm-subchecklist-editor__textarea {
+  flex: 1 1 auto;
+  min-height: 9rem;
+  resize: none;
+  font-family:
+    'JetBrains Mono', ui-monospace, 'SFMono-Regular', 'Menlo', 'Consolas', monospace;
+  font-size: 0.84rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-y: auto;
+}
+
+.tm-subchecklist-editor__toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.tm-subchecklist-editor__stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.55rem;
+  min-width: 0;
+}
+
+.tm-subchecklist-editor__stat {
+  display: inline-flex;
+  align-items: center;
+  color: var(--tm-muted);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.tm-subchecklist-editor__stat--strong {
+  color: var(--tm-text);
+  font-weight: 700;
+}
+
+.tm-subchecklist-editor__stat--warn {
+  color: #e8b366;
+}
+
+.tm-subchecklist-editor__tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.tm-mini-btn {
+  border: 1px solid var(--tm-border-soft);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--tm-text);
+  padding: 0.22rem 0.62rem;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    color 140ms ease,
+    transform 140ms ease;
+}
+
+.tm-mini-btn:hover:not(:disabled),
+.tm-mini-btn:focus-visible:not(:disabled) {
+  border-color: rgba(217, 164, 95, 0.5);
+  background: rgba(217, 164, 95, 0.1);
+  color: var(--tm-gold);
+  transform: translateY(-1px);
+}
+
+.tm-mini-btn--danger:hover:not(:disabled),
+.tm-mini-btn--danger:focus-visible:not(:disabled) {
+  border-color: rgba(255, 107, 85, 0.5);
+  background: rgba(255, 107, 85, 0.1);
+  color: rgba(255, 145, 126, 0.95);
+}
+
+.tm-mini-btn:focus-visible {
+  outline: 2px solid rgba(85, 183, 255, 0.7);
+  outline-offset: 2px;
+}
+
+.tm-mini-btn:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.tm-subchecklist-editor__preview {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--tm-border-soft);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.22);
+  overflow: hidden;
+}
+
+.tm-subchecklist-editor__preview-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.7rem;
+  border-bottom: 1px solid var(--tm-border-soft);
+  color: var(--tm-gold);
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tm-subchecklist-editor__count {
+  color: var(--tm-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.tm-subchecklist-editor__preview-list {
+  margin: 0;
+  padding: 0.5rem 0.7rem 0.5rem 2.2rem;
+  list-style: decimal;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.tm-subchecklist-editor__preview-list li {
+  padding: 0.12rem 0;
+  color: var(--tm-text);
+  font-size: 0.84rem;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.tm-subchecklist-editor__preview-list li::marker {
+  color: rgba(213, 196, 164, 0.5);
+}
+
+.tm-subchecklist-editor__preview-empty {
+  margin: auto;
+  padding: 1rem;
+  color: var(--tm-muted);
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+.tm-subchecklist-editor__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  padding-top: 0.2rem;
+}
+
+/* ---- Sub-checklist viewer modal ---- */
+.tm-modal__panel.tm-subchecklist-viewer {
+  max-width: 38rem;
+  width: min(38rem, 94vw);
+  max-height: min(88vh, 46rem);
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 0.85rem;
+}
+
+.tm-subchecklist-viewer__progress {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.tm-subchecklist-viewer__bar {
+  position: relative;
+  flex: 1;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.tm-subchecklist-viewer__bar > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(217, 164, 95, 0.85), rgba(243, 214, 166, 0.95));
+  transition: width 220ms ease;
+}
+
+.tm-subchecklist-viewer__bar--done > span {
+  background: linear-gradient(90deg, #3fae4a, #7de475);
+}
+
+.tm-subchecklist-viewer__count {
+  color: var(--tm-text);
+  font-size: 0.82rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.tm-subchecklist-viewer__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.4rem;
+  align-content: start;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.tm-subchecklist-viewer__item {
+  border: 1px solid var(--tm-border-soft);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.018);
+  transition:
+    border-color 160ms ease,
+    background 160ms ease;
+}
+
+.tm-subchecklist-viewer__item label {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.55rem 0.7rem;
+  cursor: pointer;
+}
+
+.tm-subchecklist-viewer__item input[type='checkbox'] {
+  appearance: none;
+  width: 1.4rem;
+  height: 1.4rem;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  border: 1px solid rgba(213, 196, 164, 0.32);
+  border-radius: 0.4rem;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.01)),
+    rgba(3, 6, 7, 0.8);
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.tm-subchecklist-viewer__item input[type='checkbox']::after {
+  content: '✓';
+  color: #08150c;
+  font-size: 0.9rem;
+  font-weight: 900;
+  line-height: 1;
+  opacity: 0;
+  transform: scale(0.65);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+
+.tm-subchecklist-viewer__item input[type='checkbox']:checked {
+  border-color: rgba(111, 213, 121, 0.9);
+  background:
+    radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.34), transparent 38%),
+    linear-gradient(145deg, #7de475, #3fae4a 58%, #287f34);
+  box-shadow: 0 0 14px rgba(111, 213, 121, 0.2);
+}
+
+.tm-subchecklist-viewer__item input[type='checkbox']:checked::after {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.tm-subchecklist-viewer__item input[type='checkbox']:focus-visible {
+  outline: 2px solid rgba(85, 183, 255, 0.8);
+  outline-offset: 3px;
+}
+
+.tm-subchecklist-viewer__item input[type='checkbox']:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.tm-subchecklist-viewer__index {
+  color: rgba(213, 196, 164, 0.5);
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  min-width: 1.1rem;
+  text-align: right;
+}
+
+.tm-subchecklist-viewer__text {
+  color: var(--tm-text);
+  font-size: 0.88rem;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.tm-subchecklist-viewer__item--done {
+  border-color: rgba(111, 213, 121, 0.28);
+  background:
+    linear-gradient(90deg, rgba(64, 153, 73, 0.14), transparent 60%),
+    rgba(24, 58, 31, 0.1);
+}
+
+.tm-subchecklist-viewer__item--done .tm-subchecklist-viewer__text {
+  color: rgba(202, 232, 199, 0.86);
+}
+
+.tm-subchecklist-viewer__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+}
+
+.tm-coverage-matrix__group {
+  display: inline-flex;
+  align-items: center;
+  color: var(--tm-gold);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 720px) {
+  .tm-modal__panel.tm-subchecklist-editor {
+    max-height: 92vh;
+  }
+
+  .tm-subchecklist-editor__meta {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tm-subchecklist-editor__body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(8rem, 1.1fr) minmax(7rem, 0.9fr);
+  }
+
+  .tm-subchecklist-editor__textarea {
+    min-height: 7rem;
+  }
 }
 
 .tm-action {
