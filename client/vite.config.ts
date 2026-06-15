@@ -10,6 +10,7 @@ export default defineConfig({
   server: {
     port: 5173,
     open: shouldOpenBrowser,
+    allowedHosts: ['host.docker.internal'],
     proxy: {
       '/api': {
         target: 'http://localhost:4000',

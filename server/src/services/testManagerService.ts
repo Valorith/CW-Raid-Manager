@@ -1705,7 +1705,20 @@ const baseChangeInclude = {
     }
   },
   checklist: {
-    orderBy: { sortOrder: 'asc' as const }
+    orderBy: { sortOrder: 'asc' as const },
+    include: {
+      sharedCompletedBy: {
+        select: {
+          id: true,
+          displayName: true,
+          nickname: true,
+          email: true,
+          admin: true,
+          guide: true,
+          tester: true
+        }
+      }
+    }
   },
   testers: {
     orderBy: { updatedAt: 'desc' as const },
@@ -2043,10 +2056,21 @@ function serializeChange(change: ChangeSerializeRecord, viewerUserId?: string) {
     requestedBy: serializeUser(tester.requestedBy),
     checklistProgress: change.checklist.map((item) => {
       const progress = tester.checklistProgress.find((entry) => entry.checklistItemId === item.id);
+      if (item.shared) {
+        return {
+          checklistItemId: item.id,
+          completed: Boolean(item.sharedCompletedAt),
+          completedAt: item.sharedCompletedAt?.toISOString() ?? null,
+          completedBy: serializeUser(item.sharedCompletedBy),
+          notesHtml: progress?.notesHtml ?? '',
+          updatedAt: item.updatedAt.toISOString()
+        };
+      }
       return {
         checklistItemId: item.id,
         completed: Boolean(progress?.completed),
         completedAt: progress?.completedAt?.toISOString() ?? null,
+        completedBy: null,
         notesHtml: progress?.notesHtml ?? '',
         updatedAt: progress?.updatedAt.toISOString() ?? null
       };
@@ -2063,12 +2087,19 @@ function serializeChange(change: ChangeSerializeRecord, viewerUserId?: string) {
     }
   }
   const leafItems = change.checklist.filter((item) => (childCountByParent.get(item.id) ?? 0) === 0);
+  const isChecklistItemCompleteForTester = (
+    item: (typeof change.checklist)[number],
+    tester: (typeof testerRows)[number]
+  ) =>
+    item.shared
+      ? Boolean(item.sharedCompletedAt)
+      : tester.checklistProgress.some(
+          (progress) => progress.checklistItemId === item.id && progress.completed
+        );
   const checklistCompleted = leafItems.filter((item) =>
-    testerRows.some((tester) =>
-      tester.checklistProgress.some(
-        (progress) => progress.checklistItemId === item.id && progress.completed
-      )
-    )
+    item.shared
+      ? Boolean(item.sharedCompletedAt)
+      : testerRows.some((tester) => isChecklistItemCompleteForTester(item, tester))
   ).length;
   const viewerTester = viewerUserId
     ? (testerRows.find((tester) => tester.user?.id === viewerUserId) ?? null)
@@ -2105,7 +2136,10 @@ function serializeChange(change: ChangeSerializeRecord, viewerUserId?: string) {
       category: item.category ?? '',
       sortOrder: item.sortOrder,
       parentId: item.parentId ?? null,
-      childCount: childCountByParent.get(item.id) ?? 0
+      childCount: childCountByParent.get(item.id) ?? 0,
+      shared: item.shared,
+      sharedCompletedAt: item.sharedCompletedAt?.toISOString() ?? null,
+      sharedCompletedBy: serializeUser(item.sharedCompletedBy)
     })),
     testers: testerRows,
     notes: change.notes.map((note) => ({
@@ -2145,7 +2179,8 @@ function serializeChange(change: ChangeSerializeRecord, viewerUserId?: string) {
       checklistCompleted,
       checklistProgressTotal: testerRows.reduce(
         (total, tester) =>
-          total + tester.checklistProgress.filter((progress) => progress.completed).length,
+          total +
+          leafItems.filter((item) => isChecklistItemCompleteForTester(item, tester)).length,
         0
       ),
       checklistProgressPossible: testerRows.length * leafItems.length
@@ -4632,6 +4667,7 @@ export async function updateTesterChecklistProgress(
   const notesHtml = hasNotes ? sanitizeRichText(input.notesHtml ?? '') : undefined;
 
   let checklistItemTitle = 'Checklist item';
+  let sharedTargetCount = 0;
   await prisma.$transaction(async (tx) => {
     const [change, checklistItem] = await Promise.all([
       tx.testChange.findUnique({
@@ -4640,7 +4676,22 @@ export async function updateTesterChecklistProgress(
       }),
       tx.testChangeChecklistItem.findFirst({
         where: { id: checklistItemId, changeId },
-        select: { id: true, title: true, children: { select: { id: true } } }
+        select: {
+          id: true,
+          title: true,
+          shared: true,
+          sharedCompletedAt: true,
+          sharedCompletedById: true,
+          children: {
+            select: {
+              id: true,
+              title: true,
+              shared: true,
+              sharedCompletedAt: true,
+              sharedCompletedById: true
+            }
+          }
+        }
       })
     ]);
     if (!change) {
@@ -4653,39 +4704,95 @@ export async function updateTesterChecklistProgress(
 
     ensureChangeAcceptsTesterInput(change);
 
-    const tester = await tx.testChangeTester.findUnique({
-      where: { changeId_userId: { changeId, userId: actorUserId } },
-      select: { id: true, status: true, result: true }
-    });
-    ensureActiveTestingAssignment(tester);
-
     // A group (sub-checklist) has no progress row of its own — toggling it fans the
     // completed state out to every child item. Leaf items keep their existing behavior.
-    const childIds = checklistItem.children.map((child) => child.id);
-    const isGroup = childIds.length > 0;
-    const targetIds = isGroup ? childIds : [checklistItem.id];
-
-    for (const targetId of targetIds) {
-      await tx.testChangeChecklistProgress.upsert({
-        where: {
-          testerId_checklistItemId: {
-            testerId: tester.id,
-            checklistItemId: targetId
+    const isGroup = checklistItem.children.length > 0;
+    const targetItems = isGroup
+      ? checklistItem.children
+      : [
+          {
+            id: checklistItem.id,
+            title: checklistItem.title,
+            shared: checklistItem.shared,
+            sharedCompletedAt: checklistItem.sharedCompletedAt,
+            sharedCompletedById: checklistItem.sharedCompletedById
           }
-        },
-        update: {
-          completed: hasCompleted ? completed : undefined,
-          completedAt: hasCompleted ? (completed ? new Date() : null) : undefined,
-          notesHtml: isGroup ? undefined : notesHtml
-        },
-        create: {
-          testerId: tester.id,
-          checklistItemId: targetId,
-          completed: hasCompleted ? completed : false,
-          completedAt: hasCompleted && completed ? new Date() : null,
-          notesHtml: isGroup ? null : (notesHtml ?? null)
-        }
+        ];
+    sharedTargetCount = targetItems.filter((item) => item.shared).length;
+
+    if (hasCompleted && !completed) {
+      const blockedSharedItem = targetItems.find(
+        (item) =>
+          item.shared &&
+          item.sharedCompletedAt &&
+          item.sharedCompletedById !== actorUserId &&
+          !actor.admin
+      );
+      if (blockedSharedItem) {
+        throw new Error(
+          'Only the tester who completed a shared checklist item or an admin can reopen it.'
+        );
+      }
+    }
+
+    const requiresActiveTester =
+      hasNotes || targetItems.some((item) => !item.shared) || (hasCompleted && completed);
+    let tester: { id: string; status: TestRunStatus; result: TestResult | null } | null = null;
+    if (requiresActiveTester) {
+      tester = await tx.testChangeTester.findUnique({
+        where: { changeId_userId: { changeId, userId: actorUserId } },
+        select: { id: true, status: true, result: true }
       });
+      ensureActiveTestingAssignment(tester);
+    }
+
+    const now = new Date();
+    for (const target of targetItems) {
+      if (target.shared && hasCompleted) {
+        if (!completed || !target.sharedCompletedAt) {
+          await tx.testChangeChecklistItem.update({
+            where: { id: target.id },
+            data: {
+              sharedCompletedAt: completed ? now : null,
+              sharedCompletedById: completed ? actorUserId : null
+            }
+          });
+        }
+      }
+
+      if (!target.shared || (hasNotes && !isGroup)) {
+        if (!tester) {
+          tester = await tx.testChangeTester.findUnique({
+            where: { changeId_userId: { changeId, userId: actorUserId } },
+            select: { id: true, status: true, result: true }
+          });
+          ensureActiveTestingAssignment(tester);
+        }
+        const writePersonalCompletion = !target.shared && hasCompleted;
+        const writePersonalNotes = hasNotes && !isGroup;
+        const personalNotesHtml = writePersonalNotes ? notesHtml : undefined;
+
+        await tx.testChangeChecklistProgress.upsert({
+          where: {
+            testerId_checklistItemId: {
+              testerId: tester.id,
+              checklistItemId: target.id
+            }
+          },
+          update: {
+            completed: writePersonalCompletion ? completed : undefined,
+            completedAt: writePersonalCompletion ? (completed ? now : null) : undefined,
+            notesHtml: personalNotesHtml
+          },
+          create: {
+            testerId: tester.id,
+            checklistItemId: target.id,
+            completed: writePersonalCompletion ? completed : false,
+            completedAt: writePersonalCompletion && completed ? now : null,
+            notesHtml: personalNotesHtml ?? null
+          }
+        });
+      }
     }
 
     await appendHistory(tx, {
@@ -4699,14 +4806,23 @@ export async function updateTesterChecklistProgress(
         : 'Checklist item note updated',
       detail: hasCompleted
         ? `${displayName(actor)} ${completed ? 'completed' : 'reopened'} "${checklistItem.title}"${
-            isGroup ? ` (${targetIds.length} sub-item${targetIds.length === 1 ? '' : 's'})` : ''
+            isGroup
+              ? ` (${targetItems.length} sub-item${targetItems.length === 1 ? '' : 's'})`
+              : ''
+          }${
+            sharedTargetCount > 0
+              ? ` with shared progress on ${sharedTargetCount} item${
+                  sharedTargetCount === 1 ? '' : 's'
+                }`
+              : ''
           }.`
         : `${displayName(actor)} updated notes for "${checklistItem.title}".`,
       metadata: {
         checklistItemId,
         completed: hasCompleted ? completed : undefined,
         notesUpdated: hasNotes,
-        isGroup
+        isGroup,
+        sharedTargetCount
       }
     });
   });
@@ -4722,12 +4838,119 @@ export async function updateTesterChecklistProgress(
       actorUserId,
       change: serialized,
       detail: hasCompleted
-        ? `${displayName(actor)} ${completed ? 'completed' : 'reopened'} "${checklistItemTitle}".`
+        ? `${displayName(actor)} ${completed ? 'completed' : 'reopened'} "${checklistItemTitle}"${
+            sharedTargetCount > 0 ? ' with shared progress' : ''
+          }.`
         : `${displayName(actor)} updated checklist notes for "${checklistItemTitle}".`,
-      metadata: { checklistItemTitle, completed: hasCompleted ? completed : undefined }
+      metadata: {
+        checklistItemTitle,
+        completed: hasCompleted ? completed : undefined,
+        sharedTargetCount
+      }
     });
   }
   return serialized;
+}
+
+export async function setTestChangeChecklistItemShared(
+  actorUserId: string,
+  changeId: string,
+  checklistItemId: string,
+  input: { shared: boolean }
+) {
+  await ensureAdmin(actorUserId);
+  const actor = await getCurrentUser(actorUserId);
+  if (!actor) {
+    throw new Error('User not found.');
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const checklistItem = await tx.testChangeChecklistItem.findFirst({
+      where: { id: checklistItemId, changeId },
+      select: {
+        id: true,
+        title: true,
+        shared: true,
+        children: { select: { id: true } }
+      }
+    });
+    if (!checklistItem) {
+      throw new Error('Checklist item not found for this change.');
+    }
+
+    const isGroup = checklistItem.children.length > 0;
+    const targetIds = isGroup
+      ? [checklistItem.id, ...checklistItem.children.map((child) => child.id)]
+      : [checklistItem.id];
+    if (input.shared) {
+      const itemsToShare = await tx.testChangeChecklistItem.findMany({
+        where: { id: { in: targetIds }, changeId },
+        select: {
+          id: true,
+          testerProgress: {
+            where: { completed: true },
+            orderBy: [{ completedAt: 'asc' }, { updatedAt: 'asc' }],
+            take: 1,
+            select: {
+              completedAt: true,
+              updatedAt: true,
+              tester: { select: { userId: true } }
+            }
+          }
+        }
+      });
+
+      for (const item of itemsToShare) {
+        const carriedProgress = item.testerProgress[0] ?? null;
+        await tx.testChangeChecklistItem.update({
+          where: { id: item.id },
+          data: {
+            shared: true,
+            sharedCompletedAt: carriedProgress
+              ? (carriedProgress.completedAt ?? carriedProgress.updatedAt)
+              : null,
+            sharedCompletedById: carriedProgress?.tester.userId ?? null
+          }
+        });
+      }
+    } else {
+      await tx.testChangeChecklistItem.updateMany({
+        where: { id: { in: targetIds }, changeId },
+        data: { shared: false, sharedCompletedAt: null, sharedCompletedById: null }
+      });
+    }
+
+    await appendHistory(tx, {
+      changeId,
+      actorUserId,
+      eventType: TestHistoryEventType.CHECKLIST_UPDATED,
+      label: input.shared
+        ? isGroup
+          ? 'Sub-checklist shared'
+          : 'Checklist item shared'
+        : isGroup
+          ? 'Sub-checklist unshared'
+          : 'Checklist item unshared',
+      detail: `${displayName(actor)} ${input.shared ? 'shared' : 'unshared'} "${
+        checklistItem.title
+      }"${
+        isGroup
+          ? ` and ${checklistItem.children.length} sub-item${
+              checklistItem.children.length === 1 ? '' : 's'
+            }`
+          : ''
+      }.`,
+      metadata: {
+        checklistItemId,
+        checklistItemTitle: checklistItem.title,
+        shared: input.shared,
+        isGroup,
+        affectedItemCount: targetIds.length
+      }
+    });
+  });
+
+  return getTestChange(changeId, actorUserId);
 }
 
 export async function addTestChangeChecklistItem(
@@ -4928,7 +5151,12 @@ export async function updateTestChangeChecklistGroup(
   await prisma.$transaction(async (tx) => {
     const group = await tx.testChangeChecklistItem.findFirst({
       where: { id: groupId, changeId },
-      select: { id: true, sortOrder: true, children: { select: { id: true, title: true } } }
+      select: {
+        id: true,
+        shared: true,
+        sortOrder: true,
+        children: { select: { id: true, title: true } }
+      }
     });
     if (!group) {
       throw new Error('Sub-checklist not found for this change.');
@@ -4952,11 +5180,19 @@ export async function updateTestChangeChecklistGroup(
         usedExistingIds.add(match.id);
         await tx.testChangeChecklistItem.update({
           where: { id: match.id },
-          data: { sortOrder, category }
+          data: { sortOrder, category, ...(group.shared ? { shared: true } : {}) }
         });
       } else {
         await tx.testChangeChecklistItem.create({
-          data: { changeId, parentId: group.id, title: itemTitle, details: null, category, sortOrder }
+          data: {
+            changeId,
+            parentId: group.id,
+            title: itemTitle,
+            details: null,
+            category,
+            sortOrder,
+            shared: group.shared
+          }
         });
       }
       sortOrder += 1;

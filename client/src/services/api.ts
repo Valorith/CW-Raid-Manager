@@ -3305,6 +3305,9 @@ export interface TestChangeChecklistItem {
   sortOrder: number;
   parentId: string | null;
   childCount: number;
+  shared: boolean;
+  sharedCompletedAt: string | null;
+  sharedCompletedBy: TestManagerUserSummary | null;
 }
 
 export interface TestChangeTester {
@@ -3318,6 +3321,7 @@ export interface TestChangeTester {
     checklistItemId: string;
     completed: boolean;
     completedAt: string | null;
+    completedBy: TestManagerUserSummary | null;
     notesHtml: string;
     updatedAt: string | null;
   }>;
@@ -3792,6 +3796,19 @@ export const api = {
       `/api/test-manager/changes/${encodeURIComponent(changeId)}/checklist/${encodeURIComponent(
         checklistItemId
       )}`,
+      payload
+    );
+    return response.data.change;
+  },
+  async setTestChangeChecklistItemShared(
+    changeId: string,
+    checklistItemId: string,
+    payload: { shared: boolean }
+  ): Promise<TestChange> {
+    const response = await axios.patch(
+      `/api/test-manager/changes/${encodeURIComponent(changeId)}/checklist/${encodeURIComponent(
+        checklistItemId
+      )}/shared`,
       payload
     );
     return response.data.change;
