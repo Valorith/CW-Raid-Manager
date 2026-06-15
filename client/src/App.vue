@@ -26,6 +26,50 @@
           Dashboard
         </RouterLink>
 
+        <!-- Favorites -->
+        <div
+          v-if="authStore.isAuthenticated"
+          ref="favoritesDropdownNavRef"
+          class="nav__item nav__item--has-dropdown nav__item--favorites"
+          @mouseenter="onNavDropdownMouseEnter('favorites')"
+          @mouseleave="onNavDropdownMouseLeave('favorites')"
+        >
+          <button
+            type="button"
+            class="nav__tab nav__tab--button"
+            :class="{ 'nav__tab--open': activeDropdown === 'favorites' }"
+            :aria-expanded="activeDropdown === 'favorites'"
+            aria-haspopup="true"
+            aria-label="Open favorites menu"
+            @click.stop="toggleDropdownFromTrigger('favorites')"
+            @keydown.down.prevent="openDropdown('favorites')"
+          >
+            <svg
+              class="nav__tab-ico"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path
+                d="m12 3.5 2.7 5.47 6.04.88-4.37 4.26 1.03 6.01L12 17.28l-5.4 2.84 1.03-6.01-4.37-4.26 6.04-.88L12 3.5Z"
+              />
+            </svg>
+            Favorites
+            <span v-if="pageFavorites.length > 0" class="nav__favorite-count">
+              {{ formatCounter(pageFavorites.length) }}
+            </span>
+            <svg class="nav__chevron" viewBox="0 0 20 20" aria-hidden="true">
+              <path
+                d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+              />
+            </svg>
+          </button>
+        </div>
+
         <!-- Guild - With dropdown when guild is selected -->
         <div
           v-if="authStore.isAuthenticated"
@@ -386,6 +430,70 @@
     <Teleport to="body">
       <Transition name="dropdown">
         <div
+          v-if="authStore.isAuthenticated && activeDropdown === 'favorites'"
+          ref="activeDropdownMenuRef"
+          class="nav__dropdown nav__dropdown--favorites"
+          :style="navDropdownStyle"
+          @mouseenter="openDropdown('favorites')"
+          @mouseleave="closeDropdown('favorites')"
+        >
+          <div class="nav-favorites">
+            <div class="nav-favorites__header">
+              <span>Saved Pages</span>
+              <span>{{ pageFavorites.length }}</span>
+            </div>
+            <div v-if="pageFavorites.length === 0" class="nav-favorites__empty">
+              No favorites saved yet.
+            </div>
+            <div v-else class="nav-favorites__list">
+              <div
+                v-for="favorite in pageFavorites"
+                :key="favorite.id"
+                class="nav-favorites__row"
+              >
+                <RouterLink
+                  :to="favorite.path"
+                  class="nav__dropdown-item nav-favorites__link"
+                  @click="activeDropdown = null"
+                >
+                  <span class="nav-favorites__label">{{ favorite.label }}</span>
+                  <span class="nav-favorites__path">{{ favorite.path }}</span>
+                </RouterLink>
+                <button
+                  type="button"
+                  class="nav-favorites__delete"
+                  :aria-label="`Remove ${favorite.label} from favorites`"
+                  @click.stop="requestRemoveFavorite(favorite)"
+                >
+                  <svg viewBox="0 0 20 20" aria-hidden="true">
+                    <path d="M6 6l8 8M14 6l-8 8" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div class="nav-favorites__footer">
+              <button
+                type="button"
+                class="nav-favorites__add"
+                :disabled="isCurrentPageFavorite"
+                :title="
+                  isCurrentPageFavorite
+                    ? 'This page is already saved to your favorites.'
+                    : 'Save the current page to your favorites.'
+                "
+                @click="addCurrentPageFavorite"
+              >
+                <svg viewBox="0 0 20 20" aria-hidden="true">
+                  <path d="M10 4v12M4 10h12" />
+                </svg>
+                Add to List
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+      <Transition name="dropdown">
+        <div
           v-if="primaryGuild && activeDropdown === 'guild'"
           ref="activeDropdownMenuRef"
           class="nav__dropdown"
@@ -479,6 +587,51 @@
           >
             ML Diagnostics
           </RouterLink>
+        </div>
+      </Transition>
+    </Teleport>
+    <Teleport to="body">
+      <Transition name="favorite-confirm">
+        <div
+          v-if="favoriteDeleteCandidate"
+          class="favorite-confirm-backdrop"
+          role="presentation"
+          @click.self="cancelRemoveFavorite"
+        >
+          <section
+            class="favorite-confirm"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="favorite-confirm-title"
+          >
+            <div class="favorite-confirm__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path
+                  d="M12 21s-7-4.4-7-10.1A4.9 4.9 0 0 1 13.3 7.4 4.9 4.9 0 0 1 22 10.9C22 16.6 15 21 12 21Z"
+                />
+              </svg>
+            </div>
+            <div class="favorite-confirm__body">
+              <h2 id="favorite-confirm-title">Remove favorite?</h2>
+              <p>
+                Remove
+                <strong>{{ favoriteDeleteCandidate.label }}</strong>
+                from your Favorites list.
+              </p>
+            </div>
+            <div class="favorite-confirm__actions">
+              <button type="button" class="favorite-confirm__button" @click="cancelRemoveFavorite">
+                Keep
+              </button>
+              <button
+                type="button"
+                class="favorite-confirm__button favorite-confirm__button--danger"
+                @click="confirmRemoveFavorite"
+              >
+                Remove
+              </button>
+            </div>
+          </section>
         </div>
       </Transition>
     </Teleport>
@@ -614,6 +767,7 @@ const prefersHoverDropdowns = ref(
 
 const guildDropdownNavRef = ref<HTMLElement | null>(null);
 const adminDropdownNavRef = ref<HTMLElement | null>(null);
+const favoritesDropdownNavRef = ref<HTMLElement | null>(null);
 const activeDropdownMenuRef = ref<HTMLElement | null>(null);
 const navDropdownStyle = ref<CSSProperties>({});
 const passkeyAutofillInputRef = ref<HTMLInputElement | null>(null);
@@ -621,6 +775,55 @@ const passkeyAuthenticating = ref(false);
 const passkeyAutofillStarted = ref(false);
 const passkeyPromptVisible = ref(false);
 const passkeyPromptSaving = ref(false);
+
+interface PageFavorite {
+  id: string;
+  label: string;
+  path: string;
+  addedAt: string;
+}
+
+const FAVORITES_STORAGE_PREFIX = 'cwraid-page-favorites';
+const MAX_FAVORITES = 24;
+const ROUTE_LABELS: Record<string, string> = {
+  Dashboard: 'Dashboard',
+  Market: 'Market',
+  Guilds: 'Guilds',
+  GuildDetail: 'Guild',
+  GuildSettings: 'Guild Settings',
+  GuildMetrics: 'Guild Metrics',
+  GuildBank: 'Guild Bank',
+  GuildQuestTracker: 'Quest Tracker',
+  GuildNpcRespawn: 'NPC Respawn',
+  GuildNpcManagement: 'NPC Management',
+  Raids: 'Raids',
+  RaidDetail: 'Raid Detail',
+  RaidLoot: 'Loot Tracker',
+  TestManager: 'Test Manager',
+  AccountSettings: 'Account Settings',
+  BisPlanner: 'BiS Planner',
+  Admin: 'Admin',
+  LootManagement: 'ML Diagnostics',
+  MoneyTracker: 'Money Tracker',
+  Connections: 'Server Connections',
+  PlayerEventLogs: 'Player Event Logs',
+  Metallurgy: 'Metallurgy Tracker',
+  AdminWebhooks: 'Webhook Inbox',
+  BisModeration: 'BiS Moderation'
+};
+
+const pageFavorites = ref<PageFavorite[]>([]);
+const favoriteDeleteCandidate = ref<PageFavorite | null>(null);
+
+const favoritesStorageKey = computed(() =>
+  authStore.user?.userId ? `${FAVORITES_STORAGE_PREFIX}:${authStore.user.userId}` : ''
+);
+
+const currentFavoritePath = computed(() => route.fullPath);
+const currentFavoriteLabel = computed(() => buildFavoriteLabel(route));
+const isCurrentPageFavorite = computed(() =>
+  pageFavorites.value.some((favorite) => favorite.path === currentFavoritePath.value)
+);
 
 let hoverDropdownMediaQuery: MediaQueryList | null = null;
 
@@ -631,6 +834,9 @@ function updateHoverDropdownPreference() {
 }
 
 function getDropdownAnchor(name: string) {
+  if (name === 'favorites') {
+    return favoritesDropdownNavRef.value;
+  }
   if (name === 'guild') {
     return guildDropdownNavRef.value;
   }
@@ -765,6 +971,17 @@ async function toggleTouchDropdown(name: string) {
   updateDropdownPosition(name);
 }
 
+async function toggleDropdownFromTrigger(name: string) {
+  if (activeDropdown.value === name) {
+    activeDropdown.value = null;
+    return;
+  }
+  activeDropdown.value = name;
+  updateDropdownPosition(name);
+  await nextTick();
+  updateDropdownPosition(name);
+}
+
 function handleDropdownViewportChange() {
   updateDropdownPosition();
 }
@@ -777,6 +994,9 @@ function closeDropdownsFromOutside(target: Node) {
     return;
   }
   if (adminDropdownNavRef.value?.contains(target)) {
+    return;
+  }
+  if (favoritesDropdownNavRef.value?.contains(target)) {
     return;
   }
   if (activeDropdownMenuRef.value?.contains(target)) {
@@ -808,9 +1028,205 @@ function onDocumentPointerMove(event: PointerEvent) {
 
 function onDocumentKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') {
+    if (favoriteDeleteCandidate.value) {
+      favoriteDeleteCandidate.value = null;
+      return;
+    }
     activeDropdown.value = null;
     clearDropdownCloseTimer();
   }
+}
+
+function createFavoriteId() {
+  if (typeof window !== 'undefined' && window.crypto?.randomUUID) {
+    return window.crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function normalizeFavoritePath(value: unknown) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  const path = value.trim();
+  if (!path.startsWith('/') || path.startsWith('//')) {
+    return '';
+  }
+  return path.slice(0, 240);
+}
+
+function normalizeFavoriteLabel(value: unknown) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  return value.trim().replace(/\s+/g, ' ').slice(0, 80);
+}
+
+function parsePageFavorites(value: unknown): PageFavorite[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const seenPaths = new Set<string>();
+  const favorites: PageFavorite[] = [];
+
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+
+    const rawFavorite = entry as Partial<PageFavorite>;
+    const path = normalizeFavoritePath(rawFavorite.path);
+    const label = normalizeFavoriteLabel(rawFavorite.label);
+    if (!path || !label || seenPaths.has(path)) {
+      continue;
+    }
+
+    seenPaths.add(path);
+    favorites.push({
+      id: normalizeFavoriteLabel(rawFavorite.id) || createFavoriteId(),
+      label,
+      path,
+      addedAt:
+        typeof rawFavorite.addedAt === 'string' && rawFavorite.addedAt
+          ? rawFavorite.addedAt
+          : new Date().toISOString()
+    });
+  }
+
+  return favorites.slice(0, MAX_FAVORITES);
+}
+
+function loadPageFavorites() {
+  const storageKey = favoritesStorageKey.value;
+  if (!storageKey || typeof window === 'undefined') {
+    pageFavorites.value = [];
+    return;
+  }
+
+  try {
+    const storedValue = window.localStorage.getItem(storageKey);
+    pageFavorites.value = storedValue ? parsePageFavorites(JSON.parse(storedValue)) : [];
+  } catch (error) {
+    console.warn('Unable to load page favorites.', error);
+    pageFavorites.value = [];
+  }
+}
+
+function persistPageFavorites() {
+  const storageKey = favoritesStorageKey.value;
+  if (!storageKey || typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(pageFavorites.value));
+  } catch (error) {
+    console.warn('Unable to save page favorites.', error);
+    addToast({
+      title: 'Favorites Not Saved',
+      message: 'Your browser blocked saving the favorites list.',
+      variant: 'error'
+    });
+  }
+}
+
+function formatFavoriteSegment(value: string) {
+  return value
+    .replace(/[-_]+/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+    .trim();
+}
+
+function getRouteParamText(paramValue: unknown) {
+  if (Array.isArray(paramValue)) {
+    return paramValue[0] ?? '';
+  }
+  return typeof paramValue === 'string' ? paramValue : '';
+}
+
+function buildFavoriteLabel(targetRoute: RouteLocationNormalized) {
+  if (targetRoute.name === 'TestManager') {
+    const section = getRouteParamText(targetRoute.params.section);
+    return section ? `Test Manager - ${formatFavoriteSegment(section)}` : 'Test Manager';
+  }
+
+  if (targetRoute.name === 'BisPlanner') {
+    const characterClass = getRouteParamText(targetRoute.params.characterClass);
+    return characterClass
+      ? `BiS - ${formatFavoriteSegment(characterClass)}`
+      : 'BiS Planner';
+  }
+
+  const metaTitle = typeof targetRoute.meta.title === 'string' ? targetRoute.meta.title : '';
+  if (metaTitle) {
+    return metaTitle;
+  }
+
+  const routeName = typeof targetRoute.name === 'string' ? targetRoute.name : '';
+  if (routeName && ROUTE_LABELS[routeName]) {
+    return ROUTE_LABELS[routeName];
+  }
+
+  if (routeName) {
+    return formatFavoriteSegment(routeName.replace(/([a-z])([A-Z])/g, '$1 $2'));
+  }
+
+  const pathSegments = targetRoute.path.split('/').filter(Boolean);
+  const lastSegment = pathSegments[pathSegments.length - 1];
+  return lastSegment ? formatFavoriteSegment(lastSegment) : APP_NAME;
+}
+
+function addCurrentPageFavorite() {
+  if (!authStore.user) {
+    return;
+  }
+
+  const path = currentFavoritePath.value;
+  if (pageFavorites.value.some((favorite) => favorite.path === path)) {
+    return;
+  }
+
+  const favorite: PageFavorite = {
+    id: createFavoriteId(),
+    label: currentFavoriteLabel.value,
+    path,
+    addedAt: new Date().toISOString()
+  };
+
+  pageFavorites.value = [favorite, ...pageFavorites.value].slice(0, MAX_FAVORITES);
+  persistPageFavorites();
+  addToast({
+    title: 'Favorite Added',
+    message: `${favorite.label} was added to your Favorites list.`,
+    variant: 'success'
+  });
+  nextTick(() => updateDropdownPosition('favorites'));
+}
+
+function requestRemoveFavorite(favorite: PageFavorite) {
+  favoriteDeleteCandidate.value = favorite;
+  activeDropdown.value = null;
+  clearDropdownCloseTimer();
+}
+
+function cancelRemoveFavorite() {
+  favoriteDeleteCandidate.value = null;
+}
+
+function confirmRemoveFavorite() {
+  const favorite = favoriteDeleteCandidate.value;
+  if (!favorite) {
+    return;
+  }
+
+  pageFavorites.value = pageFavorites.value.filter((entry) => entry.id !== favorite.id);
+  persistPageFavorites();
+  favoriteDeleteCandidate.value = null;
+  addToast({
+    title: 'Favorite Removed',
+    message: `${favorite.label} was removed from your Favorites list.`
+  });
 }
 
 // Computed for NPC notifications
@@ -1157,6 +1573,7 @@ onMounted(async () => {
   window.addEventListener('scroll', handleDropdownViewportChange, true);
 
   await authStore.fetchCurrentUser();
+  loadPageFavorites();
   if (authStore.isAuthenticated) {
     evaluatePasskeyPrompt();
   } else {
@@ -1225,6 +1642,7 @@ watch(
   () => authStore.user?.userId,
   (userId) => {
     cancelActivePasskeyPrompt();
+    loadPageFavorites();
     if (userId) {
       evaluatePasskeyPrompt();
     } else {
@@ -1547,6 +1965,22 @@ function hasRaidStarted(raid: RaidEventSummary) {
   background: rgba(120, 160, 220, 0.06);
 }
 
+.nav__tab--button {
+  font: inherit;
+  line-height: 1;
+}
+
+.nav__tab--open {
+  color: var(--nx-ink-0, #f1f6fb);
+  background:
+    linear-gradient(180deg, rgba(45, 212, 191, 0.15), rgba(14, 165, 233, 0.07)),
+    rgba(15, 23, 42, 0.22);
+  border-color: rgba(125, 211, 252, 0.28);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 18px rgba(20, 184, 166, 0.12);
+}
+
 .nav__tab.router-link-active,
 .nav__tab.router-link-exact-active {
   color: var(--nx-ink-0, #f1f6fb);
@@ -1598,6 +2032,28 @@ function hasRaidStarted(raid: RaidEventSummary) {
   color: #fee2e2;
 }
 
+.nav__favorite-count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(125, 211, 252, 0.34);
+  background:
+    linear-gradient(180deg, rgba(45, 212, 191, 0.28), rgba(14, 116, 144, 0.28)),
+    rgba(8, 47, 73, 0.4);
+  color: #ccfbf1;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 0 12px rgba(20, 184, 166, 0.16);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+}
+
 /* Keep old .nav__link as alias for any remaining uses */
 .nav__link {
   color: var(--nx-ink-2, #a6b6cd);
@@ -1642,6 +2098,11 @@ function hasRaidStarted(raid: RaidEventSummary) {
 }
 
 .nav__item:hover .nav__chevron {
+  transform: rotate(180deg);
+  opacity: 1;
+}
+
+.nav__tab--open .nav__chevron {
   transform: rotate(180deg);
   opacity: 1;
 }
@@ -1717,6 +2178,245 @@ function hasRaidStarted(raid: RaidEventSummary) {
   color: #38bdf8;
 }
 
+.nav__dropdown--favorites {
+  width: min(360px, calc(100vw - 1.5rem));
+  min-width: min(320px, calc(100vw - 1.5rem));
+  padding: 0.65rem;
+  overflow: hidden;
+  background:
+    linear-gradient(145deg, rgba(248, 250, 252, 0.12), rgba(15, 23, 42, 0.88) 34%),
+    radial-gradient(circle at 18% 12%, rgba(125, 211, 252, 0.2), transparent 36%),
+    rgba(15, 23, 42, 0.9);
+  border-color: rgba(186, 230, 253, 0.22);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 24px 50px rgba(0, 0, 0, 0.46),
+    0 0 34px rgba(20, 184, 166, 0.12);
+}
+
+.nav__dropdown--favorites::before {
+  background:
+    linear-gradient(145deg, rgba(248, 250, 252, 0.16), rgba(15, 23, 42, 0.92)),
+    rgba(15, 23, 42, 0.96);
+  border-color: rgba(186, 230, 253, 0.22);
+}
+
+.nav-favorites {
+  position: relative;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.nav-favorites__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.1rem 0.2rem 0.25rem;
+  color: #e0f2fe;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.nav-favorites__header span:last-child {
+  min-width: 1.45rem;
+  height: 1.45rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid rgba(125, 211, 252, 0.24);
+  background: rgba(8, 47, 73, 0.48);
+  color: #bae6fd;
+  font-size: 0.7rem;
+  letter-spacing: 0;
+}
+
+.nav-favorites__empty {
+  padding: 1rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: rgba(15, 23, 42, 0.46);
+  color: #94a3b8;
+  font-size: 0.88rem;
+  text-align: center;
+}
+
+.nav-favorites__list {
+  display: grid;
+  gap: 0.25rem;
+  max-height: min(52vh, 26rem);
+  overflow-y: auto;
+  padding-right: 0.15rem;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(125, 211, 252, 0.4) rgba(15, 23, 42, 0.2);
+}
+
+.nav-favorites__row {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 0.3rem;
+  border-radius: 8px;
+}
+
+.nav-favorites__link {
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.15rem;
+  padding: 0.68rem 0.75rem;
+  white-space: normal;
+  border: 1px solid transparent;
+  background: rgba(15, 23, 42, 0.34);
+}
+
+.nav-favorites__link:hover {
+  transform: translateX(2px);
+  border-color: rgba(125, 211, 252, 0.18);
+  background:
+    linear-gradient(180deg, rgba(14, 165, 233, 0.14), rgba(20, 184, 166, 0.08)),
+    rgba(15, 23, 42, 0.52);
+}
+
+.nav-favorites__label {
+  max-width: 100%;
+  overflow: hidden;
+  color: #f8fafc;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-favorites__path {
+  max-width: 100%;
+  overflow: hidden;
+  color: #7dd3fc;
+  font-size: 0.74rem;
+  line-height: 1.2;
+  opacity: 0.78;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-favorites__delete {
+  width: 2rem;
+  min-height: 2rem;
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.2);
+  color: rgba(226, 232, 240, 0.44);
+  cursor: pointer;
+  opacity: 0.62;
+  transition:
+    opacity 0.16s ease,
+    color 0.16s ease,
+    background 0.16s ease,
+    border-color 0.16s ease,
+    transform 0.16s ease;
+}
+
+.nav-favorites__delete svg {
+  width: 0.9rem;
+  height: 0.9rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.nav-favorites__row:hover .nav-favorites__delete,
+.nav-favorites__delete:focus-visible {
+  opacity: 1;
+  color: #fecaca;
+  background: rgba(127, 29, 29, 0.26);
+  border-color: rgba(248, 113, 113, 0.24);
+}
+
+.nav-favorites__delete:hover {
+  transform: translateY(-1px);
+  color: #fee2e2;
+  background: rgba(185, 28, 28, 0.34);
+}
+
+.nav-favorites__delete:focus-visible {
+  outline: 2px solid rgba(248, 113, 113, 0.5);
+  outline-offset: 2px;
+}
+
+.nav-favorites__footer {
+  padding-top: 0.35rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.nav-favorites__add {
+  width: 100%;
+  min-height: 2.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  border: 1px solid rgba(125, 211, 252, 0.28);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(224, 242, 254, 0.16), rgba(20, 184, 166, 0.1)),
+    rgba(8, 47, 73, 0.36);
+  color: #e0f2fe;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    transform 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    background 0.16s ease;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 8px 18px rgba(8, 47, 73, 0.18);
+}
+
+.nav-favorites__add svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.nav-favorites__add:hover:not(:disabled),
+.nav-favorites__add:focus-visible:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(125, 211, 252, 0.48);
+  background:
+    linear-gradient(180deg, rgba(224, 242, 254, 0.2), rgba(20, 184, 166, 0.16)),
+    rgba(8, 47, 73, 0.48);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 12px 24px rgba(20, 184, 166, 0.18);
+}
+
+.nav-favorites__add:focus-visible {
+  outline: 2px solid rgba(125, 211, 252, 0.52);
+  outline-offset: 2px;
+}
+
+.nav-favorites__add:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
 /* Dropdown animation */
 .dropdown-enter-active {
   transition:
@@ -1738,6 +2438,161 @@ function hasRaidStarted(raid: RaidEventSummary) {
 .dropdown-leave-to {
   opacity: 0;
   transform: translateY(-4px) scale(0.98);
+}
+
+.favorite-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  background:
+    radial-gradient(circle at 50% 38%, rgba(14, 165, 233, 0.12), transparent 32%),
+    rgba(2, 6, 23, 0.62);
+  backdrop-filter: blur(10px);
+  z-index: 21000;
+}
+
+.favorite-confirm {
+  width: min(420px, 100%);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.95rem;
+  padding: 1rem;
+  border: 1px solid rgba(186, 230, 253, 0.2);
+  border-radius: 8px;
+  background:
+    linear-gradient(145deg, rgba(248, 250, 252, 0.11), rgba(15, 23, 42, 0.9) 38%),
+    rgba(15, 23, 42, 0.9);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 26px 70px rgba(0, 0, 0, 0.52),
+    0 0 36px rgba(14, 165, 233, 0.14);
+}
+
+.favorite-confirm__icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid rgba(125, 211, 252, 0.24);
+  background:
+    linear-gradient(180deg, rgba(14, 165, 233, 0.2), rgba(20, 184, 166, 0.12)),
+    rgba(8, 47, 73, 0.42);
+  color: #bae6fd;
+}
+
+.favorite-confirm__icon svg {
+  width: 1.2rem;
+  height: 1.2rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.favorite-confirm__body {
+  min-width: 0;
+}
+
+.favorite-confirm__body h2 {
+  margin: 0;
+  color: #f8fafc;
+  font-size: 1.02rem;
+  line-height: 1.25;
+}
+
+.favorite-confirm__body p {
+  margin: 0.35rem 0 0;
+  color: #b6c7dc;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.favorite-confirm__body strong {
+  color: #e0f2fe;
+}
+
+.favorite-confirm__actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.55rem;
+  padding-top: 0.2rem;
+}
+
+.favorite-confirm__button {
+  min-height: 2.3rem;
+  padding: 0 0.9rem;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.56);
+  color: #dbeafe;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    border-color 0.15s ease,
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.favorite-confirm__button:hover,
+.favorite-confirm__button:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(125, 211, 252, 0.38);
+  background: rgba(30, 41, 59, 0.72);
+  color: #f8fafc;
+}
+
+.favorite-confirm__button:focus-visible {
+  outline: 2px solid rgba(125, 211, 252, 0.5);
+  outline-offset: 2px;
+}
+
+.favorite-confirm__button--danger {
+  border-color: rgba(248, 113, 113, 0.32);
+  background:
+    linear-gradient(180deg, rgba(248, 113, 113, 0.24), rgba(127, 29, 29, 0.38)),
+    rgba(69, 10, 10, 0.6);
+  color: #fee2e2;
+}
+
+.favorite-confirm__button--danger:hover,
+.favorite-confirm__button--danger:focus-visible {
+  border-color: rgba(248, 113, 113, 0.48);
+  background:
+    linear-gradient(180deg, rgba(248, 113, 113, 0.32), rgba(127, 29, 29, 0.48)),
+    rgba(69, 10, 10, 0.72);
+}
+
+.favorite-confirm-enter-active,
+.favorite-confirm-leave-active {
+  transition: opacity 0.18s ease;
+}
+
+.favorite-confirm-enter-active .favorite-confirm,
+.favorite-confirm-leave-active .favorite-confirm {
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.favorite-confirm-enter-from,
+.favorite-confirm-leave-to {
+  opacity: 0;
+}
+
+.favorite-confirm-enter-from .favorite-confirm,
+.favorite-confirm-leave-to .favorite-confirm {
+  opacity: 0;
+  transform: translateY(10px) scale(0.96);
 }
 
 .nav-monitor {

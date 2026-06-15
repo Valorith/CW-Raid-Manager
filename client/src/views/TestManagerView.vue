@@ -1877,12 +1877,62 @@
               :data-board-lane-key="lane.key"
             >
               <header class="tm-board-lane__header">
-                <span class="tm-board-lane__dot" aria-hidden="true"></span>
-                <div class="tm-board-lane__heading">
-                  <h3>{{ lane.title }}</h3>
-                  <small>{{ lane.hint }}</small>
+                <div class="tm-board-lane__header-main">
+                  <span class="tm-board-lane__dot" aria-hidden="true"></span>
+                  <div class="tm-board-lane__heading">
+                    <h3>{{ lane.title }}</h3>
+                    <small>{{ lane.hint }}</small>
+                  </div>
+                  <span
+                    class="tm-board-lane__count"
+                    :class="{ 'tm-board-lane__count--filtered': lane.filterActive }"
+                    :title="
+                      lane.filterActive
+                        ? `${lane.changes.length} of ${lane.totalChanges} matching cards`
+                        : `${lane.totalChanges} cards`
+                    "
+                  >
+                    <Transition name="tm-board-count" mode="out-in">
+                      <span :key="lane.countLabel" class="tm-board-lane__count-value">
+                        {{ lane.countLabel }}
+                      </span>
+                    </Transition>
+                  </span>
                 </div>
-                <span class="tm-board-lane__count">{{ lane.changes.length }}</span>
+                <label class="tm-board-lane__filter">
+                  <span class="tm-board-lane__filter-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" focusable="false">
+                      <circle cx="10.5" cy="10.5" r="5.5" />
+                      <path d="m15 15 4.5 4.5" />
+                    </svg>
+                  </span>
+                  <span class="sr-only">Filter {{ lane.title }} cards by name</span>
+                  <input
+                    v-model="boardLaneFilters[lane.key]"
+                    type="search"
+                    inputmode="search"
+                    autocomplete="off"
+                    spellcheck="false"
+                    :placeholder="`Filter ${lane.title}`"
+                    :aria-label="`Filter ${lane.title} cards by name`"
+                    @keydown.stop
+                    @pointerdown.stop
+                  />
+                  <button
+                    v-if="lane.filterActive"
+                    type="button"
+                    class="tm-board-lane__filter-clear"
+                    :aria-label="`Clear ${lane.title} filter`"
+                    title="Clear filter"
+                    @pointerdown.stop
+                    @click.stop="clearBoardLaneFilter(lane.key)"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <path d="m7 7 10 10" />
+                      <path d="m17 7-10 10" />
+                    </svg>
+                  </button>
+                </label>
               </header>
               <div
                 class="tm-board-lane__body"
@@ -1896,7 +1946,9 @@
                     'tm-board-card--dragging': boardDragChangeId === change.id,
                     'tm-board-card--pending': boardMovePendingId === change.id,
                     'tm-board-card--draggable': canMoveBoardCard(change),
-                    'tm-board-card--auto-closing': isBoardAutoClosing(change.id)
+                    'tm-board-card--auto-closing': isBoardAutoClosing(change.id),
+                    'tm-board-card--recently-moved':
+                      isBoardRecentlyMoved(change.id) && !isBoardAutoClosing(change.id)
                   }"
                   :style="boardAutoCloseCardStyle(change)"
                   :data-change-id="change.id"
@@ -2019,7 +2071,8 @@
                   class="tm-board-lane__empty"
                   :class="{
                     'tm-board-lane__empty--target':
-                      boardDragSourceLane !== null && isBoardLaneDropTarget(lane.key)
+                      boardDragSourceLane !== null && isBoardLaneDropTarget(lane.key),
+                    'tm-board-lane__empty--filtered': lane.filterActive
                   }"
                 >
                   <span class="tm-board-lane__empty-mark" aria-hidden="true">
@@ -2030,7 +2083,8 @@
                       {{
                         boardLaneEmptyState(
                           lane.key,
-                          boardDragSourceLane !== null && isBoardLaneDropTarget(lane.key)
+                          boardDragSourceLane !== null && isBoardLaneDropTarget(lane.key),
+                          lane.filterActive
                         ).title
                       }}
                     </strong>
@@ -2038,7 +2092,8 @@
                       {{
                         boardLaneEmptyState(
                           lane.key,
-                          boardDragSourceLane !== null && isBoardLaneDropTarget(lane.key)
+                          boardDragSourceLane !== null && isBoardLaneDropTarget(lane.key),
+                          lane.filterActive
                         ).detail
                       }}
                     </small>
@@ -5233,6 +5288,7 @@ let boardPointerSuppressClickUntil = 0;
 const boardDragPreview = ref<BoardDragPreview | null>(null);
 const boardMovePendingId = ref<string | null>(null);
 const BOARD_AUTO_CLOSE_ANIMATION_MS = 5000;
+const BOARD_RECENTLY_MOVED_MS = 1800;
 interface BoardAutoCloseAnimation {
   change: TestChange;
   startedAt: number;
@@ -5242,6 +5298,8 @@ interface BoardAutoCloseAnimation {
 const boardAutoCloseAnimations = ref<Record<string, BoardAutoCloseAnimation>>({});
 const boardAutoCloseTimeouts = new Map<string, number>();
 const boardAutoCloseIntervals = new Map<string, number>();
+const boardRecentlyMovedCardIds = ref<Record<string, true>>({});
+const boardRecentlyMovedTimeouts = new Map<string, number>();
 // When a lane move needs extra input/confirmation, this prompt is shown.
 const boardMovePrompt = ref<BoardMovePrompt | null>(null);
 const boardMoveDetail = ref('');
@@ -5570,6 +5628,7 @@ interface BoardLaneDefinition {
   hint: string;
   statuses: TestChangeStatus[];
 }
+type BoardLaneFilterState = Record<BoardLaneKey, string>;
 const NEXT_PATCH_BOARD_LANES: BoardLaneDefinition[] = [
   {
     key: 'toTest',
@@ -5587,6 +5646,13 @@ const NEXT_PATCH_BOARD_LANES: BoardLaneDefinition[] = [
   },
   { key: 'closed', title: 'Closed', hint: 'Shipped', statuses: ['CLOSED', 'ARCHIVED'] }
 ];
+const boardLaneFilters = ref<BoardLaneFilterState>({
+  toTest: '',
+  testing: '',
+  passed: '',
+  attention: '',
+  closed: ''
+});
 const STATUS_TO_BOARD_LANE: Record<TestChangeStatus, BoardLaneKey> = {
   SUBMITTED: 'toTest',
   AWAITING_TEST: 'toTest',
@@ -6271,10 +6337,21 @@ const nextPatchBoardColumns = computed(() => {
   for (const change of nextPatchBoardChanges.value) {
     buckets[STATUS_TO_BOARD_LANE[change.status] ?? 'toTest'].push(change);
   }
-  return NEXT_PATCH_BOARD_LANES.map((lane) => ({
-    ...lane,
-    changes: buckets[lane.key].slice().sort(compareBoardChanges)
-  }));
+  return NEXT_PATCH_BOARD_LANES.map((lane) => {
+    const sortedChanges = buckets[lane.key].slice().sort(compareBoardChanges);
+    const filterTerm = boardLaneFilters.value[lane.key].trim().toLowerCase();
+    const filteredChanges = filterTerm
+      ? sortedChanges.filter((change) => change.title.toLowerCase().includes(filterTerm))
+      : sortedChanges;
+    return {
+      ...lane,
+      changes: filteredChanges,
+      totalChanges: sortedChanges.length,
+      countLabel: filterTerm ? `${filteredChanges.length}/${sortedChanges.length}` : String(sortedChanges.length),
+      filterTerm,
+      filterActive: filterTerm.length > 0
+    };
+  });
 });
 const nextPatchBoardTotal = computed(() => nextPatchBoardChanges.value.length);
 const hasNextPatchData = computed(() =>
@@ -6312,7 +6389,7 @@ const boardDragPreviewStyle = computed(() => {
   return {
     transform: `translate3d(${preview.x - preview.offsetX}px, ${
       preview.y - preview.offsetY
-    }px, 0)`,
+    }px, 0) rotate(1.15deg) scale(1.035)`,
     width: `${preview.width}px`
   };
 });
@@ -7280,12 +7357,22 @@ function isValidBoardLaneMove(source: BoardLaneKey, target: BoardLaneKey) {
   return source !== target && Boolean(BOARD_LANE_TRANSITIONS[source]?.includes(target));
 }
 
-function boardLaneEmptyState(laneKey: BoardLaneKey, isTarget = false) {
+function clearBoardLaneFilter(laneKey: BoardLaneKey) {
+  boardLaneFilters.value[laneKey] = '';
+}
+
+function boardLaneEmptyState(laneKey: BoardLaneKey, isTarget = false, isFiltered = false) {
   if (isTarget) {
     const lane = NEXT_PATCH_BOARD_LANES.find((entry) => entry.key === laneKey);
     return {
       title: 'Ready to receive',
       detail: `Release the card to move it into ${lane?.title ?? 'this lane'}.`
+    };
+  }
+  if (isFiltered) {
+    return {
+      title: 'No title matches',
+      detail: 'Try a different card name or clear this lane filter.'
     };
   }
   return BOARD_LANE_EMPTY_STATES[laneKey];
@@ -7375,6 +7462,54 @@ function isBoardAutoClosing(changeId: string) {
   return Boolean(boardAutoCloseAnimations.value[changeId]);
 }
 
+function isBoardRecentlyMoved(changeId: string) {
+  return Boolean(boardRecentlyMovedCardIds.value[changeId]);
+}
+
+function clearBoardRecentlyMovedTimer(changeId: string) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  const timeoutId = boardRecentlyMovedTimeouts.get(changeId);
+  if (typeof timeoutId === 'number') {
+    window.clearTimeout(timeoutId);
+  }
+  boardRecentlyMovedTimeouts.delete(changeId);
+}
+
+function clearBoardRecentlyMoved(changeId: string) {
+  clearBoardRecentlyMovedTimer(changeId);
+  if (!boardRecentlyMovedCardIds.value[changeId]) {
+    return;
+  }
+  const nextIds = { ...boardRecentlyMovedCardIds.value };
+  delete nextIds[changeId];
+  boardRecentlyMovedCardIds.value = nextIds;
+}
+
+function markBoardRecentlyMoved(changeId: string) {
+  clearBoardRecentlyMovedTimer(changeId);
+  boardRecentlyMovedCardIds.value = {
+    ...boardRecentlyMovedCardIds.value,
+    [changeId]: true
+  };
+
+  if (typeof window === 'undefined') {
+    return;
+  }
+  boardRecentlyMovedTimeouts.set(
+    changeId,
+    window.setTimeout(() => clearBoardRecentlyMoved(changeId), BOARD_RECENTLY_MOVED_MS)
+  );
+}
+
+function clearAllBoardRecentlyMoved() {
+  Object.keys(boardRecentlyMovedCardIds.value).forEach((changeId) => {
+    clearBoardRecentlyMovedTimer(changeId);
+  });
+  boardRecentlyMovedCardIds.value = {};
+}
+
 function boardAutoCloseCardStyle(change: TestChange) {
   if (!isBoardAutoClosing(change.id)) {
     return {};
@@ -7455,6 +7590,7 @@ function clearAllBoardAutoCloseAnimations() {
 function startBoardAutoCloseAnimation(finalChange: TestChange) {
   const changeId = finalChange.id;
   clearBoardAutoCloseTimers(changeId);
+  clearBoardRecentlyMoved(changeId);
   const now = Date.now();
   boardAutoCloseAnimations.value = {
     ...boardAutoCloseAnimations.value,
@@ -7583,6 +7719,7 @@ onBeforeUnmount(() => {
   clearQueuedBoardMovePrompt();
   clearBoardPointerDragListeners();
   clearAllBoardAutoCloseAnimations();
+  clearAllBoardRecentlyMoved();
 });
 
 function resetBoardDrag() {
@@ -7927,6 +8064,8 @@ async function applyBoardStatus(
     replaceCachedChange(updated);
     if (animateAutoClose) {
       startBoardAutoCloseAnimation(updated);
+    } else if (targetStatus !== change.status) {
+      markBoardRecentlyMoved(updated.id);
     }
     refreshNextPatchCountInBackground();
     addToast({
@@ -11899,6 +12038,18 @@ onBeforeUnmount(() => {
   position: relative;
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .tm-shell::before {
   content: '';
   position: fixed;
@@ -13014,6 +13165,7 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
 .tm-board-lane {
   --lane: var(--tm-gold);
   position: relative;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -13029,6 +13181,41 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
     box-shadow 0.2s ease,
     opacity 0.2s ease,
     transform 0.2s ease;
+}
+
+.tm-board-lane::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--lane) 24%, transparent), transparent 8.5rem),
+    linear-gradient(180deg, color-mix(in srgb, var(--lane) 10%, transparent), transparent 44%);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.22s ease,
+    filter 0.22s ease;
+}
+
+.tm-board-lane::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  z-index: 0;
+  border-radius: inherit;
+  border: 1px solid color-mix(in srgb, var(--lane) 52%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  filter: blur(0.4px);
+  transition: opacity 0.22s ease;
+}
+
+.tm-board-lane__header,
+.tm-board-lane__body {
+  position: relative;
+  z-index: 1;
 }
 
 .tm-board-lane--toTest {
@@ -13048,13 +13235,23 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
 }
 
 .tm-board-lane__header {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  display: grid;
+  gap: 0.44rem;
   padding: 0.58rem 0.68rem;
   border-bottom: 1px solid var(--tm-border-soft);
   background: linear-gradient(180deg, color-mix(in srgb, var(--lane) 6%, transparent), transparent);
   border-radius: 13px 13px 0 0;
+  transition:
+    background 0.22s ease,
+    border-color 0.22s ease,
+    box-shadow 0.22s ease;
+}
+
+.tm-board-lane__header-main {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
 }
 
 .tm-board-lane__dot {
@@ -13105,6 +13302,228 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
   background: color-mix(in srgb, var(--lane) 14%, rgba(0, 0, 0, 0.3));
   font-size: 0.76rem;
   font-weight: 900;
+  overflow: hidden;
+  transition:
+    min-width 0.18s ease,
+    color 0.18s ease,
+    background 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+
+.tm-board-lane__count-value {
+  display: inline-block;
+  min-width: 0.8rem;
+  text-align: center;
+  line-height: 1;
+}
+
+.tm-board-count-enter-active,
+.tm-board-count-leave-active {
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease;
+}
+
+.tm-board-count-enter-from {
+  opacity: 0;
+  transform: translateY(0.45rem) scale(0.92);
+}
+
+.tm-board-count-leave-to {
+  opacity: 0;
+  transform: translateY(-0.45rem) scale(0.92);
+}
+
+.tm-board-lane__count--filtered {
+  min-width: 2.35rem;
+  color: #fff8ec;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.1), transparent 78%),
+    color-mix(in srgb, var(--lane) 22%, rgba(0, 0, 0, 0.42));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 14px color-mix(in srgb, var(--lane) 18%, transparent);
+  font-size: 0.68rem;
+}
+
+.tm-board-lane__filter {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 2rem;
+  border: 1px solid color-mix(in srgb, var(--lane) 20%, rgba(255, 255, 255, 0.08));
+  border-radius: 999px;
+  overflow: hidden;
+  color: rgba(232, 221, 206, 0.74);
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.105),
+      rgba(255, 255, 255, 0.012) 44%,
+      rgba(0, 0, 0, 0.08)
+    ),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--lane) 12%, transparent),
+      rgba(255, 255, 255, 0.018) 34%,
+      color-mix(in srgb, var(--lane) 7%, transparent)
+    ),
+    rgba(3, 8, 10, 0.62);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.11),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.28),
+    0 8px 18px rgba(0, 0, 0, 0.18);
+  isolation: isolate;
+  backdrop-filter: blur(10px) saturate(1.12);
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+}
+
+.tm-board-lane__filter::before {
+  content: '';
+  position: absolute;
+  inset: 1px 1px auto;
+  height: 48%;
+  border-radius: 999px 999px 45% 45%;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.02));
+  opacity: 0.68;
+  pointer-events: none;
+}
+
+.tm-board-lane__filter::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    110deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.08) 38%,
+    transparent 64%
+  );
+  opacity: 0;
+  transform: translateX(-26%);
+  transition:
+    opacity 0.18s ease,
+    transform 0.28s ease;
+  pointer-events: none;
+}
+
+.tm-board-lane__filter:focus-within {
+  border-color: color-mix(in srgb, var(--lane) 54%, rgba(255, 255, 255, 0.2));
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.13),
+      rgba(255, 255, 255, 0.025) 44%,
+      rgba(0, 0, 0, 0.06)
+    ),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--lane) 18%, transparent),
+      rgba(255, 255, 255, 0.026) 34%,
+      color-mix(in srgb, var(--lane) 10%, transparent)
+    ),
+    rgba(5, 12, 14, 0.74);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.28),
+    0 0 0 2px color-mix(in srgb, var(--lane) 14%, transparent),
+    0 10px 22px rgba(0, 0, 0, 0.24);
+}
+
+.tm-board-lane__filter:focus-within::after {
+  opacity: 1;
+  transform: translateX(24%);
+}
+
+.tm-board-lane__filter-icon,
+.tm-board-lane__filter-clear {
+  position: relative;
+  z-index: 1;
+}
+
+.tm-board-lane__filter-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 1.9rem;
+  color: color-mix(in srgb, var(--lane) 62%, rgba(232, 221, 206, 0.68));
+}
+
+.tm-board-lane__filter-icon svg,
+.tm-board-lane__filter-clear svg {
+  width: 0.92rem;
+  height: 0.92rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tm-board-lane__filter input {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  width: 100%;
+  height: 1.95rem;
+  padding: 0 0.18rem 0 0;
+  border: 0;
+  outline: 0;
+  color: #fff4df;
+  background: transparent;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.tm-board-lane__filter input::placeholder {
+  color: rgba(207, 194, 174, 0.56);
+}
+
+.tm-board-lane__filter input::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+.tm-board-lane__filter-clear {
+  display: inline-grid;
+  place-items: center;
+  width: 1.56rem;
+  height: 1.56rem;
+  margin-right: 0.23rem;
+  border: 1px solid color-mix(in srgb, var(--lane) 30%, rgba(255, 255, 255, 0.08));
+  border-radius: 50%;
+  color: rgba(246, 236, 218, 0.86);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.1), transparent 72%),
+    color-mix(in srgb, var(--lane) 15%, rgba(0, 0, 0, 0.34));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  transition:
+    border-color 0.14s ease,
+    color 0.14s ease,
+    background 0.14s ease,
+    transform 0.14s ease;
+}
+
+.tm-board-lane__filter-clear:hover,
+.tm-board-lane__filter-clear:focus-visible {
+  color: #ffffff;
+  border-color: color-mix(in srgb, var(--lane) 58%, rgba(255, 255, 255, 0.18));
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14), transparent 72%),
+    color-mix(in srgb, var(--lane) 24%, rgba(0, 0, 0, 0.36));
+  transform: scale(1.04);
+}
+
+.tm-board-lane__filter-clear:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--lane) 58%, rgba(255, 255, 255, 0.18));
+  outline-offset: 2px;
 }
 
 .tm-board-lane__body {
@@ -13120,22 +13539,93 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
 
 .tm-board-lane--droppable {
   border-color: color-mix(in srgb, var(--lane) 48%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 0 0 1px color-mix(in srgb, var(--lane) 12%, transparent),
+    0 0 18px color-mix(in srgb, var(--lane) 10%, transparent);
+}
+
+.tm-board-lane--droppable::before {
+  opacity: 0.5;
+}
+
+.tm-board-lane--droppable::after {
+  opacity: 0.34;
+}
+
+.tm-board-lane--droppable .tm-board-lane__header {
+  border-bottom-color: color-mix(in srgb, var(--lane) 24%, var(--tm-border-soft));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--lane) 12%, rgba(255, 255, 255, 0.02)), transparent 88%),
+    rgba(255, 255, 255, 0.01);
+}
+
+.tm-board-lane--droppable .tm-board-lane__dot {
+  animation: tm-board-lane-dot-pulse 1.4s ease-in-out infinite;
 }
 
 .tm-board-lane--over {
   border-color: var(--lane);
   box-shadow:
     0 0 0 1px var(--lane),
-    0 0 24px color-mix(in srgb, var(--lane) 30%, transparent),
-    inset 0 0 30px color-mix(in srgb, var(--lane) 9%, transparent);
-  transform: translateY(-2px);
+    0 0 28px color-mix(in srgb, var(--lane) 34%, transparent),
+    0 18px 38px rgba(0, 0, 0, 0.22),
+    inset 0 0 34px color-mix(in srgb, var(--lane) 11%, transparent);
+  transform: translateY(-3px);
+}
+
+.tm-board-lane--over::before {
+  opacity: 0.88;
+  filter: saturate(1.18);
+  animation: tm-board-lane-glow 1.25s ease-in-out infinite alternate;
+}
+
+.tm-board-lane--over::after {
+  opacity: 0.76;
+}
+
+.tm-board-lane--over .tm-board-lane__header {
+  border-bottom-color: color-mix(in srgb, var(--lane) 42%, var(--tm-border-soft));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--lane) 18%, rgba(255, 255, 255, 0.04)), transparent 92%),
+    rgba(255, 255, 255, 0.018);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--lane) 16%, transparent);
+}
+
+.tm-board-lane--over .tm-board-lane__count {
+  transform: scale(1.04);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 0 16px color-mix(in srgb, var(--lane) 26%, transparent);
 }
 
 .tm-board-lane--dim {
   opacity: 0.42;
 }
 
+@keyframes tm-board-lane-glow {
+  from {
+    opacity: 0.68;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes tm-board-lane-dot-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--lane) 60%, transparent);
+  }
+  50% {
+    transform: scale(1.18);
+    box-shadow: 0 0 18px color-mix(in srgb, var(--lane) 78%, transparent);
+  }
+}
+
 .tm-board-lane__empty {
+  position: relative;
   margin: auto 0;
   min-height: 7.2rem;
   display: grid;
@@ -13145,17 +13635,20 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
   padding: 1rem 0.8rem;
   border: 1px solid rgba(213, 196, 164, 0.12);
   border-radius: 12px;
+  overflow: hidden;
   text-align: center;
   color: rgba(185, 173, 157, 0.72);
   background:
     radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--lane) 8%, transparent), transparent 6rem),
     linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 75%),
     rgba(0, 0, 0, 0.14);
+  backdrop-filter: blur(8px) saturate(1.06);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.03),
     inset 0 0 0 1px rgba(0, 0, 0, 0.22);
   pointer-events: none;
   user-select: none;
+  animation: tm-board-empty-in 0.24s ease-out both;
   transition:
     border-color 0.2s ease,
     color 0.2s ease,
@@ -13164,12 +13657,23 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
     transform 0.2s ease;
 }
 
+.tm-board-lane__empty::before {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent 42%);
+  opacity: 0.72;
+  pointer-events: none;
+}
+
 .tm-board-lane__empty * {
   pointer-events: none;
 }
 
 .tm-board-lane__empty-mark {
   position: relative;
+  z-index: 1;
   width: 2.35rem;
   height: 2.35rem;
   display: grid;
@@ -13209,6 +13713,8 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
 }
 
 .tm-board-lane__empty-copy {
+  position: relative;
+  z-index: 1;
   display: grid;
   gap: 0.22rem;
   min-width: 0;
@@ -13240,6 +13746,9 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
     inset 0 0 0 1px color-mix(in srgb, var(--lane) 28%, transparent),
     0 0 20px color-mix(in srgb, var(--lane) 16%, transparent);
   transform: translateY(-1px);
+  animation:
+    tm-board-empty-in 0.24s ease-out both,
+    tm-board-empty-target-breathe 1.25s ease-in-out infinite alternate;
 }
 
 .tm-board-lane__empty--target .tm-board-lane__empty-mark {
@@ -13256,6 +13765,64 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
 
 .tm-board-lane__empty--target .tm-board-lane__empty-copy small {
   color: rgba(232, 221, 206, 0.76);
+}
+
+.tm-board-lane__empty--filtered {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--lane) 30%, rgba(255, 255, 255, 0.1));
+  background:
+    radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--lane) 14%, transparent), transparent 6.4rem),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 78%),
+    rgba(0, 0, 0, 0.18);
+}
+
+.tm-board-lane__empty--filtered .tm-board-lane__empty-mark::before {
+  width: 0.86rem;
+  height: 0.86rem;
+  border: 2px solid color-mix(in srgb, var(--lane) 54%, rgba(232, 221, 206, 0.38));
+  background: transparent;
+}
+
+.tm-board-lane__empty--filtered .tm-board-lane__empty-mark::after {
+  width: 0.54rem;
+  height: 2px;
+  transform: translate(0.46rem, 0.48rem) rotate(45deg);
+  opacity: 0.8;
+}
+
+.tm-board-lane__empty--filtered .tm-board-lane__empty-mark > span {
+  width: 1.45rem;
+  height: 1.45rem;
+  background: transparent;
+  box-shadow: inset 0 0 18px color-mix(in srgb, var(--lane) 12%, transparent);
+}
+
+.tm-board-lane__empty--target.tm-board-lane__empty--filtered .tm-board-lane__empty-mark::before {
+  border-color: color-mix(in srgb, var(--lane) 72%, #ffffff);
+}
+
+@keyframes tm-board-empty-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.35rem) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes tm-board-empty-target-breathe {
+  from {
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--lane) 24%, transparent),
+      0 0 18px color-mix(in srgb, var(--lane) 12%, transparent);
+  }
+  to {
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--lane) 34%, transparent),
+      0 0 28px color-mix(in srgb, var(--lane) 22%, transparent);
+  }
 }
 
 /* board cards */
@@ -13306,8 +13873,12 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
 }
 
 .tm-board-card--dragging {
-  opacity: 0.5;
-  transform: scale(0.98) rotate(-0.4deg);
+  opacity: 0.38;
+  transform: scale(0.975);
+  border-style: dashed;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.02),
+    0 0 0 1px color-mix(in srgb, var(--lane) 18%, transparent);
 }
 
 .tm-board-card--preview {
@@ -13319,12 +13890,29 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
   pointer-events: none;
   cursor: grabbing;
   opacity: 0.98;
+  border-color: color-mix(in srgb, var(--lane) 52%, var(--tm-border-soft));
+  background:
+    radial-gradient(circle at 18% 0%, color-mix(in srgb, var(--lane) 16%, transparent), transparent 7rem),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07), transparent 62%),
+    rgba(12, 17, 19, 0.94);
+  filter: saturate(1.08);
   transition: none;
   will-change: transform;
   box-shadow:
-    0 22px 44px rgba(0, 0, 0, 0.48),
+    0 30px 58px rgba(0, 0, 0, 0.54),
+    0 14px 28px color-mix(in srgb, var(--lane) 15%, transparent),
     0 0 0 1px color-mix(in srgb, var(--lane) 38%, transparent),
-    0 0 34px color-mix(in srgb, var(--lane) 22%, transparent);
+    0 0 38px color-mix(in srgb, var(--lane) 26%, transparent);
+}
+
+.tm-board-card--preview::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, 0.1) 47%, transparent 64%);
+  pointer-events: none;
+  opacity: 0.82;
 }
 
 .tm-board-card--preview-toTest {
@@ -13367,12 +13955,74 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
   animation: tm-board-shimmer 1.1s linear infinite;
 }
 
+.tm-board-card--recently-moved {
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--lane) 46%, var(--tm-border-soft));
+  animation: tm-board-card-arrived 1.8s ease-out both;
+}
+
+.tm-board-card--recently-moved::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  background: linear-gradient(
+    110deg,
+    transparent 18%,
+    color-mix(in srgb, var(--lane) 17%, rgba(255, 255, 255, 0.16)) 46%,
+    transparent 72%
+  );
+  pointer-events: none;
+  transform: translateX(-112%);
+  animation: tm-board-card-arrived-sheen 1.05s ease-out 0.08s both;
+}
+
 @keyframes tm-board-shimmer {
   from {
     background-position: 200% 0;
   }
   to {
     background-position: -200% 0;
+  }
+}
+
+@keyframes tm-board-card-arrived {
+  0% {
+    transform: translateY(-0.24rem) scale(0.985);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.06),
+      0 0 0 1px color-mix(in srgb, var(--lane) 34%, transparent),
+      0 0 0 0 color-mix(in srgb, var(--lane) 24%, transparent),
+      0 10px 22px rgba(0, 0, 0, 0.28);
+  }
+  32% {
+    transform: translateY(-0.16rem) scale(1.01);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 0 0 1px color-mix(in srgb, var(--lane) 38%, transparent),
+      0 0 0 5px color-mix(in srgb, var(--lane) 13%, transparent),
+      0 14px 28px rgba(0, 0, 0, 0.34);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.03),
+      0 6px 14px rgba(0, 0, 0, 0.18);
+  }
+}
+
+@keyframes tm-board-card-arrived-sheen {
+  0% {
+    opacity: 0;
+    transform: translateX(-112%);
+  }
+  28% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(112%);
   }
 }
 
@@ -14241,8 +14891,31 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
   .tm-layout-switch__thumb,
   .tm-board-lane,
   .tm-board-card,
-  .tm-board-card__move {
+  .tm-board-card__move,
+  .tm-board-lane__header,
+  .tm-board-lane__count,
+  .tm-board-count-enter-active,
+  .tm-board-count-leave-active {
     transition: none;
+  }
+  .tm-board-lane--droppable .tm-board-lane__dot,
+  .tm-board-lane--over::before,
+  .tm-board-lane__empty,
+  .tm-board-lane__empty--target,
+  .tm-board-card--recently-moved,
+  .tm-board-card--recently-moved::before {
+    animation: none;
+  }
+  .tm-board-count-enter-from,
+  .tm-board-count-leave-to {
+    opacity: 1;
+    transform: none;
+  }
+  .tm-board-card--recently-moved {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.03),
+      0 0 0 1px color-mix(in srgb, var(--lane) 24%, transparent),
+      0 6px 14px rgba(0, 0, 0, 0.18);
   }
   .tm-board-card--auto-closing {
     animation: none;
