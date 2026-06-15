@@ -2495,6 +2495,31 @@ type AutoCloseResult = {
   passCount: number;
 };
 
+function testResultForChangeStatus(status: TestChangeStatus): TestResult | null {
+  if (status === TestChangeStatus.PASSED) {
+    return TestResult.PASS;
+  }
+  if (status === TestChangeStatus.FAILED) {
+    return TestResult.FAIL;
+  }
+  if (status === TestChangeStatus.BLOCKED) {
+    return TestResult.BLOCKED;
+  }
+  return null;
+}
+
+function testRunStatusForResult(result: TestResult): TestRunStatus {
+  return result === TestResult.BLOCKED ? TestRunStatus.BLOCKED : TestRunStatus.DONE;
+}
+
+function isDisposeStatus(status: TestChangeStatus) {
+  return (
+    status === TestChangeStatus.CLOSED ||
+    status === TestChangeStatus.ARCHIVED ||
+    status === TestChangeStatus.RENEWED
+  );
+}
+
 async function maybeAutoCloseChange(
   tx: Prisma.TransactionClient,
   changeId: string
@@ -2547,6 +2572,146 @@ async function maybeAutoCloseChange(
   });
 
   return { threshold: change.autoClosePassCount, passCount };
+}
+
+async function syncAdminTesterResultForStatus(
+  tx: Prisma.TransactionClient,
+  input: {
+    actorUserId: string;
+    changeId: string;
+    result: TestResult;
+    detail?: string | null;
+  }
+) {
+  const completedAt = new Date();
+  const notesText = input.detail?.trim() ?? '';
+  const notesHtml = notesText ? `<p>${escapeHtml(notesText)}</p>` : null;
+  const runStatus = testRunStatusForResult(input.result);
+  const existingTester = await tx.testChangeTester.findUnique({
+    where: { changeId_userId: { changeId: input.changeId, userId: input.actorUserId } },
+    select: { id: true, startedAt: true }
+  });
+  const tester = existingTester
+    ? await tx.testChangeTester.update({
+        where: { id: existingTester.id },
+        data: {
+          status: runStatus,
+          result: input.result,
+          notesHtml: notesHtml ?? undefined,
+          startedAt: existingTester.startedAt ?? completedAt,
+          completedAt
+        },
+        select: { id: true }
+      })
+    : await tx.testChangeTester.create({
+        data: {
+          changeId: input.changeId,
+          userId: input.actorUserId,
+          requestedById: input.actorUserId,
+          assignment: TestAssignmentKind.ADMIN_REQUESTED,
+          status: runStatus,
+          result: input.result,
+          notesHtml: notesHtml ?? undefined,
+          startedAt: completedAt,
+          completedAt
+        },
+        select: { id: true }
+      });
+
+  if (notesHtml) {
+    await tx.testChangeNote.create({
+      data: {
+        changeId: input.changeId,
+        testerId: tester.id,
+        authorId: input.actorUserId,
+        contentHtml: notesHtml,
+        result: input.result
+      }
+    });
+  }
+
+  await appendHistory(tx, {
+    changeId: input.changeId,
+    actorUserId: input.actorUserId,
+    eventType: TestHistoryEventType.TEST_RESULT_ADDED,
+    label: `Test result added: ${input.result}`,
+    detail: notesText || `Admin board move recorded ${input.result.toLowerCase()} feedback.`,
+    metadata: { result: input.result, source: 'board-status' }
+  });
+}
+
+async function startOrRetestChange(actorUserId: string, changeId: string) {
+  const tester = await prisma.testChangeTester.findUnique({
+    where: { changeId_userId: { changeId, userId: actorUserId } },
+    select: { result: true }
+  });
+
+  return tester?.result
+    ? retestChange(actorUserId, changeId)
+    : volunteerForChange(actorUserId, changeId);
+}
+
+async function submitTesterResultForStatusMove(
+  actorUserId: string,
+  changeId: string,
+  status: TestChangeStatus,
+  detail?: string | null
+) {
+  const result = testResultForChangeStatus(status);
+  if (!result) {
+    throw new Error('Unsupported status move.');
+  }
+
+  const notesText = detail?.trim() ?? '';
+  const submitted = await submitTesterResult(actorUserId, changeId, {
+    result,
+    notesHtml: notesText ? `<p>${escapeHtml(notesText)}</p>` : ''
+  });
+  if (!submitted || submitted.status === status || isTerminalChangeStatus(submitted.status)) {
+    return submitted;
+  }
+
+  const existing = await prisma.testChange.findUnique({
+    where: { id: changeId },
+    select: { status: true }
+  });
+  if (!existing || existing.status === status || isTerminalChangeStatus(existing.status)) {
+    return getTestChange(changeId, actorUserId);
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.testChange.update({
+      where: { id: changeId },
+      data: {
+        status,
+        closedAt: null,
+        closedById: null
+      }
+    });
+
+    await appendHistory(tx, {
+      changeId,
+      actorUserId,
+      eventType: TestHistoryEventType.STATUS_CHANGED,
+      label: `Status changed to ${formatLabel(status)}`,
+      detail: notesText || null,
+      metadata: { from: existing.status, to: status, source: 'board-result' }
+    });
+  });
+
+  const serialized = await getTestChange(changeId, actorUserId);
+  if (serialized) {
+    await notifyTestManagerDiscord({
+      event: 'change.statusChanged',
+      actorUserId,
+      change: serialized,
+      detail:
+        notesText ||
+        `Status changed from ${formatLabel(existing.status)} to ${formatLabel(status)}.`,
+      metadata: { fromStatus: existing.status, toStatus: status, source: 'board-result' }
+    });
+  }
+  return serialized;
 }
 
 async function ensureSeedData(actorUserId: string): Promise<void> {
@@ -3908,16 +4073,38 @@ export async function setTestChangeStatus(
   status: TestChangeStatus,
   detail?: string | null
 ) {
-  await ensureAdmin(actorUserId);
+  const actor = await getCurrentUser(actorUserId);
+  if (!actor) {
+    throw new Error('User not found.');
+  }
+  const actorPermissions = await getTestManagerUserPermissions(actor);
+  const resultForStatus = testResultForChangeStatus(status);
   const existing = await prisma.testChange.findUnique({ where: { id: changeId } });
   if (!existing) {
     throw new Error('Change not found.');
   }
 
+  if (!actor.admin) {
+    if (status === TestChangeStatus.TESTING) {
+      return startOrRetestChange(actorUserId, changeId);
+    }
+
+    if (resultForStatus) {
+      return submitTesterResultForStatusMove(actorUserId, changeId, status, detail);
+    }
+
+    if (!actorPermissions.includes('dispose') || !isDisposeStatus(status)) {
+      throw new Error('Test Manager status update permission required.');
+    }
+    if (status === TestChangeStatus.RENEWED && !isTerminalChangeStatus(existing.status)) {
+      throw new Error('Only closed or archived changes can be renewed.');
+    }
+  }
+
   const terminal = isTerminalChangeStatus(status);
   const terminalAt = terminal ? existing.closedAt ?? new Date() : null;
   const terminalById = terminal ? existing.closedById ?? actorUserId : null;
-  await prisma.$transaction(async (tx) => {
+  const autoCloseResult = await prisma.$transaction(async (tx) => {
     await tx.testChange.update({
       where: { id: changeId },
       data: {
@@ -3946,6 +4133,21 @@ export async function setTestChangeStatus(
       detail: detail?.trim() || null,
       metadata: { from: existing.status, to: status }
     });
+
+    if (resultForStatus) {
+      await syncAdminTesterResultForStatus(tx, {
+        actorUserId,
+        changeId,
+        result: resultForStatus,
+        detail
+      });
+    }
+
+    if (resultForStatus === TestResult.PASS) {
+      return maybeAutoCloseChange(tx, changeId);
+    }
+
+    return null;
   });
 
   const serialized = await getTestChange(changeId, actorUserId);
@@ -3964,6 +4166,19 @@ export async function setTestChangeStatus(
         `Status changed from ${formatLabel(existing.status)} to ${formatLabel(status)}.`,
       metadata: { fromStatus: existing.status, toStatus: status }
     });
+    if (autoCloseResult) {
+      await notifyTestManagerDiscord({
+        event: 'change.closed',
+        actorUserId: null,
+        change: serialized,
+        detail: `Auto-closed after ${autoCloseResult.passCount} passing tester review${autoCloseResult.passCount === 1 ? '' : 's'} met the ${autoCloseResult.threshold}-pass threshold.`,
+        metadata: {
+          autoClose: true,
+          passCount: autoCloseResult.passCount,
+          threshold: autoCloseResult.threshold
+        }
+      });
+    }
   }
   return serialized;
 }
@@ -4137,6 +4352,17 @@ export async function retestChange(actorUserId: string, changeId: string) {
       throw new Error('You can only re-test a change after submitting tester input.');
     }
 
+    if (change.status !== TestChangeStatus.TESTING) {
+      await tx.testChange.update({
+        where: { id: changeId },
+        data: {
+          status: TestChangeStatus.TESTING,
+          closedAt: null,
+          closedById: null
+        }
+      });
+    }
+
     await tx.testChangeTester.update({
       where: { id: tester.id },
       data: {
@@ -4164,7 +4390,7 @@ export async function retestChange(actorUserId: string, changeId: string) {
       eventType: TestHistoryEventType.TESTER_VOLUNTEERED,
       label: 'Tester started re-test',
       detail: 'Tester reopened their testing run for this change.',
-      metadata: { retest: true }
+      metadata: { retest: true, fromStatus: change.status, toStatus: TestChangeStatus.TESTING }
     });
   });
 
@@ -4276,6 +4502,9 @@ export async function submitTesterResult(
   ensureActiveTestingAssignment(existing);
 
   const actorPermissions = await getTestManagerUserPermissions(actor);
+  if (!actorPermissions.includes('submitResult')) {
+    throw new Error('Test Manager submit result permission required.');
+  }
   const requiresResultNotes =
     input.result === TestResult.FAIL ||
     input.result === TestResult.BLOCKED ||

@@ -518,7 +518,7 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
 
   server.patch(
     '/changes/:changeId/status',
-    { preHandler: [authenticate, requireCanView, requireAdmin] },
+    { preHandler: [authenticate, requireCanView] },
     async (request, reply) => {
       const paramsSchema = z.object({ changeId: z.string().min(1) });
       const bodySchema = z.object({

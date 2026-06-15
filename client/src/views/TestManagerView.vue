@@ -1874,9 +1874,7 @@
                   'tm-board-lane--source': boardDragSourceLane === lane.key
                 }
               ]"
-              @dragover="handleBoardDragOver(lane.key, $event)"
-              @dragleave="handleBoardDragLeave(lane.key)"
-              @drop="handleBoardDrop(lane.key, $event)"
+              :data-board-lane-key="lane.key"
             >
               <header class="tm-board-lane__header">
                 <span class="tm-board-lane__dot" aria-hidden="true"></span>
@@ -1886,7 +1884,10 @@
                 </div>
                 <span class="tm-board-lane__count">{{ lane.changes.length }}</span>
               </header>
-              <div class="tm-board-lane__body">
+              <div
+                class="tm-board-lane__body"
+                :data-board-lane-key="lane.key"
+              >
                 <article
                   v-for="change in lane.changes"
                   :key="change.id"
@@ -1894,15 +1895,16 @@
                   :class="{
                     'tm-board-card--dragging': boardDragChangeId === change.id,
                     'tm-board-card--pending': boardMovePendingId === change.id,
-                    'tm-board-card--draggable': canDragBoardCards
+                    'tm-board-card--draggable': canMoveBoardCard(change)
                   }"
-                  :draggable="canDragBoardCards"
+                  :data-change-id="change.id"
+                  :data-board-lane="lane.key"
+                  draggable="false"
                   role="button"
                   tabindex="0"
                   :aria-label="`Open change #${change.publicId}: ${change.title}`"
-                  @dragstart="handleBoardDragStart(change, $event)"
-                  @dragend="resetBoardDrag"
-                  @click="goToChange(change.id)"
+                  @pointerdown="handleBoardPointerDown(change, lane.key, $event)"
+                  @click="handleBoardCardClick(change, $event)"
                   @keydown.enter.prevent="goToChange(change.id)"
                   @keydown.space.prevent="goToChange(change.id)"
                 >
@@ -1915,7 +1917,7 @@
                     <span class="tm-board-card__id">#{{ change.publicId }}</span>
                     <StatusPill :status="change.status" compact />
                     <button
-                      v-if="canDragBoardCards"
+                      v-if="canMoveBoardCard(change)"
                       type="button"
                       class="tm-board-card__move"
                       :class="{ 'tm-board-card__move--open': boardMoveMenuId === change.id }"
@@ -1923,6 +1925,7 @@
                       aria-haspopup="true"
                       :aria-expanded="boardMoveMenuId === change.id"
                       title="Move to another lane"
+                      @pointerdown.stop
                       @click.stop="toggleBoardMoveMenu(change, $event)"
                       @keydown.enter.stop
                       @keydown.space.stop
@@ -1990,7 +1993,7 @@
                       : `Updated ${relativeTime(change.updatedAt)}`
                   }}</span>
                 </article>
-                <p
+                <div
                   v-if="!lane.changes.length"
                   class="tm-board-lane__empty"
                   :class="{
@@ -1998,12 +2001,28 @@
                       boardDragSourceLane !== null && isBoardLaneDropTarget(lane.key)
                   }"
                 >
-                  {{
-                    boardDragSourceLane !== null && isBoardLaneDropTarget(lane.key)
-                      ? 'Drop to move here'
-                      : 'No changes'
-                  }}
-                </p>
+                  <span class="tm-board-lane__empty-mark" aria-hidden="true">
+                    <span></span>
+                  </span>
+                  <span class="tm-board-lane__empty-copy">
+                    <strong>
+                      {{
+                        boardLaneEmptyState(
+                          lane.key,
+                          boardDragSourceLane !== null && isBoardLaneDropTarget(lane.key)
+                        ).title
+                      }}
+                    </strong>
+                    <small>
+                      {{
+                        boardLaneEmptyState(
+                          lane.key,
+                          boardDragSourceLane !== null && isBoardLaneDropTarget(lane.key)
+                        ).detail
+                      }}
+                    </small>
+                  </span>
+                </div>
               </div>
             </section>
           </div>
@@ -2144,6 +2163,88 @@
               }}
             </p>
           </div>
+          <Teleport to="body">
+            <article
+              v-if="boardDragPreview && boardDragPreviewChange"
+              class="tm-board-card tm-board-card--preview"
+              :class="`tm-board-card--preview-${boardDragPreview.sourceLane}`"
+              :style="boardDragPreviewStyle"
+              aria-hidden="true"
+            >
+              <div class="tm-board-card__top">
+                <span
+                  class="tm-priority"
+                  :class="`tm-priority--${boardDragPreviewChange.priority.toLowerCase()}`"
+                  >{{ priorityLabel(boardDragPreviewChange.priority) }}</span
+                >
+                <span class="tm-board-card__id">#{{ boardDragPreviewChange.publicId }}</span>
+                <StatusPill :status="boardDragPreviewChange.status" compact />
+              </div>
+              <h4 class="tm-board-card__title">{{ boardDragPreviewChange.title }}</h4>
+              <p class="tm-board-card__path">
+                {{ boardDragPreviewChange.category }} / {{ boardDragPreviewChange.subsystem }}
+              </p>
+              <div class="tm-board-card__tags">
+                <span class="tm-board-card__build">{{
+                  boardDragPreviewChange.targetBuild || 'No target build'
+                }}</span>
+                <span
+                  class="tm-version-badge tm-version-badge--compact"
+                  :class="`tm-version-badge--${changeVersionTone(boardDragPreviewChange)}`"
+                  :title="changeVersionTitle(boardDragPreviewChange)"
+                >
+                  <span aria-hidden="true">v</span>
+                  {{ changeVersionLabel(boardDragPreviewChange) }}
+                </span>
+                <span
+                  v-if="!isChangeReadyToTest(boardDragPreviewChange)"
+                  class="tm-readiness-badge tm-readiness-badge--not-ready tm-readiness-badge--compact"
+                  :title="changeReadinessTitle(boardDragPreviewChange)"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M12 8v5" />
+                    <path d="M12 17h.01" />
+                    <path d="M10.3 4.4 2.8 17.2A2 2 0 0 0 4.5 20h15a2 2 0 0 0 1.7-2.8L13.7 4.4a2 2 0 0 0-3.4 0Z" />
+                  </svg>
+                  Not Ready
+                </span>
+              </div>
+              <div
+                v-if="boardDragPreviewChange.autoClosePassCount > 0"
+                class="tm-board-card__auto"
+                :class="`tm-board-card__auto--${autoCloseTone(boardDragPreviewChange)}`"
+                :style="{
+                  '--auto-close-progress': `${autoCloseProgressPercent(boardDragPreviewChange)}%`
+                }"
+                :title="autoCloseDetail(boardDragPreviewChange)"
+              >
+                <span>{{ autoCloseListLabel(boardDragPreviewChange) }}</span>
+                <strong>
+                  {{ boardDragPreviewChange.summary.passCount }}/{{
+                    boardDragPreviewChange.autoClosePassCount
+                  }}
+                </strong>
+              </div>
+              <footer class="tm-board-card__footer">
+                <span class="tm-board-card__stat" title="Passing testers">
+                  <strong>{{ boardDragPreviewChange.summary.passCount }}</strong>
+                  passed
+                </span>
+                <span class="tm-board-card__stat" title="Total testers">
+                  <strong>{{ boardDragPreviewChange.summary.testerCount }}</strong>
+                  testers
+                </span>
+                <span class="tm-board-card__stat tm-board-card__stat--checklist" title="Checklist progress">
+                  {{ checklistProgress(boardDragPreviewChange) }}
+                </span>
+              </footer>
+              <span class="tm-board-card__time">{{
+                boardDragPreviewChange.closedAt
+                  ? `Closed ${relativeTime(boardDragPreviewChange.closedAt)}`
+                  : `Updated ${relativeTime(boardDragPreviewChange.updatedAt)}`
+              }}</span>
+            </article>
+          </Teleport>
         </main>
       </section>
 
@@ -3327,7 +3428,7 @@
 
     <div
       v-if="boardMovePrompt && boardMovePromptMeta"
-      class="tm-modal"
+      class="tm-modal tm-board-move-backdrop"
       role="dialog"
       aria-modal="true"
       aria-labelledby="board-move-confirm-title"
@@ -3347,10 +3448,59 @@
           </div>
         </div>
         <p class="tm-confirm-modal__body">{{ boardMovePromptMeta.body }}</p>
-        <div class="tm-confirm-modal__change">
-          <span>Selected change</span>
-          <strong>{{ boardMovePrompt.changeLabel }}</strong>
+
+        <div v-if="boardMovePromptChange" class="tm-board-move-card">
+          <span
+            class="tm-priority"
+            :class="`tm-priority--${boardMovePromptChange.priority.toLowerCase()}`"
+          >
+            {{ priorityLabel(boardMovePromptChange.priority) }}
+          </span>
+          <div class="tm-board-move-card__copy">
+            <span>Selected change</span>
+            <strong>{{ boardMovePrompt.changeLabel }}</strong>
+            <small>
+              {{ boardMovePromptChange.category }} / {{ boardMovePromptChange.subsystem }}
+            </small>
+          </div>
         </div>
+
+        <div class="tm-board-move-path" aria-label="Board move summary">
+          <div
+            class="tm-board-move-node"
+            :class="`tm-board-move-node--${boardMovePrompt.sourceLaneKey}`"
+          >
+            <span>From</span>
+            <strong>{{ boardMoveSourceLane?.title ?? statusLabel(boardMovePrompt.sourceStatus) }}</strong>
+            <StatusPill :status="boardMovePrompt.sourceStatus" compact />
+          </div>
+          <div class="tm-board-move-arrow" aria-hidden="true">
+            <span></span>
+            <strong>→</strong>
+          </div>
+          <div
+            class="tm-board-move-node tm-board-move-node--target"
+            :class="boardMoveTargetLane ? `tm-board-move-node--${boardMoveTargetLane.key}` : ''"
+          >
+            <span>To</span>
+            <strong>{{ boardMoveTargetLane?.title ?? 'Destination' }}</strong>
+            <StatusPill v-if="boardMoveTargetStatus" :status="boardMoveTargetStatus" compact />
+          </div>
+        </div>
+
+        <ul v-if="boardMoveImpactItems.length" class="tm-board-move-impact">
+          <li
+            v-for="item in boardMoveImpactItems"
+            :key="item.key"
+            :class="`tm-board-move-impact__item--${item.tone}`"
+          >
+            <span class="tm-board-move-impact__marker" aria-hidden="true"></span>
+            <span>
+              <strong>{{ item.label }}</strong>
+              <small>{{ item.detail }}</small>
+            </span>
+          </li>
+        </ul>
 
         <div
           v-if="boardMovePrompt.kind === 'attention'"
@@ -3392,12 +3542,16 @@
           </button>
         </div>
 
-        <label class="tm-board-move-field">
-          <span>{{ boardMovePromptMeta.detailLabel }}</span>
+        <label v-if="boardMovePromptSupportsDetail" class="tm-board-move-field">
+          <span>
+            {{ boardMovePromptMeta.detailLabel }}
+            {{ boardMovePromptDetailRequired ? '(required)' : '(optional)' }}
+          </span>
           <textarea
             v-model="boardMoveDetail"
             rows="3"
             maxlength="1000"
+            :required="boardMovePromptDetailRequired"
             :placeholder="boardMovePromptMeta.detailPlaceholder"
           ></textarea>
         </label>
@@ -3415,7 +3569,10 @@
             type="button"
             class="tm-btn"
             :class="boardMovePromptMeta.confirmClass"
-            :disabled="Boolean(boardMovePendingId)"
+            :disabled="
+              Boolean(boardMovePendingId) ||
+              (boardMovePromptDetailRequired && !boardMoveDetail.trim())
+            "
             @click="confirmBoardMove"
           >
             {{ boardMovePendingId ? 'Working...' : boardMovePromptMeta.confirmLabel }}
@@ -5046,15 +5203,20 @@ const nextPatchLayout = ref<NextPatchLayout>(loadNextPatchLayoutPreference());
 const nextPatchBoardLoading = ref(false);
 let nextPatchBoardLoadSequence = 0;
 
-// Drag-and-drop board state (admin only).
+// Drag-and-drop board state (permissioned by lane/action).
 const boardDragChangeId = ref<string | null>(null);
 const boardDragSourceLane = ref<BoardLaneKey | null>(null);
 const boardDragOverLane = ref<BoardLaneKey | null>(null);
+let boardPointerDragState: BoardPointerDragState | null = null;
+let boardPointerSuppressClickUntil = 0;
+const boardDragPreview = ref<BoardDragPreview | null>(null);
 const boardMovePendingId = ref<string | null>(null);
 // When a lane move needs extra input/confirmation, this prompt is shown.
 const boardMovePrompt = ref<BoardMovePrompt | null>(null);
 const boardMoveDetail = ref('');
 const boardMoveAttentionStatus = ref<Extract<TestChangeStatus, 'FAILED' | 'BLOCKED'>>('FAILED');
+let boardMovePromptFrameOne: number | null = null;
+let boardMovePromptFrameTwo: number | null = null;
 // Tap/keyboard move menu — the no-drag path for touch & keyboard users (teleported popover).
 const boardMoveMenuId = ref<string | null>(null);
 const boardMoveMenuChange = ref<TestChange | null>(null);
@@ -5407,7 +5569,7 @@ const STATUS_TO_BOARD_LANE: Record<TestChangeStatus, BoardLaneKey> = {
 };
 // Only workflow-sensible lane moves are accepted; anything else snaps back on drop.
 const BOARD_LANE_TRANSITIONS: Record<BoardLaneKey, BoardLaneKey[]> = {
-  toTest: ['testing', 'attention', 'closed'],
+  toTest: ['testing', 'passed', 'attention', 'closed'],
   testing: ['toTest', 'passed', 'attention', 'closed'],
   passed: ['testing', 'attention', 'closed'],
   attention: ['toTest', 'testing', 'passed', 'closed'],
@@ -5419,14 +5581,66 @@ const BOARD_PRIORITY_RANK: Record<TestChangePriority, number> = {
   MEDIUM: 2,
   LOW: 1
 };
+const BOARD_LANE_EMPTY_STATES: Record<BoardLaneKey, { title: string; detail: string }> = {
+  toTest: {
+    title: 'Queue clear',
+    detail: 'No changes are waiting for validation.'
+  },
+  testing: {
+    title: 'No active runs',
+    detail: 'Cards in progress will appear here.'
+  },
+  passed: {
+    title: 'Validation clear',
+    detail: 'No passed changes are waiting here.'
+  },
+  attention: {
+    title: 'No blocked work',
+    detail: 'Failures and blockers will surface here.'
+  },
+  closed: {
+    title: 'No shipped changes',
+    detail: 'Completed cards will collect here.'
+  }
+};
+const BOARD_POINTER_DRAG_THRESHOLD_PX = 6;
+const BOARD_POINTER_CLICK_SUPPRESS_MS = 450;
 
-// Some lane drops need confirmation or a required choice before applying.
-type BoardMoveKind = 'attention' | 'closed' | 'renew';
+// Every lane drop is confirmed; some moves also need a choice or tester notes.
+type BoardMoveKind = 'move' | 'attention' | 'closed' | 'renew' | 'passed';
 interface BoardMovePrompt {
   changeId: string;
   changeLabel: string;
+  sourceLaneKey: BoardLaneKey;
+  sourceStatus: TestChangeStatus;
   laneKey: BoardLaneKey;
   kind: BoardMoveKind;
+}
+interface BoardMoveImpactItem {
+  key: string;
+  label: string;
+  detail: string;
+  tone: 'info' | 'success' | 'warning' | 'danger';
+}
+interface BoardPointerDragState {
+  changeId: string;
+  sourceLane: BoardLaneKey;
+  pointerId: number;
+  startX: number;
+  startY: number;
+  offsetX: number;
+  offsetY: number;
+  width: number;
+  active: boolean;
+}
+interface BoardDragPreview {
+  changeId: string;
+  sourceLane: BoardLaneKey;
+  x: number;
+  y: number;
+  offsetX: number;
+  offsetY: number;
+  width: number;
 }
 type CreateChecklistDraft = CreateTestChangePayload['checklist'][number];
 type EditChecklistDraft = NonNullable<UpdateTestChangePayload['checklist']>[number];
@@ -5827,7 +6041,9 @@ const isActivelyTestingViewer = computed(
     activeViewerTester.value?.status === 'TESTING' &&
     !activeViewerTester.value.result
 );
-const canUseTesterControls = computed(() => isActivelyTestingViewer.value);
+const canUseTesterControls = computed(
+  () => isActivelyTestingViewer.value && authStore.canSubmitTestManagerResult
+);
 const canAddTestingNote = computed(() =>
   Boolean(activeChange.value && !isTerminalChangeStatus(activeChange.value.status))
 );
@@ -6042,22 +6258,185 @@ const nextPatchCompletedQueueCount = computed(() =>
       ? visibleNextPatchChanges.value.length
       : 0
 );
-const canDragBoardCards = computed(() => authStore.isAdmin);
-const boardMovePromptMeta = computed(() => {
+const boardMovePromptChange = computed(() => {
+  const prompt = boardMovePrompt.value;
+  return prompt
+    ? (nextPatchBoardChanges.value.find((change) => change.id === prompt.changeId) ?? null)
+    : null;
+});
+const boardDragPreviewChange = computed(() => {
+  const preview = boardDragPreview.value;
+  return preview
+    ? (nextPatchBoardChanges.value.find((change) => change.id === preview.changeId) ?? null)
+    : null;
+});
+const boardDragPreviewStyle = computed(() => {
+  const preview = boardDragPreview.value;
+  if (!preview) {
+    return {};
+  }
+  return {
+    transform: `translate3d(${preview.x - preview.offsetX}px, ${
+      preview.y - preview.offsetY
+    }px, 0)`,
+    width: `${preview.width}px`
+  };
+});
+const boardMoveSourceLane = computed(() => {
+  const prompt = boardMovePrompt.value;
+  return prompt
+    ? (NEXT_PATCH_BOARD_LANES.find((lane) => lane.key === prompt.sourceLaneKey) ?? null)
+    : null;
+});
+const boardMoveTargetLane = computed(() => {
+  const prompt = boardMovePrompt.value;
+  return prompt ? (NEXT_PATCH_BOARD_LANES.find((lane) => lane.key === prompt.laneKey) ?? null) : null;
+});
+const boardMoveTargetStatus = computed<TestChangeStatus | null>(() => {
   const prompt = boardMovePrompt.value;
   if (!prompt) {
     return null;
   }
   if (prompt.kind === 'attention') {
+    return boardMoveAttentionStatus.value;
+  }
+  return boardLaneTargetStatus(prompt.laneKey, prompt.sourceStatus);
+});
+const boardMovePromptSupportsDetail = computed(() => {
+  const prompt = boardMovePrompt.value;
+  const targetStatus = boardMoveTargetStatus.value;
+  if (!prompt || !targetStatus) {
+    return false;
+  }
+  if (authStore.isAdmin) {
+    return true;
+  }
+  return targetStatus !== 'TESTING';
+});
+const boardMoveImpactItems = computed<BoardMoveImpactItem[]>(() => {
+  const prompt = boardMovePrompt.value;
+  const change = boardMovePromptChange.value;
+  const targetStatus = boardMoveTargetStatus.value;
+  const targetLane = boardMoveTargetLane.value;
+  if (!prompt || !change || !targetStatus || !targetLane) {
+    return [];
+  }
+
+  const items: BoardMoveImpactItem[] = [
+    {
+      key: 'status',
+      label: 'Status update',
+      detail: `Moves from ${statusLabel(prompt.sourceStatus)} to ${statusLabel(targetStatus)} in ${targetLane.title}.`,
+      tone: targetStatus === 'FAILED' || targetStatus === 'BLOCKED' ? 'warning' : 'info'
+    }
+  ];
+
+  if (targetStatus === 'TESTING') {
+    items.push({
+      key: 'testing',
+      label: authStore.isAdmin ? 'Testing lane' : 'Tester assignment',
+      detail: authStore.isAdmin
+        ? 'Places the card back into active testing.'
+        : 'Starts or reopens your testing run for this change.',
+      tone: 'info'
+    });
+  }
+
+  if (targetStatus === 'PASSED') {
+    items.push({
+      key: 'result',
+      label: 'Passing result',
+      detail: 'Records passing tester feedback and updates the card quality counters.',
+      tone: 'success'
+    });
+
+    if (change.autoClosePassCount > 0) {
+      const projectedPassCount = change.summary.passCount + 1;
+      const reachesThreshold = projectedPassCount >= change.autoClosePassCount;
+      const blockers = change.summary.failCount + change.summary.blockedCount;
+      items.push({
+        key: 'autoclose',
+        label:
+          blockers > 0
+            ? 'Auto-close blocked'
+            : reachesThreshold
+              ? 'Auto-close threshold'
+              : 'Auto-close progress',
+        detail:
+          blockers > 0
+            ? `${blockers} failed or blocked review${blockers === 1 ? '' : 's'} must be cleared before auto-close can complete.`
+            : reachesThreshold
+              ? `This can close the change once ${change.autoClosePassCount} passing review${change.autoClosePassCount === 1 ? '' : 's'} are recorded.`
+              : `Progress can advance toward ${change.autoClosePassCount} required passing review${change.autoClosePassCount === 1 ? '' : 's'}.`,
+        tone: blockers > 0 ? 'warning' : reachesThreshold ? 'success' : 'info'
+      });
+    }
+  }
+
+  if (targetStatus === 'FAILED' || targetStatus === 'BLOCKED') {
+    items.push({
+      key: 'attention',
+      label: targetStatus === 'FAILED' ? 'Failure report' : 'Blocked report',
+      detail:
+        targetStatus === 'FAILED'
+          ? 'Records failed tester feedback and keeps the card in Needs Attention.'
+          : 'Records blocked tester feedback and keeps the card in Needs Attention.',
+      tone: 'warning'
+    });
+  }
+
+  if (targetStatus === 'CLOSED' || targetStatus === 'ARCHIVED') {
+    items.push({
+      key: 'terminal',
+      label: 'Active workflow',
+      detail: 'Removes the card from active testing work and counts it as complete.',
+      tone: 'success'
+    });
+  }
+
+  if (targetStatus === 'RENEWED' || targetStatus === 'AWAITING_TEST') {
+    items.push({
+      key: 'queue',
+      label: 'Testing queue',
+      detail:
+        targetStatus === 'RENEWED'
+          ? 'Starts a fresh validation cycle in the To Test lane.'
+          : 'Returns the card to the To Test queue.',
+      tone: 'info'
+    });
+  }
+
+  return items;
+});
+const boardMovePromptMeta = computed(() => {
+  const prompt = boardMovePrompt.value;
+  if (!prompt) {
+    return null;
+  }
+  if (prompt.kind === 'passed') {
+    return {
+      eyebrow: 'Passed',
+      title: 'Move to Passed?',
+      body: 'Confirm that this change is ready to leave active testing with a passing result.',
+      icon: '✓',
+      tone: 'success',
+      confirmLabel: 'Move to Passed',
+      confirmClass: 'tm-btn--success',
+      detailLabel: 'Passing note',
+      detailPlaceholder: 'What did you validate?'
+    };
+  }
+  if (prompt.kind === 'attention') {
     return {
       eyebrow: 'Needs Attention',
-      title: 'Flag this change',
-      body: 'Choose whether this change failed testing or is blocked, then add an optional reason.',
+      title: 'Move to Needs Attention?',
+      body:
+        'Choose whether this change failed testing or is blocked, then add a reason when required by your role.',
       icon: '⚠',
       tone: 'danger',
-      confirmLabel: 'Apply',
+      confirmLabel: 'Move to Attention',
       confirmClass: 'tm-btn--danger',
-      detailLabel: 'Reason (optional)',
+      detailLabel: 'Reason',
       detailPlaceholder: 'What failed, or what is blocking progress?'
     };
   }
@@ -6070,7 +6449,20 @@ const boardMovePromptMeta = computed(() => {
       tone: 'success',
       confirmLabel: 'Close Change',
       confirmClass: 'tm-btn--success',
-      detailLabel: 'Closing note (optional)',
+      detailLabel: 'Closing note',
+      detailPlaceholder: 'Add an optional note for the history log.'
+    };
+  }
+  if (prompt.kind === 'move') {
+    return {
+      eyebrow: 'Confirm Move',
+      title: 'Move this card?',
+      body: 'Review the source lane, destination lane, and expected update before applying the move.',
+      icon: '↗',
+      tone: 'info',
+      confirmLabel: 'Confirm Move',
+      confirmClass: 'tm-btn--primary',
+      detailLabel: 'Move note',
       detailPlaceholder: 'Add an optional note for the history log.'
     };
   }
@@ -6082,9 +6474,33 @@ const boardMovePromptMeta = computed(() => {
     tone: 'info',
     confirmLabel: 'Renew Change',
     confirmClass: 'tm-btn--primary',
-    detailLabel: 'Renewal note (optional)',
+    detailLabel: 'Renewal note',
     detailPlaceholder: 'Add an optional note for the history log.'
   };
+});
+const boardMovePromptDetailRequired = computed(() => {
+  const prompt = boardMovePrompt.value;
+  if (!prompt || authStore.isAdmin || !boardMovePromptSupportsDetail.value) {
+    return false;
+  }
+
+  const change = boardMovePromptChange.value;
+  if (!change) {
+    return false;
+  }
+
+  const targetStatus = boardMoveTargetStatus.value;
+  if (
+    (targetStatus === 'FAILED' || targetStatus === 'BLOCKED') &&
+    !hasCurrentViewerSavedTestingNote(change)
+  ) {
+    return true;
+  }
+  return (
+    targetStatus === 'PASSED' &&
+    authStore.requiresTestManagerPassNote &&
+    !hasCurrentViewerSavedTestingNote(change)
+  );
 });
 const nextPatchProgressComplete = computed(() => nextPatchCounts.value.completeCount);
 const nextPatchProgressTotal = computed(() => nextPatchCounts.value.totalCount);
@@ -6830,11 +7246,71 @@ function isValidBoardLaneMove(source: BoardLaneKey, target: BoardLaneKey) {
   return source !== target && Boolean(BOARD_LANE_TRANSITIONS[source]?.includes(target));
 }
 
-function isBoardLaneDropTarget(laneKey: BoardLaneKey) {
-  if (!boardDragSourceLane.value) {
+function boardLaneEmptyState(laneKey: BoardLaneKey, isTarget = false) {
+  if (isTarget) {
+    const lane = NEXT_PATCH_BOARD_LANES.find((entry) => entry.key === laneKey);
+    return {
+      title: 'Ready to receive',
+      detail: `Release the card to move it into ${lane?.title ?? 'this lane'}.`
+    };
+  }
+  return BOARD_LANE_EMPTY_STATES[laneKey];
+}
+
+function canSubmitBoardResult(change: TestChange) {
+  return (
+    authStore.canSubmitTestManagerResult &&
+    !isTerminalChangeStatus(change.status) &&
+    isChangeReadyToTest(change) &&
+    change.viewerTester?.status === 'TESTING' &&
+    !change.viewerTester.result
+  );
+}
+
+function canMoveBoardCardToLane(change: TestChange, laneKey: BoardLaneKey) {
+  const sourceLane = STATUS_TO_BOARD_LANE[change.status] ?? 'toTest';
+  if (!isValidBoardLaneMove(sourceLane, laneKey)) {
     return false;
   }
-  return isValidBoardLaneMove(boardDragSourceLane.value, laneKey);
+  if (authStore.isAdmin) {
+    return true;
+  }
+
+  if (laneKey === 'testing') {
+    return canStartTesting(change);
+  }
+  if (laneKey === 'passed' || laneKey === 'attention') {
+    return canSubmitBoardResult(change);
+  }
+  if (laneKey === 'closed') {
+    return authStore.canDisposeTestManagerChanges;
+  }
+  if (laneKey === 'toTest' && isTerminalChangeStatus(change.status)) {
+    return authStore.canDisposeTestManagerChanges;
+  }
+  return false;
+}
+
+function canMoveBoardCard(change: TestChange) {
+  const sourceLane = STATUS_TO_BOARD_LANE[change.status] ?? 'toTest';
+  return (BOARD_LANE_TRANSITIONS[sourceLane] ?? []).some((laneKey) =>
+    canMoveBoardCardToLane(change, laneKey)
+  );
+}
+
+function boardDraggedChange() {
+  const changeId = boardDragChangeId.value;
+  return changeId
+    ? (nextPatchBoardChanges.value.find((entry) => entry.id === changeId) ?? null)
+    : null;
+}
+
+function isBoardLaneDropTarget(laneKey: BoardLaneKey) {
+  const change = boardDraggedChange();
+  if (!change) {
+    return false;
+  }
+  return canMoveBoardCardToLane(change, laneKey);
 }
 
 // Canonical status applied when a card is dropped into a lane.
@@ -6863,7 +7339,9 @@ function boardLaneTargetStatus(
 function boardMoveTargets(change: TestChange): BoardLaneDefinition[] {
   const sourceLane = STATUS_TO_BOARD_LANE[change.status] ?? 'toTest';
   const targets = BOARD_LANE_TRANSITIONS[sourceLane] ?? [];
-  return NEXT_PATCH_BOARD_LANES.filter((lane) => targets.includes(lane.key));
+  return NEXT_PATCH_BOARD_LANES.filter(
+    (lane) => targets.includes(lane.key) && canMoveBoardCardToLane(change, lane.key)
+  );
 }
 
 function toggleBoardMoveMenu(change: TestChange, event: MouseEvent) {
@@ -6875,9 +7353,13 @@ function toggleBoardMoveMenu(change: TestChange, event: MouseEvent) {
   if (!trigger) {
     return;
   }
+  const targets = boardMoveTargets(change);
+  if (!targets.length) {
+    return;
+  }
   const rect = trigger.getBoundingClientRect();
   // Flip the menu above the trigger when there is not enough room below it.
-  const estimatedHeight = 56 + boardMoveTargets(change).length * 48;
+  const estimatedHeight = 56 + targets.length * 48;
   const openUp = window.innerHeight - rect.bottom < estimatedHeight + 16;
   boardMoveMenuTrigger = trigger;
   boardMoveMenuPos.value = {
@@ -6907,19 +7389,15 @@ function closeBoardMoveMenu() {
 // Tap/keyboard equivalent of dropping a card into a lane — reuses the drag-drop logic.
 async function moveBoardCardToLane(change: TestChange, laneKey: BoardLaneKey) {
   closeBoardMoveMenu();
-  if (!canDragBoardCards.value) {
+  if (!canMoveBoardCardToLane(change, laneKey)) {
     return;
   }
   const sourceLane = STATUS_TO_BOARD_LANE[change.status] ?? 'toTest';
   if (!isValidBoardLaneMove(sourceLane, laneKey)) {
     return;
   }
-  const promptKind = boardMovePromptKind(laneKey, change.status);
-  if (promptKind) {
-    openBoardMovePrompt(change, laneKey, promptKind);
-    return;
-  }
-  await applyBoardStatus(change, boardLaneTargetStatus(laneKey, change.status));
+  const promptKind = boardMovePromptKind(change, laneKey);
+  openBoardMovePrompt(change, laneKey, promptKind);
 }
 
 // Dismiss the move menu when the viewport shifts under it (it is fixed-positioned).
@@ -6942,106 +7420,230 @@ onBeforeUnmount(() => {
   }
   window.removeEventListener('resize', closeBoardMoveMenu);
   window.removeEventListener('scroll', closeBoardMoveMenu, true);
+  clearQueuedBoardMovePrompt();
+  clearBoardPointerDragListeners();
 });
 
 function resetBoardDrag() {
   boardDragChangeId.value = null;
   boardDragSourceLane.value = null;
   boardDragOverLane.value = null;
+  boardDragPreview.value = null;
 }
 
-function handleBoardDragStart(change: TestChange, event: DragEvent) {
-  if (!canDragBoardCards.value) {
-    event.preventDefault();
+function isBoardLaneKey(value: string | undefined): value is BoardLaneKey {
+  return NEXT_PATCH_BOARD_LANES.some((lane) => lane.key === value);
+}
+
+function boardLaneKeyFromPoint(clientX: number, clientY: number): BoardLaneKey | null {
+  if (typeof document === 'undefined') {
+    return null;
+  }
+  const element = document.elementFromPoint(clientX, clientY);
+  const laneElement = element?.closest<HTMLElement>('[data-board-lane-key]');
+  const laneKey = laneElement?.dataset.boardLaneKey;
+  return isBoardLaneKey(laneKey) ? laneKey : null;
+}
+
+function isBoardPointerInteractiveTarget(target: EventTarget | null) {
+  return (
+    target instanceof HTMLElement &&
+    Boolean(
+      target.closest(
+        'button, a, input, textarea, select, summary, [contenteditable="true"], .tm-board-card__move'
+      )
+    )
+  );
+}
+
+function clearBoardPointerDragListeners() {
+  if (typeof window === 'undefined') {
+    boardPointerDragState = null;
     return;
   }
-  closeBoardMoveMenu();
-  boardDragChangeId.value = change.id;
-  boardDragSourceLane.value = STATUS_TO_BOARD_LANE[change.status] ?? 'toTest';
-  if (event.dataTransfer) {
-    event.dataTransfer.effectAllowed = 'move';
-    // Some browsers require data to be set for the drag to begin.
-    try {
-      event.dataTransfer.setData('text/plain', change.id);
-    } catch {
-      // Ignore environments that disallow setData during dragstart.
-    }
-  }
+  window.removeEventListener('pointermove', handleBoardPointerMove);
+  window.removeEventListener('pointerup', handleBoardPointerUp);
+  window.removeEventListener('pointercancel', handleBoardPointerCancel);
+  window.removeEventListener('blur', cancelBoardPointerDrag);
+  boardPointerDragState = null;
 }
 
-function handleBoardDragOver(laneKey: BoardLaneKey, event: DragEvent) {
-  if (!boardDragSourceLane.value) {
-    return;
-  }
-  if (isBoardLaneDropTarget(laneKey)) {
-    event.preventDefault();
-    if (event.dataTransfer) {
-      event.dataTransfer.dropEffect = 'move';
-    }
-    boardDragOverLane.value = laneKey;
-  } else if (event.dataTransfer) {
-    event.dataTransfer.dropEffect = 'none';
-  }
-}
-
-function handleBoardDragLeave(laneKey: BoardLaneKey) {
-  if (boardDragOverLane.value === laneKey) {
-    boardDragOverLane.value = null;
-  }
-}
-
-async function handleBoardDrop(laneKey: BoardLaneKey, event: DragEvent) {
-  event.preventDefault();
-  const sourceLane = boardDragSourceLane.value;
-  const changeId = boardDragChangeId.value;
+function cancelBoardPointerDrag() {
+  clearBoardPointerDragListeners();
   resetBoardDrag();
-  if (!changeId || !sourceLane) {
+}
+
+function beginBoardPointerDrag(state: BoardPointerDragState) {
+  state.active = true;
+  boardPointerSuppressClickUntil = Date.now() + BOARD_POINTER_CLICK_SUPPRESS_MS;
+  boardDragChangeId.value = state.changeId;
+  boardDragSourceLane.value = state.sourceLane;
+  boardDragOverLane.value = null;
+  boardDragPreview.value = {
+    changeId: state.changeId,
+    sourceLane: state.sourceLane,
+    x: state.startX,
+    y: state.startY,
+    offsetX: state.offsetX,
+    offsetY: state.offsetY,
+    width: state.width
+  };
+}
+
+function updateBoardPointerDropTarget(event: PointerEvent) {
+  const state = boardPointerDragState;
+  if (!state?.active || state.pointerId !== event.pointerId) {
     return;
   }
-  // Permission guard: only admins may change a change's status. Anyone else is rejected.
-  if (!authStore.isAdmin) {
+  if (boardDragPreview.value) {
+    boardDragPreview.value = {
+      ...boardDragPreview.value,
+      x: event.clientX,
+      y: event.clientY
+    };
+  }
+
+  const laneKey = boardLaneKeyFromPoint(event.clientX, event.clientY);
+  const change = nextPatchBoardChanges.value.find((entry) => entry.id === state.changeId);
+  boardDragOverLane.value =
+    laneKey && change && canMoveBoardCardToLane(change, laneKey) && isValidBoardLaneMove(state.sourceLane, laneKey)
+      ? laneKey
+      : null;
+}
+
+function handleBoardPointerDown(change: TestChange, laneKey: BoardLaneKey, event: PointerEvent) {
+  if (
+    event.button !== 0 ||
+    boardMovePrompt.value ||
+    boardMovePendingId.value ||
+    !canMoveBoardCard(change) ||
+    isBoardPointerInteractiveTarget(event.target)
+  ) {
+    return;
+  }
+
+  clearQueuedBoardMovePrompt();
+  clearBoardPointerDragListeners();
+  closeBoardMoveMenu();
+  const cardRect =
+    event.currentTarget instanceof HTMLElement ? event.currentTarget.getBoundingClientRect() : null;
+  boardPointerDragState = {
+    changeId: change.id,
+    sourceLane: laneKey,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    offsetX: cardRect ? event.clientX - cardRect.left : 0,
+    offsetY: cardRect ? event.clientY - cardRect.top : 0,
+    width: cardRect?.width ?? 280,
+    active: false
+  };
+
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.addEventListener('pointermove', handleBoardPointerMove, { passive: false });
+  window.addEventListener('pointerup', handleBoardPointerUp, { passive: false });
+  window.addEventListener('pointercancel', handleBoardPointerCancel, { passive: false });
+  window.addEventListener('blur', cancelBoardPointerDrag);
+}
+
+function handleBoardPointerMove(event: PointerEvent) {
+  const state = boardPointerDragState;
+  if (!state || state.pointerId !== event.pointerId) {
+    return;
+  }
+
+  const distance = Math.hypot(event.clientX - state.startX, event.clientY - state.startY);
+  if (!state.active) {
+    if (distance < BOARD_POINTER_DRAG_THRESHOLD_PX) {
+      return;
+    }
+    beginBoardPointerDrag(state);
+  }
+
+  event.preventDefault();
+  updateBoardPointerDropTarget(event);
+}
+
+function handleBoardPointerUp(event: PointerEvent) {
+  const state = boardPointerDragState;
+  if (!state || state.pointerId !== event.pointerId) {
+    return;
+  }
+
+  const wasActive = state.active;
+  const changeId = state.changeId;
+  const sourceLane = state.sourceLane;
+  const laneKey = boardLaneKeyFromPoint(event.clientX, event.clientY);
+  clearBoardPointerDragListeners();
+
+  if (!wasActive) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  boardPointerSuppressClickUntil = Date.now() + BOARD_POINTER_CLICK_SUPPRESS_MS;
+  boardDragOverLane.value = null;
+
+  const change = nextPatchBoardChanges.value.find((entry) => entry.id === changeId);
+  if (!change || !laneKey) {
+    resetBoardDrag();
+    return;
+  }
+  if (!isValidBoardLaneMove(sourceLane, laneKey)) {
+    resetBoardDrag();
+    return;
+  }
+  if (!canMoveBoardCardToLane(change, laneKey)) {
+    resetBoardDrag();
     addToast({
       title: 'Permission Required',
-      message: 'Only admins can move changes between status lanes.',
+      message: 'You do not have permission to move this change to that lane.',
       variant: 'error'
     });
     return;
   }
-  // Invalid (non-workflow) moves snap back without any change.
-  if (!isValidBoardLaneMove(sourceLane, laneKey)) {
-    return;
-  }
-  const change = nextPatchBoardChanges.value.find((entry) => entry.id === changeId);
-  if (!change) {
-    return;
-  }
 
-  const promptKind = boardMovePromptKind(laneKey, change.status);
-  if (promptKind) {
-    openBoardMovePrompt(change, laneKey, promptKind);
-    return;
-  }
-
-  await applyBoardStatus(change, boardLaneTargetStatus(laneKey, change.status));
+  const promptKind = boardMovePromptKind(change, laneKey);
+  resetBoardDrag();
+  queueBoardMovePrompt(change, laneKey, promptKind);
 }
 
-// Lanes that need a decision or confirmation before the move is applied.
-function boardMovePromptKind(
-  laneKey: BoardLaneKey,
-  sourceStatus: TestChangeStatus
-): BoardMoveKind | null {
+function handleBoardPointerCancel(event: PointerEvent) {
+  if (boardPointerDragState?.pointerId !== event.pointerId) {
+    return;
+  }
+  cancelBoardPointerDrag();
+}
+
+function handleBoardCardClick(change: TestChange, event: MouseEvent) {
+  if (Date.now() < boardPointerSuppressClickUntil) {
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
+  goToChange(change.id);
+}
+
+// Pick the confirmation variant for the requested board move.
+function boardMovePromptKind(change: TestChange, laneKey: BoardLaneKey): BoardMoveKind {
   if (laneKey === 'attention') {
     // Failed vs Blocked is ambiguous, so the admin must choose.
     return 'attention';
   }
+  if (laneKey === 'passed') {
+    return 'passed';
+  }
   if (laneKey === 'closed') {
     return 'closed';
   }
-  if (laneKey === 'toTest' && isTerminalChangeStatus(sourceStatus)) {
+  if (laneKey === 'toTest' && isTerminalChangeStatus(change.status)) {
     // Reopening a terminal change renews its testing cycle.
     return 'renew';
   }
-  return null;
+  return 'move';
 }
 
 function openBoardMovePrompt(change: TestChange, laneKey: BoardLaneKey, kind: BoardMoveKind) {
@@ -7050,15 +7652,51 @@ function openBoardMovePrompt(change: TestChange, laneKey: BoardLaneKey, kind: Bo
   boardMovePrompt.value = {
     changeId: change.id,
     changeLabel: `#${change.publicId} ${change.title}`,
+    sourceLaneKey: STATUS_TO_BOARD_LANE[change.status] ?? 'toTest',
+    sourceStatus: change.status,
     laneKey,
     kind
   };
+}
+
+function clearQueuedBoardMovePrompt() {
+  if (typeof window === 'undefined') {
+    boardMovePromptFrameOne = null;
+    boardMovePromptFrameTwo = null;
+    return;
+  }
+  if (boardMovePromptFrameOne !== null) {
+    window.cancelAnimationFrame(boardMovePromptFrameOne);
+    boardMovePromptFrameOne = null;
+  }
+  if (boardMovePromptFrameTwo !== null) {
+    window.cancelAnimationFrame(boardMovePromptFrameTwo);
+    boardMovePromptFrameTwo = null;
+  }
+}
+
+function queueBoardMovePrompt(change: TestChange, laneKey: BoardLaneKey, kind: BoardMoveKind) {
+  clearQueuedBoardMovePrompt();
+  if (typeof window === 'undefined') {
+    openBoardMovePrompt(change, laneKey, kind);
+    return;
+  }
+
+  boardMovePromptFrameOne = window.requestAnimationFrame(() => {
+    boardMovePromptFrameOne = null;
+    boardMovePromptFrameTwo = window.requestAnimationFrame(() => {
+      boardMovePromptFrameTwo = null;
+      openBoardMovePrompt(change, laneKey, kind);
+    });
+  });
 }
 
 function closeBoardMovePrompt() {
   if (boardMovePendingId.value) {
     return;
   }
+  clearQueuedBoardMovePrompt();
+  resetBoardDrag();
   boardMovePrompt.value = null;
   boardMoveDetail.value = '';
 }
@@ -7073,13 +7711,14 @@ async function confirmBoardMove() {
     boardMovePrompt.value = null;
     return;
   }
-  const targetStatus: TestChangeStatus =
-    prompt.kind === 'attention'
-      ? boardMoveAttentionStatus.value
-      : prompt.kind === 'closed'
-        ? 'CLOSED'
-        : 'RENEWED';
+  const targetStatus = boardMoveTargetStatus.value;
+  if (!targetStatus) {
+    return;
+  }
   const detail = boardMoveDetail.value.trim();
+  if (boardMovePromptDetailRequired.value && !detail) {
+    return;
+  }
   const applied = await applyBoardStatus(change, targetStatus, detail || null);
   if (applied) {
     boardMovePrompt.value = null;
@@ -7092,10 +7731,11 @@ async function applyBoardStatus(
   targetStatus: TestChangeStatus,
   detail: string | null = null
 ): Promise<boolean> {
-  if (!authStore.isAdmin) {
+  const targetLane = STATUS_TO_BOARD_LANE[targetStatus] ?? 'toTest';
+  if (!canMoveBoardCardToLane(change, targetLane)) {
     addToast({
       title: 'Permission Required',
-      message: 'Only admins can move changes between status lanes.',
+      message: 'You do not have permission to move this change to that lane.',
       variant: 'error'
     });
     return false;
@@ -12319,23 +12959,125 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
 
 .tm-board-lane__empty {
   margin: auto 0;
-  padding: 1.1rem 0.6rem;
-  border: 1px dashed rgba(213, 196, 164, 0.18);
-  border-radius: 9px;
+  min-height: 7.2rem;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 0.62rem;
+  padding: 1rem 0.8rem;
+  border: 1px solid rgba(213, 196, 164, 0.12);
+  border-radius: 12px;
   text-align: center;
-  color: rgba(185, 173, 157, 0.6);
-  font-size: 0.74rem;
-  font-weight: 800;
+  color: rgba(185, 173, 157, 0.72);
+  background:
+    radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--lane) 8%, transparent), transparent 6rem),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 75%),
+    rgba(0, 0, 0, 0.14);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.22);
+  pointer-events: none;
+  user-select: none;
   transition:
     border-color 0.2s ease,
     color 0.2s ease,
-    background 0.2s ease;
+    background 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+.tm-board-lane__empty * {
+  pointer-events: none;
+}
+
+.tm-board-lane__empty-mark {
+  position: relative;
+  width: 2.35rem;
+  height: 2.35rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--lane) 28%, rgba(213, 196, 164, 0.18));
+  border-radius: 50%;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 70%),
+    color-mix(in srgb, var(--lane) 7%, rgba(0, 0, 0, 0.28));
+}
+
+.tm-board-lane__empty-mark::before,
+.tm-board-lane__empty-mark::after {
+  content: '';
+  position: absolute;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--lane) 46%, rgba(232, 221, 206, 0.34));
+}
+
+.tm-board-lane__empty-mark::before {
+  width: 1.08rem;
+  height: 2px;
+}
+
+.tm-board-lane__empty-mark::after {
+  width: 2px;
+  height: 1.08rem;
+  opacity: 0.54;
+}
+
+.tm-board-lane__empty-mark > span {
+  width: 0.48rem;
+  height: 0.48rem;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--lane) 62%, rgba(232, 221, 206, 0.26));
+  box-shadow: 0 0 14px color-mix(in srgb, var(--lane) 28%, transparent);
+}
+
+.tm-board-lane__empty-copy {
+  display: grid;
+  gap: 0.22rem;
+  min-width: 0;
+}
+
+.tm-board-lane__empty-copy strong {
+  color: rgba(246, 236, 218, 0.82);
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  line-height: 1.15;
+}
+
+.tm-board-lane__empty-copy small {
+  color: rgba(185, 173, 157, 0.68);
+  font-size: 0.69rem;
+  font-weight: 750;
+  line-height: 1.35;
 }
 
 .tm-board-lane__empty--target {
-  border-color: color-mix(in srgb, var(--lane) 60%, transparent);
-  color: color-mix(in srgb, var(--lane) 70%, #ffffff);
-  background: color-mix(in srgb, var(--lane) 9%, transparent);
+  border-color: color-mix(in srgb, var(--lane) 54%, rgba(255, 255, 255, 0.12));
+  color: color-mix(in srgb, var(--lane) 76%, #ffffff);
+  background:
+    radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--lane) 20%, transparent), transparent 6rem),
+    linear-gradient(180deg, color-mix(in srgb, var(--lane) 12%, rgba(255, 255, 255, 0.03)), transparent 78%),
+    rgba(0, 0, 0, 0.2);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--lane) 28%, transparent),
+    0 0 20px color-mix(in srgb, var(--lane) 16%, transparent);
+  transform: translateY(-1px);
+}
+
+.tm-board-lane__empty--target .tm-board-lane__empty-mark {
+  border-color: color-mix(in srgb, var(--lane) 62%, rgba(255, 255, 255, 0.16));
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.1), transparent 70%),
+    color-mix(in srgb, var(--lane) 18%, rgba(0, 0, 0, 0.28));
+  box-shadow: 0 0 18px color-mix(in srgb, var(--lane) 24%, transparent);
+}
+
+.tm-board-lane__empty--target .tm-board-lane__empty-copy strong {
+  color: color-mix(in srgb, var(--lane) 68%, #ffffff);
+}
+
+.tm-board-lane__empty--target .tm-board-lane__empty-copy small {
+  color: rgba(232, 221, 206, 0.76);
 }
 
 /* board cards */
@@ -12378,6 +13120,7 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
 
 .tm-board-card--draggable {
   cursor: grab;
+  touch-action: none;
 }
 
 .tm-board-card--draggable:active {
@@ -12387,6 +13130,43 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
 .tm-board-card--dragging {
   opacity: 0.5;
   transform: scale(0.98) rotate(-0.4deg);
+}
+
+.tm-board-card--preview {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 10030;
+  max-width: calc(100vw - 1rem);
+  pointer-events: none;
+  cursor: grabbing;
+  opacity: 0.98;
+  transition: none;
+  will-change: transform;
+  box-shadow:
+    0 22px 44px rgba(0, 0, 0, 0.48),
+    0 0 0 1px color-mix(in srgb, var(--lane) 38%, transparent),
+    0 0 34px color-mix(in srgb, var(--lane) 22%, transparent);
+}
+
+.tm-board-card--preview-toTest {
+  --lane: #d9a45f;
+}
+
+.tm-board-card--preview-testing {
+  --lane: #55b7ff;
+}
+
+.tm-board-card--preview-passed {
+  --lane: #72d66f;
+}
+
+.tm-board-card--preview-attention {
+  --lane: #ff6b55;
+}
+
+.tm-board-card--preview-closed {
+  --lane: #b88cff;
 }
 
 .tm-board-card--pending {
@@ -12605,8 +13385,222 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
 }
 
 /* board move prompt modal */
+.tm-board-move-backdrop {
+  background:
+    radial-gradient(circle at 50% 8%, rgba(85, 183, 255, 0.2), transparent 34rem),
+    radial-gradient(circle at 18% 88%, rgba(114, 214, 111, 0.12), transparent 22rem),
+    rgba(0, 0, 0, 0.76);
+}
+
 .tm-board-move-modal {
-  gap: 0.85rem;
+  position: relative;
+  width: min(41rem, 100%);
+  gap: 0.9rem;
+  overflow: hidden;
+  border-color: rgba(117, 190, 215, 0.38);
+  background:
+    radial-gradient(circle at 10% 0%, rgba(85, 183, 255, 0.13), transparent 16rem),
+    radial-gradient(circle at 92% 8%, rgba(217, 164, 95, 0.1), transparent 13rem),
+    linear-gradient(180deg, rgba(19, 29, 30, 0.98), rgba(7, 10, 11, 0.98));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 24px 70px rgba(0, 0, 0, 0.48),
+    0 0 42px rgba(85, 183, 255, 0.1);
+}
+
+.tm-board-move-modal::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  background: linear-gradient(90deg, var(--tm-blue), var(--tm-gold), var(--tm-green));
+  opacity: 0.82;
+}
+
+.tm-board-move-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.72rem;
+  align-items: center;
+  padding: 0.75rem 0.8rem;
+  border: 1px solid rgba(213, 196, 164, 0.16);
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent 78%), rgba(0, 0, 0, 0.22);
+}
+
+.tm-board-move-card__copy {
+  display: grid;
+  gap: 0.16rem;
+  min-width: 0;
+}
+
+.tm-board-move-card__copy span,
+.tm-board-move-node span {
+  color: var(--tm-muted);
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.tm-board-move-card__copy strong {
+  color: #f8efdf;
+  font-size: 0.98rem;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.tm-board-move-card__copy small {
+  color: rgba(232, 221, 206, 0.7);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.tm-board-move-path {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 0.7rem;
+  align-items: stretch;
+}
+
+.tm-board-move-node {
+  --lane-accent: var(--tm-blue);
+  display: grid;
+  gap: 0.45rem;
+  align-content: center;
+  min-width: 0;
+  min-height: 6rem;
+  padding: 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--lane-accent) 36%, rgba(255, 255, 255, 0.12));
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--lane-accent) 18%, transparent), transparent 7rem),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 82%),
+    rgba(0, 0, 0, 0.24);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 10px 28px color-mix(in srgb, var(--lane-accent) 10%, transparent);
+}
+
+.tm-board-move-node--toTest {
+  --lane-accent: var(--tm-blue);
+}
+
+.tm-board-move-node--testing {
+  --lane-accent: #8bc5ff;
+}
+
+.tm-board-move-node--passed {
+  --lane-accent: var(--tm-green);
+}
+
+.tm-board-move-node--attention {
+  --lane-accent: var(--tm-red);
+}
+
+.tm-board-move-node--closed {
+  --lane-accent: var(--tm-gold);
+}
+
+.tm-board-move-node strong {
+  color: #fff3df;
+  font-size: 1.04rem;
+  font-weight: 950;
+  line-height: 1.1;
+}
+
+.tm-board-move-node--target {
+  transform: translateY(-2px);
+}
+
+.tm-board-move-arrow {
+  display: grid;
+  grid-template-rows: 1fr auto 1fr;
+  justify-items: center;
+  align-items: center;
+  min-width: 2.1rem;
+  color: rgba(232, 221, 206, 0.9);
+}
+
+.tm-board-move-arrow span {
+  width: 1px;
+  height: 100%;
+  background: linear-gradient(180deg, transparent, rgba(213, 196, 164, 0.34), transparent);
+}
+
+.tm-board-move-arrow strong {
+  width: 2.1rem;
+  height: 2.1rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(213, 196, 164, 0.22);
+  border-radius: 50%;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 75%), rgba(6, 10, 11, 0.86);
+  box-shadow: 0 0 18px rgba(85, 183, 255, 0.12);
+  font-size: 1rem;
+}
+
+.tm-board-move-impact {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tm-board-move-impact li {
+  --impact-accent: var(--tm-blue);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.58rem;
+  align-items: start;
+  padding: 0.62rem 0.68rem;
+  border: 1px solid rgba(213, 196, 164, 0.12);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.026);
+}
+
+.tm-board-move-impact__item--success {
+  --impact-accent: var(--tm-green);
+}
+
+.tm-board-move-impact__item--warning {
+  --impact-accent: var(--tm-gold);
+}
+
+.tm-board-move-impact__item--danger {
+  --impact-accent: var(--tm-red);
+}
+
+.tm-board-move-impact__marker {
+  width: 0.62rem;
+  height: 0.62rem;
+  margin-top: 0.22rem;
+  border-radius: 50%;
+  background: var(--impact-accent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--impact-accent) 55%, transparent);
+}
+
+.tm-board-move-impact li span:last-child {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.tm-board-move-impact strong {
+  color: #f6ecda;
+  font-size: 0.78rem;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.tm-board-move-impact small {
+  color: rgba(232, 221, 206, 0.72);
+  font-size: 0.73rem;
+  line-height: 1.35;
 }
 
 .tm-board-move-choice {
@@ -21661,6 +22655,40 @@ button.tm-version-badge {
 
   .tm-confirm-modal__actions .tm-btn {
     justify-content: center;
+  }
+
+  .tm-board-move-modal {
+    width: min(100%, calc(100vw - 1rem));
+    padding: 0.95rem;
+  }
+
+  .tm-board-move-path {
+    grid-template-columns: 1fr;
+  }
+
+  .tm-board-move-node {
+    min-height: auto;
+  }
+
+  .tm-board-move-node--target {
+    transform: none;
+  }
+
+  .tm-board-move-arrow {
+    min-width: 0;
+    grid-template-columns: 1fr auto 1fr;
+    grid-template-rows: auto;
+    gap: 0.45rem;
+  }
+
+  .tm-board-move-arrow span {
+    width: 100%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(213, 196, 164, 0.34), transparent);
+  }
+
+  .tm-board-move-choice {
+    grid-template-columns: 1fr;
   }
 }
 

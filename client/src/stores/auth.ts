@@ -51,6 +51,10 @@ export const useAuthStore = defineStore('auth', {
     canViewTestManager: (state) => Boolean(state.user?.testManagerPermissions?.includes('view')),
     canVolunteerTestManager: (state) =>
       Boolean(state.user?.testManagerPermissions?.includes('volunteer')),
+    canSubmitTestManagerResult: (state) =>
+      Boolean(state.user?.testManagerPermissions?.includes('submitResult')),
+    canDisposeTestManagerChanges: (state) =>
+      Boolean(state.user?.testManagerPermissions?.includes('dispose')),
     canManageTestManagerSettings: (state) =>
       Boolean(state.user?.testManagerPermissions?.includes('settings')),
     canManageTestManagerTesters: (state) =>
