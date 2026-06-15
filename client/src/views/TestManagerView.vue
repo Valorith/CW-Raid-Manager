@@ -1895,18 +1895,21 @@
                   :class="{
                     'tm-board-card--dragging': boardDragChangeId === change.id,
                     'tm-board-card--pending': boardMovePendingId === change.id,
-                    'tm-board-card--draggable': canMoveBoardCard(change)
+                    'tm-board-card--draggable': canMoveBoardCard(change),
+                    'tm-board-card--auto-closing': isBoardAutoClosing(change.id)
                   }"
+                  :style="boardAutoCloseCardStyle(change)"
                   :data-change-id="change.id"
                   :data-board-lane="lane.key"
                   draggable="false"
                   role="button"
-                  tabindex="0"
+                  :tabindex="isBoardAutoClosing(change.id) ? -1 : 0"
+                  :aria-disabled="isBoardAutoClosing(change.id) ? 'true' : undefined"
                   :aria-label="`Open change #${change.publicId}: ${change.title}`"
                   @pointerdown="handleBoardPointerDown(change, lane.key, $event)"
                   @click="handleBoardCardClick(change, $event)"
-                  @keydown.enter.prevent="goToChange(change.id)"
-                  @keydown.space.prevent="goToChange(change.id)"
+                  @keydown.enter.prevent="handleBoardCardKeyboardOpen(change)"
+                  @keydown.space.prevent="handleBoardCardKeyboardOpen(change)"
                 >
                   <div class="tm-board-card__top">
                     <span
@@ -1992,6 +1995,24 @@
                       ? `Closed ${relativeTime(change.closedAt)}`
                       : `Updated ${relativeTime(change.updatedAt)}`
                   }}</span>
+                  <div
+                    v-if="isBoardAutoClosing(change.id)"
+                    class="tm-board-card__auto-closing"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <div class="tm-board-card__auto-closing-head">
+                      <span class="tm-board-card__auto-closing-signal" aria-hidden="true"></span>
+                      <span class="tm-board-card__auto-closing-copy">
+                        <strong>Auto-closing</strong>
+                        <small>Moving to Closed</small>
+                      </span>
+                      <em>{{ boardAutoCloseRemainingLabel(change) }}</em>
+                    </div>
+                    <div class="tm-board-card__auto-closing-track" aria-hidden="true">
+                      <span></span>
+                    </div>
+                  </div>
                 </article>
                 <div
                   v-if="!lane.changes.length"
@@ -5211,6 +5232,16 @@ let boardPointerDragState: BoardPointerDragState | null = null;
 let boardPointerSuppressClickUntil = 0;
 const boardDragPreview = ref<BoardDragPreview | null>(null);
 const boardMovePendingId = ref<string | null>(null);
+const BOARD_AUTO_CLOSE_ANIMATION_MS = 5000;
+interface BoardAutoCloseAnimation {
+  change: TestChange;
+  startedAt: number;
+  endsAt: number;
+  remainingSeconds: number;
+}
+const boardAutoCloseAnimations = ref<Record<string, BoardAutoCloseAnimation>>({});
+const boardAutoCloseTimeouts = new Map<string, number>();
+const boardAutoCloseIntervals = new Map<string, number>();
 // When a lane move needs extra input/confirmation, this prompt is shown.
 const boardMovePrompt = ref<BoardMovePrompt | null>(null);
 const boardMoveDetail = ref('');
@@ -6223,6 +6254,9 @@ const nextPatchBoardChanges = computed(() => {
     (nextPatchViewCache.value[view] ?? []).forEach((change) => {
       byId.set(change.id, change);
     });
+  });
+  Object.values(boardAutoCloseAnimations.value).forEach((animation) => {
+    byId.set(animation.change.id, animation.change);
   });
   return Array.from(byId.values());
 });
@@ -7268,6 +7302,9 @@ function canSubmitBoardResult(change: TestChange) {
 }
 
 function canMoveBoardCardToLane(change: TestChange, laneKey: BoardLaneKey) {
+  if (isBoardAutoClosing(change.id)) {
+    return false;
+  }
   const sourceLane = STATUS_TO_BOARD_LANE[change.status] ?? 'toTest';
   if (!isValidBoardLaneMove(sourceLane, laneKey)) {
     return false;
@@ -7332,6 +7369,129 @@ function boardLaneTargetStatus(
     default:
       return sourceStatus;
   }
+}
+
+function isBoardAutoClosing(changeId: string) {
+  return Boolean(boardAutoCloseAnimations.value[changeId]);
+}
+
+function boardAutoCloseCardStyle(change: TestChange) {
+  if (!isBoardAutoClosing(change.id)) {
+    return {};
+  }
+  return {
+    '--tm-board-auto-close-duration': `${BOARD_AUTO_CLOSE_ANIMATION_MS}ms`
+  };
+}
+
+function boardAutoCloseRemainingLabel(change: TestChange) {
+  const remainingSeconds =
+    boardAutoCloseAnimations.value[change.id]?.remainingSeconds ??
+    Math.ceil(BOARD_AUTO_CLOSE_ANIMATION_MS / 1000);
+  return `${Math.max(0, remainingSeconds)}s`;
+}
+
+function boardAutoCloseDisplayChange(finalChange: TestChange): TestChange {
+  return {
+    ...finalChange,
+    status: 'PASSED',
+    closedAt: null,
+    closedBy: null
+  };
+}
+
+function updateBoardAutoCloseRemaining(changeId: string) {
+  const animation = boardAutoCloseAnimations.value[changeId];
+  if (!animation) {
+    return;
+  }
+  const remainingMs = Math.max(0, animation.endsAt - Date.now());
+  const remainingSeconds = Math.ceil(remainingMs / 1000);
+  if (remainingSeconds === animation.remainingSeconds) {
+    return;
+  }
+  boardAutoCloseAnimations.value = {
+    ...boardAutoCloseAnimations.value,
+    [changeId]: {
+      ...animation,
+      remainingSeconds
+    }
+  };
+}
+
+function clearBoardAutoCloseTimers(changeId: string) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  const timeoutId = boardAutoCloseTimeouts.get(changeId);
+  if (typeof timeoutId === 'number') {
+    window.clearTimeout(timeoutId);
+  }
+  const intervalId = boardAutoCloseIntervals.get(changeId);
+  if (typeof intervalId === 'number') {
+    window.clearInterval(intervalId);
+  }
+  boardAutoCloseTimeouts.delete(changeId);
+  boardAutoCloseIntervals.delete(changeId);
+}
+
+function finishBoardAutoCloseAnimation(changeId: string) {
+  clearBoardAutoCloseTimers(changeId);
+  if (!boardAutoCloseAnimations.value[changeId]) {
+    return;
+  }
+  const nextAnimations = { ...boardAutoCloseAnimations.value };
+  delete nextAnimations[changeId];
+  boardAutoCloseAnimations.value = nextAnimations;
+}
+
+function clearAllBoardAutoCloseAnimations() {
+  Object.keys(boardAutoCloseAnimations.value).forEach((changeId) => {
+    clearBoardAutoCloseTimers(changeId);
+  });
+  boardAutoCloseAnimations.value = {};
+}
+
+function startBoardAutoCloseAnimation(finalChange: TestChange) {
+  const changeId = finalChange.id;
+  clearBoardAutoCloseTimers(changeId);
+  const now = Date.now();
+  boardAutoCloseAnimations.value = {
+    ...boardAutoCloseAnimations.value,
+    [changeId]: {
+      change: boardAutoCloseDisplayChange(finalChange),
+      startedAt: now,
+      endsAt: now + BOARD_AUTO_CLOSE_ANIMATION_MS,
+      remainingSeconds: Math.ceil(BOARD_AUTO_CLOSE_ANIMATION_MS / 1000)
+    }
+  };
+  if (typeof window === 'undefined') {
+    finishBoardAutoCloseAnimation(changeId);
+    return;
+  }
+  boardAutoCloseIntervals.set(
+    changeId,
+    window.setInterval(() => updateBoardAutoCloseRemaining(changeId), 200)
+  );
+  boardAutoCloseTimeouts.set(
+    changeId,
+    window.setTimeout(() => finishBoardAutoCloseAnimation(changeId), BOARD_AUTO_CLOSE_ANIMATION_MS)
+  );
+}
+
+function shouldAnimateBoardAutoClose(
+  change: TestChange,
+  requestedStatus: TestChangeStatus,
+  updated: TestChange
+) {
+  return (
+    nextPatchLayout.value === 'board' &&
+    requestedStatus === 'PASSED' &&
+    updated.status === 'CLOSED' &&
+    updated.includeInNextPatch &&
+    updated.autoClosePassCount > 0 &&
+    !isTerminalChangeStatus(change.status)
+  );
 }
 
 // ===== Tap / keyboard move menu (no-drag path for touch & keyboard users) =====
@@ -7422,6 +7582,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('scroll', closeBoardMoveMenu, true);
   clearQueuedBoardMovePrompt();
   clearBoardPointerDragListeners();
+  clearAllBoardAutoCloseAnimations();
 });
 
 function resetBoardDrag() {
@@ -7516,6 +7677,7 @@ function handleBoardPointerDown(change: TestChange, laneKey: BoardLaneKey, event
     event.button !== 0 ||
     boardMovePrompt.value ||
     boardMovePendingId.value ||
+    isBoardAutoClosing(change.id) ||
     !canMoveBoardCard(change) ||
     isBoardPointerInteractiveTarget(event.target)
   ) {
@@ -7622,6 +7784,18 @@ function handleBoardCardClick(change: TestChange, event: MouseEvent) {
   if (Date.now() < boardPointerSuppressClickUntil) {
     event.preventDefault();
     event.stopPropagation();
+    return;
+  }
+  if (isBoardAutoClosing(change.id)) {
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
+  goToChange(change.id);
+}
+
+function handleBoardCardKeyboardOpen(change: TestChange) {
+  if (isBoardAutoClosing(change.id)) {
     return;
   }
   goToChange(change.id);
@@ -7749,7 +7923,11 @@ async function applyBoardStatus(
   boardMovePendingId.value = change.id;
   try {
     const updated = await api.updateTestChangeStatus(change.id, targetStatus, detail);
+    const animateAutoClose = shouldAnimateBoardAutoClose(change, targetStatus, updated);
     replaceCachedChange(updated);
+    if (animateAutoClose) {
+      startBoardAutoCloseAnimation(updated);
+    }
     refreshNextPatchCountInBackground();
     addToast({
       title: 'Status Updated',
@@ -13198,6 +13376,190 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
   }
 }
 
+.tm-board-card--auto-closing,
+.tm-board-card--auto-closing:hover {
+  pointer-events: none;
+  cursor: default;
+  overflow: hidden;
+  border-color: color-mix(in srgb, #72d66f 42%, var(--tm-border-soft));
+  border-left-color: #72d66f;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 14px 30px rgba(0, 0, 0, 0.34),
+    0 0 0 1px rgba(114, 214, 111, 0.13),
+    0 0 30px rgba(114, 214, 111, 0.16);
+  transform: translateY(-1px);
+  animation: tm-board-auto-close-card var(--tm-board-auto-close-duration, 5s) linear forwards;
+}
+
+.tm-board-card--auto-closing .tm-board-card__move {
+  display: none;
+}
+
+.tm-board-card__auto-closing {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 0.54rem;
+  padding: 0.7rem;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 18% 12%, rgba(114, 214, 111, 0.24), transparent 5.6rem),
+    linear-gradient(180deg, rgba(10, 18, 14, 0.58), rgba(5, 8, 7, 0.9));
+  box-shadow: inset 0 0 0 1px rgba(179, 239, 148, 0.14);
+}
+
+.tm-board-card__auto-closing::before {
+  content: '';
+  position: absolute;
+  inset: -40% -20%;
+  background: linear-gradient(
+    115deg,
+    transparent 34%,
+    rgba(255, 255, 255, 0.13) 48%,
+    transparent 62%
+  );
+  transform: translateX(-42%);
+  animation: tm-board-auto-close-sheen 1.7s ease-in-out infinite;
+}
+
+.tm-board-card__auto-closing-head {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.tm-board-card__auto-closing-signal {
+  position: relative;
+  width: 1.76rem;
+  height: 1.76rem;
+  border: 1px solid rgba(185, 255, 166, 0.38);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(185, 255, 166, 0.94) 0 0.23rem, transparent 0.25rem),
+    radial-gradient(circle at 50% 50%, rgba(114, 214, 111, 0.2), rgba(114, 214, 111, 0.04));
+  box-shadow:
+    0 0 18px rgba(114, 214, 111, 0.34),
+    inset 0 0 14px rgba(114, 214, 111, 0.2);
+}
+
+.tm-board-card__auto-closing-signal::after {
+  content: '';
+  position: absolute;
+  inset: 0.26rem;
+  border: 2px solid rgba(230, 245, 214, 0.74);
+  border-left-color: transparent;
+  border-bottom-color: rgba(230, 245, 214, 0.26);
+  border-radius: 50%;
+  animation: tm-board-auto-close-spin 1.2s linear infinite;
+}
+
+.tm-board-card__auto-closing-copy {
+  display: grid;
+  gap: 0.08rem;
+  min-width: 0;
+}
+
+.tm-board-card__auto-closing-copy strong {
+  color: #f5ffe9;
+  font-size: 0.82rem;
+  font-weight: 950;
+  line-height: 1.1;
+}
+
+.tm-board-card__auto-closing-copy small {
+  color: rgba(226, 241, 215, 0.76);
+  font-size: 0.66rem;
+  font-weight: 800;
+}
+
+.tm-board-card__auto-closing-head em {
+  min-width: 2.15rem;
+  padding: 0.22rem 0.44rem;
+  border: 1px solid rgba(185, 255, 166, 0.28);
+  border-radius: 999px;
+  color: #f6ffe8;
+  background: rgba(0, 0, 0, 0.28);
+  font-size: 0.68rem;
+  font-style: normal;
+  font-weight: 950;
+  text-align: center;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.tm-board-card__auto-closing-track {
+  position: relative;
+  z-index: 1;
+  height: 0.42rem;
+  overflow: hidden;
+  border: 1px solid rgba(185, 255, 166, 0.24);
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent),
+    rgba(0, 0, 0, 0.3);
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.28),
+    0 0 14px rgba(114, 214, 111, 0.18);
+}
+
+.tm-board-card__auto-closing-track span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  transform-origin: left center;
+  background: linear-gradient(90deg, #f4d37c, #b9ffa6 42%, #7af0d4);
+  box-shadow: 0 0 16px rgba(114, 214, 111, 0.42);
+  animation: tm-board-auto-close-countdown var(--tm-board-auto-close-duration, 5s) linear forwards;
+}
+
+@keyframes tm-board-auto-close-card {
+  from {
+    opacity: 1;
+    filter: saturate(1.06);
+  }
+  to {
+    opacity: 0;
+    filter: saturate(0.72);
+  }
+}
+
+@keyframes tm-board-auto-close-countdown {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+@keyframes tm-board-auto-close-sheen {
+  0% {
+    transform: translateX(-42%);
+    opacity: 0;
+  }
+  28%,
+  70% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(42%);
+    opacity: 0;
+  }
+}
+
+@keyframes tm-board-auto-close-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .tm-board-card__move {
   flex: none;
   display: inline-grid;
@@ -13882,9 +14244,19 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
   .tm-board-card__move {
     transition: none;
   }
+  .tm-board-card--auto-closing {
+    animation: none;
+    opacity: 0.72;
+  }
   .tm-board-card--pending::after,
+  .tm-board-card__auto-closing::before,
+  .tm-board-card__auto-closing-signal::after,
+  .tm-board-card__auto-closing-track span,
   .tm-board-menu {
     animation: none;
+  }
+  .tm-board-card__auto-closing-track span {
+    transform: scaleX(0.35);
   }
 }
 
