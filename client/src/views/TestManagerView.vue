@@ -4681,6 +4681,23 @@
                 />
               </svg>
             </button>
+            <button
+              type="button"
+              class="tm-checklist-note-btn tm-checklist-note-btn--sub"
+              :class="{
+                'tm-checklist-note-btn--has-note': hasViewerChecklistItemNote(child.id)
+              }"
+              :disabled="!viewerCanEditChecklist"
+              :aria-label="
+                hasViewerChecklistItemNote(child.id)
+                  ? 'Edit sub-checklist item note'
+                  : 'Add sub-checklist item note'
+              "
+              :title="viewerChecklistItemNoteText(child.id) || 'Add note'"
+              @click.stop="openChecklistNote(child.id)"
+            >
+              <span aria-hidden="true">{{ hasViewerChecklistItemNote(child.id) ? '▤' : '✎' }}</span>
+            </button>
           </li>
         </ul>
 
@@ -21771,7 +21788,7 @@ button.tm-version-badge {
 
 .tm-subchecklist-viewer__item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   border: 1px solid var(--tm-border-soft);
   border-radius: 10px;
@@ -21902,7 +21919,11 @@ button.tm-version-badge {
     rgba(24, 58, 31, 0.1);
 }
 
-.tm-checklist-share-btn--sub {
+.tm-subchecklist-viewer__item > .tm-checklist-share-btn--sub {
+  margin-right: 0.25rem;
+}
+
+.tm-checklist-note-btn--sub {
   margin-right: 0.55rem;
 }
 
