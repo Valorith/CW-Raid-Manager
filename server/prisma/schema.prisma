@@ -39,6 +39,7 @@ model User {
   calendarAvailability CalendarAvailability[]
   npcFavorites         NpcFavorite[]
   marketFavorites      MarketFavorite[]
+  pageFavorites        PageFavorite[]
   notificationChannels UserNotificationChannel[]
   notificationPreferences UserNotificationPreference[]
   notificationDeliveries NotificationDelivery[]
@@ -1307,6 +1308,21 @@ model MarketFavorite {
 
   @@unique([userId, listType, targetKey], map: "MarketFavorite_user_list_target_key")
   @@index([userId, listType], map: "MarketFavorite_userId_listType_idx")
+}
+
+model PageFavorite {
+  id        String   @id @default(cuid())
+  userId    String
+  label     String   @db.VarChar(80)
+  path      String   @db.VarChar(240)
+  sortOrder Int      @default(0)
+  addedAt   DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, path], map: "PageFavorite_user_path_key")
+  @@index([userId, sortOrder], map: "PageFavorite_user_sort_idx")
 }
 
 model UserNotificationChannel {

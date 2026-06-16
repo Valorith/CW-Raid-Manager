@@ -8,6 +8,11 @@ import { updateMarketFavoriteNotificationSettings } from '../services/marketNoti
 import { getMarketFavorites } from '../services/marketService.js';
 import { sendNotificationTestMessage } from '../services/notificationOutboxService.js';
 import {
+  isPageFavoriteStorageUnavailable,
+  listPageFavorites,
+  replacePageFavorites
+} from '../services/pageFavoriteService.js';
+import {
   deleteUserPasskey,
   listUserPasskeys,
   renameUserPasskey
@@ -58,6 +63,24 @@ const passkeyParamsSchema = z.object({
 
 const passkeyRenameSchema = z.object({
   name: z.string().trim().min(1, 'Passkey name is required.').max(64)
+});
+
+const pageFavoriteSchema = z.object({
+  id: z.string().trim().min(1).max(191).optional(),
+  label: z.string().trim().min(1, 'Favorite label is required.').max(80),
+  path: z
+    .string()
+    .trim()
+    .min(1, 'Favorite path is required.')
+    .max(240)
+    .refine((value) => value.startsWith('/') && !value.startsWith('//'), {
+      message: 'Favorite path must be an app path.'
+    }),
+  addedAt: z.string().trim().optional().nullable()
+});
+
+const pageFavoritesUpdateSchema = z.object({
+  favorites: z.array(pageFavoriteSchema).max(24)
 });
 
 const accountProfileSelect = {
@@ -219,6 +242,41 @@ export async function accountRoutes(server: FastifyInstance): Promise<void> {
     return {
       profile: serializeAccountProfile(user)
     };
+  });
+
+  server.get('/page-favorites', { preHandler: [authenticate] }, async (request, reply) => {
+    try {
+      const favorites = await listPageFavorites(request.user.userId);
+      return { favorites };
+    } catch (error) {
+      if (isPageFavoriteStorageUnavailable(error)) {
+        request.log.warn({ error }, 'Page favorites storage is unavailable.');
+        return reply.code(503).send({ error: 'Page favorites storage is unavailable.' });
+      }
+
+      request.log.error({ error }, 'Failed to load page favorites.');
+      return reply.internalServerError('Unable to load page favorites.');
+    }
+  });
+
+  server.put('/page-favorites', { preHandler: [authenticate] }, async (request, reply) => {
+    const parsed = pageFavoritesUpdateSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.badRequest(parsed.error.issues[0]?.message ?? 'Invalid page favorites payload.');
+    }
+
+    try {
+      const favorites = await replacePageFavorites(request.user.userId, parsed.data.favorites);
+      return { favorites };
+    } catch (error) {
+      if (isPageFavoriteStorageUnavailable(error)) {
+        request.log.warn({ error }, 'Page favorites storage is unavailable.');
+        return reply.code(503).send({ error: 'Page favorites storage is unavailable.' });
+      }
+
+      request.log.error({ error }, 'Failed to save page favorites.');
+      return reply.internalServerError('Unable to save page favorites.');
+    }
   });
 
   // Get linked OAuth providers

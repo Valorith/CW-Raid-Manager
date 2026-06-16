@@ -1440,6 +1440,13 @@ export interface UserPasskey {
   lastUsedAt: string | null;
 }
 
+export interface PageFavorite {
+  id: string;
+  label: string;
+  path: string;
+  addedAt: string;
+}
+
 export type NotificationProvider = 'TELEGRAM' | 'WHATSAPP';
 export type NotificationScopeType = 'GLOBAL' | 'GUILD';
 export type NotificationChannelStatus = 'PENDING' | 'ACTIVE' | 'DISCONNECTED' | 'FAILED';
@@ -4833,6 +4840,16 @@ export const api = {
       passkeys: Boolean(response.data.providers?.passkeys),
       passkeyCount: Number(response.data.providers?.passkeyCount ?? 0)
     };
+  },
+
+  async fetchPageFavorites(): Promise<PageFavorite[]> {
+    const response = await axios.get('/api/account/page-favorites');
+    return Array.isArray(response.data.favorites) ? response.data.favorites : [];
+  },
+
+  async savePageFavorites(favorites: PageFavorite[]): Promise<PageFavorite[]> {
+    const response = await axios.put('/api/account/page-favorites', { favorites });
+    return Array.isArray(response.data.favorites) ? response.data.favorites : [];
   },
 
   async fetchNotificationChannels(): Promise<NotificationChannelsSnapshot> {

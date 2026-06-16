@@ -386,11 +386,20 @@
             autocomplete="username webauthn"
             aria-label="Passkey sign-in"
           />
-          <button class="btn btn--passkey" :disabled="passkeyAuthenticating" @click="loginWithPasskey">
+          <button
+            class="btn btn--passkey"
+            :disabled="passkeyAuthenticating"
+            @click="loginWithPasskey"
+          >
             <svg class="btn__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
               <circle cx="8" cy="15" r="4" stroke-width="2" />
               <path d="M11 12 21 2" stroke-width="2" stroke-linecap="round" />
-              <path d="m16 7 2 2 3-3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+              <path
+                d="m16 7 2 2 3-3"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
             </svg>
             {{ passkeyAuthenticating ? 'Checking...' : 'Passkey' }}
           </button>
@@ -445,12 +454,49 @@
             <div v-if="pageFavorites.length === 0" class="nav-favorites__empty">
               No favorites saved yet.
             </div>
-            <div v-else class="nav-favorites__list">
+            <TransitionGroup
+              v-else
+              name="favorite-list"
+              tag="div"
+              class="nav-favorites__list"
+              :class="{ 'nav-favorites__list--dragging': draggedFavoriteId }"
+            >
               <div
-                v-for="favorite in pageFavorites"
+                v-for="favorite in displayedPageFavorites"
                 :key="favorite.id"
                 class="nav-favorites__row"
+                :class="[
+                  {
+                    'nav-favorites__row--dragging': draggedFavoriteId === favorite.id,
+                    'nav-favorites__row--drag-over': dragOverFavoriteId === favorite.id
+                  },
+                  getFavoriteDropClass(favorite.id)
+                ]"
+                :data-favorite-id="favorite.id"
+                @dragover.prevent="handleFavoriteDragOver(favorite.id, $event)"
+                @drop.prevent="handleFavoriteDrop"
+                @contextmenu.prevent.stop="openFavoriteContextMenu(favorite, $event)"
               >
+                <button
+                  type="button"
+                  class="nav-favorites__drag"
+                  draggable="true"
+                  :aria-label="`Drag ${favorite.label} to reorder favorites`"
+                  title="Drag to reorder"
+                  @click.stop
+                  @pointerdown="handleFavoritePointerDown(favorite, $event)"
+                  @dragstart="handleFavoriteDragStart(favorite, $event)"
+                  @dragend="finishFavoriteDrag()"
+                >
+                  <svg viewBox="0 0 20 20" aria-hidden="true">
+                    <circle cx="7" cy="5" r="1.2" />
+                    <circle cx="13" cy="5" r="1.2" />
+                    <circle cx="7" cy="10" r="1.2" />
+                    <circle cx="13" cy="10" r="1.2" />
+                    <circle cx="7" cy="15" r="1.2" />
+                    <circle cx="13" cy="15" r="1.2" />
+                  </svg>
+                </button>
                 <RouterLink
                   :to="favorite.path"
                   class="nav__dropdown-item nav-favorites__link"
@@ -466,11 +512,14 @@
                   @click.stop="requestRemoveFavorite(favorite)"
                 >
                   <svg viewBox="0 0 20 20" aria-hidden="true">
-                    <path d="M6 6l8 8M14 6l-8 8" />
+                    <path d="M7 8v7M10 8v7M13 8v7" />
+                    <path d="M4.5 5.5h11" />
+                    <path d="M8 5.5V4.2h4v1.3" />
+                    <path d="M6 5.5 6.7 17h6.6L14 5.5" />
                   </svg>
                 </button>
               </div>
-            </div>
+            </TransitionGroup>
             <div class="nav-favorites__footer">
               <button
                 type="button"
@@ -492,6 +541,24 @@
           </div>
         </div>
       </Transition>
+      <div
+        v-if="favoriteContextMenu"
+        ref="favoriteContextMenuRef"
+        class="favorite-context-menu"
+        :style="favoriteContextMenuStyle"
+        role="menu"
+        @click.stop
+        @contextmenu.prevent
+      >
+        <button
+          type="button"
+          class="favorite-context-menu__item"
+          role="menuitem"
+          @click="startRenameFavoriteFromContext"
+        >
+          Rename
+        </button>
+      </div>
       <Transition name="dropdown">
         <div
           v-if="primaryGuild && activeDropdown === 'guild'"
@@ -553,11 +620,7 @@
           <RouterLink to="/admin/connections" class="nav__dropdown-item">
             Server Connections
           </RouterLink>
-          <RouterLink
-            v-if="authStore.isAdmin"
-            to="/admin/money-tracker"
-            class="nav__dropdown-item"
-          >
+          <RouterLink v-if="authStore.isAdmin" to="/admin/money-tracker" class="nav__dropdown-item">
             Money Tracker
           </RouterLink>
           <RouterLink v-if="authStore.isAdmin" to="/admin/webhooks" class="nav__dropdown-item">
@@ -573,11 +636,7 @@
           <RouterLink v-if="authStore.isAdmin" to="/admin/bis" class="nav__dropdown-item">
             BiS Moderation
           </RouterLink>
-          <RouterLink
-            v-if="authStore.isAdmin"
-            to="/admin/metallurgy"
-            class="nav__dropdown-item"
-          >
+          <RouterLink v-if="authStore.isAdmin" to="/admin/metallurgy" class="nav__dropdown-item">
             Metallurgy Tracker
           </RouterLink>
           <RouterLink
@@ -632,6 +691,58 @@
               </button>
             </div>
           </section>
+        </div>
+      </Transition>
+    </Teleport>
+    <Teleport to="body">
+      <Transition name="favorite-confirm">
+        <div
+          v-if="favoriteRenameCandidate"
+          class="favorite-confirm-backdrop"
+          role="presentation"
+          @click.self="cancelRenameFavorite"
+        >
+          <form
+            class="favorite-rename"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="favorite-rename-title"
+            @submit.prevent="confirmRenameFavorite"
+          >
+            <div class="favorite-confirm__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M12 20h9" />
+                <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z" />
+              </svg>
+            </div>
+            <div class="favorite-confirm__body favorite-rename__body">
+              <h2 id="favorite-rename-title">Rename Favorite</h2>
+              <label class="favorite-rename__field">
+                <span>Name</span>
+                <input
+                  ref="favoriteRenameInputRef"
+                  v-model="favoriteRenameValue"
+                  type="text"
+                  maxlength="80"
+                  autocomplete="off"
+                />
+              </label>
+              <p v-if="favoriteRenameError" class="favorite-rename__error">
+                {{ favoriteRenameError }}
+              </p>
+            </div>
+            <div class="favorite-confirm__actions">
+              <button type="button" class="favorite-confirm__button" @click="cancelRenameFavorite">
+                Cancel
+              </button>
+              <button
+                type="submit"
+                class="favorite-confirm__button favorite-confirm__button--primary"
+              >
+                Save
+              </button>
+            </div>
+          </form>
         </div>
       </Transition>
     </Teleport>
@@ -709,7 +820,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch, type CSSProperties } from 'vue';
+import {
+  computed,
+  nextTick,
+  onMounted,
+  onBeforeUnmount,
+  ref,
+  watch,
+  type CSSProperties
+} from 'vue';
 import {
   RouterLink,
   RouterView,
@@ -719,7 +838,7 @@ import {
 } from 'vue-router';
 
 import { useAuthStore } from './stores/auth';
-import { api, type RaidEventSummary } from './services/api';
+import { api, type PageFavorite, type RaidEventSummary } from './services/api';
 import { useMonitorStore } from './stores/monitor';
 import { useAttentionStore } from './stores/attention';
 import { useNpcRespawnStore } from './stores/npcRespawn';
@@ -776,13 +895,6 @@ const passkeyAutofillStarted = ref(false);
 const passkeyPromptVisible = ref(false);
 const passkeyPromptSaving = ref(false);
 
-interface PageFavorite {
-  id: string;
-  label: string;
-  path: string;
-  addedAt: string;
-}
-
 const FAVORITES_STORAGE_PREFIX = 'cwraid-page-favorites';
 const MAX_FAVORITES = 24;
 const ROUTE_LABELS: Record<string, string> = {
@@ -814,9 +926,32 @@ const ROUTE_LABELS: Record<string, string> = {
 
 const pageFavorites = ref<PageFavorite[]>([]);
 const favoriteDeleteCandidate = ref<PageFavorite | null>(null);
+const favoriteContextMenuRef = ref<HTMLElement | null>(null);
+const favoriteRenameInputRef = ref<HTMLInputElement | null>(null);
+const favoriteContextMenu = ref<{ favorite: PageFavorite; x: number; y: number } | null>(null);
+const favoriteRenameCandidate = ref<PageFavorite | null>(null);
+const favoriteRenameValue = ref('');
+const favoriteRenameError = ref('');
+const draggedFavoriteId = ref<string | null>(null);
+const dragOverFavoriteId = ref<string | null>(null);
+const favoriteDragDirty = ref(false);
+type FavoriteDropPlacement = 'before' | 'after';
+const favoriteDragDropTarget = ref<{
+  targetId: string;
+  placement: FavoriteDropPlacement;
+} | null>(null);
+let favoritePointerDragActive = false;
+let pageFavoritesSaveRequestId = 0;
+let pageFavoritesSyncWarningShown = false;
 
 const favoritesStorageKey = computed(() =>
   authStore.user?.userId ? `${FAVORITES_STORAGE_PREFIX}:${authStore.user.userId}` : ''
+);
+const favoritesServerSyncKey = computed(() =>
+  favoritesStorageKey.value ? `${favoritesStorageKey.value}:server-synced` : ''
+);
+const favoritesPendingSyncKey = computed(() =>
+  favoritesStorageKey.value ? `${favoritesStorageKey.value}:pending-server-sync` : ''
 );
 
 const currentFavoritePath = computed(() => route.fullPath);
@@ -824,6 +959,43 @@ const currentFavoriteLabel = computed(() => buildFavoriteLabel(route));
 const isCurrentPageFavorite = computed(() =>
   pageFavorites.value.some((favorite) => favorite.path === currentFavoritePath.value)
 );
+const displayedPageFavorites = computed(() => {
+  const draggedId = draggedFavoriteId.value;
+  const dropTarget = favoriteDragDropTarget.value;
+
+  if (!draggedId || !dropTarget) {
+    return pageFavorites.value;
+  }
+
+  return reorderFavoriteList(
+    pageFavorites.value,
+    draggedId,
+    dropTarget.targetId,
+    dropTarget.placement
+  );
+});
+const favoriteContextMenuStyle = computed<CSSProperties>(() => {
+  if (!favoriteContextMenu.value || typeof window === 'undefined') {
+    return {};
+  }
+
+  const width = 160;
+  const height = 52;
+  const margin = 10;
+  const left = Math.min(
+    Math.max(favoriteContextMenu.value.x, margin),
+    Math.max(margin, window.innerWidth - width - margin)
+  );
+  const top = Math.min(
+    Math.max(favoriteContextMenu.value.y, margin),
+    Math.max(margin, window.innerHeight - height - margin)
+  );
+
+  return {
+    left: `${left}px`,
+    top: `${top}px`
+  };
+});
 
 let hoverDropdownMediaQuery: MediaQueryList | null = null;
 
@@ -879,11 +1051,7 @@ function clearDropdownCloseTimer() {
   }
 }
 
-function isPointInRect(
-  point: { x: number; y: number },
-  rect: DOMRect,
-  padding = 0
-) {
+function isPointInRect(point: { x: number; y: number }, rect: DOMRect, padding = 0) {
   return (
     point.x >= rect.left - padding &&
     point.x <= rect.right + padding &&
@@ -1002,15 +1170,28 @@ function closeDropdownsFromOutside(target: Node) {
   if (activeDropdownMenuRef.value?.contains(target)) {
     return;
   }
+  if (favoriteContextMenuRef.value?.contains(target)) {
+    return;
+  }
   activeDropdown.value = null;
 }
 
 function onDocumentPointerDown(event: PointerEvent) {
-  closeDropdownsFromOutside(event.target as Node);
+  const target = event.target as Node;
+  if (favoriteContextMenu.value && !favoriteContextMenuRef.value?.contains(target)) {
+    favoriteContextMenu.value = null;
+  }
+  closeDropdownsFromOutside(target);
 }
 
 function onDocumentPointerMove(event: PointerEvent) {
   lastDropdownPointerPosition = { x: event.clientX, y: event.clientY };
+
+  if (favoritePointerDragActive && draggedFavoriteId.value) {
+    event.preventDefault();
+    handleFavoritePointerMove(event);
+    return;
+  }
 
   if (!prefersHoverDropdowns.value || !activeDropdown.value) {
     return;
@@ -1026,10 +1207,28 @@ function onDocumentPointerMove(event: PointerEvent) {
   }
 }
 
+function onDocumentPointerUp() {
+  if (favoritePointerDragActive) {
+    finishFavoriteDrag();
+  }
+}
+
 function onDocumentKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') {
+    if (favoriteRenameCandidate.value) {
+      cancelRenameFavorite();
+      return;
+    }
+    if (favoriteContextMenu.value) {
+      favoriteContextMenu.value = null;
+      return;
+    }
     if (favoriteDeleteCandidate.value) {
       favoriteDeleteCandidate.value = null;
+      return;
+    }
+    if (draggedFavoriteId.value) {
+      finishFavoriteDrag({ commit: false });
       return;
     }
     activeDropdown.value = null;
@@ -1062,6 +1261,13 @@ function normalizeFavoriteLabel(value: unknown) {
   return value.trim().replace(/\s+/g, ' ').slice(0, 80);
 }
 
+function normalizeFavoriteId(value: unknown) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  return value.trim().slice(0, 191);
+}
+
 function parsePageFavorites(value: unknown): PageFavorite[] {
   if (!Array.isArray(value)) {
     return [];
@@ -1084,7 +1290,7 @@ function parsePageFavorites(value: unknown): PageFavorite[] {
 
     seenPaths.add(path);
     favorites.push({
-      id: normalizeFavoriteLabel(rawFavorite.id) || createFavoriteId(),
+      id: normalizeFavoriteId(rawFavorite.id) || createFavoriteId(),
       label,
       path,
       addedAt:
@@ -1097,7 +1303,7 @@ function parsePageFavorites(value: unknown): PageFavorite[] {
   return favorites.slice(0, MAX_FAVORITES);
 }
 
-function loadPageFavorites() {
+function loadPageFavoritesFromLocal() {
   const storageKey = favoritesStorageKey.value;
   if (!storageKey || typeof window === 'undefined') {
     pageFavorites.value = [];
@@ -1113,7 +1319,7 @@ function loadPageFavorites() {
   }
 }
 
-function persistPageFavorites() {
+function persistPageFavoritesToLocal() {
   const storageKey = favoritesStorageKey.value;
   if (!storageKey || typeof window === 'undefined') {
     return;
@@ -1128,6 +1334,105 @@ function persistPageFavorites() {
       message: 'Your browser blocked saving the favorites list.',
       variant: 'error'
     });
+  }
+}
+
+function hasSyncedPageFavoritesWithServer() {
+  const storageKey = favoritesServerSyncKey.value;
+  return Boolean(storageKey && window.localStorage.getItem(storageKey) === '1');
+}
+
+function hasPendingPageFavoritesServerSync() {
+  const storageKey = favoritesPendingSyncKey.value;
+  return Boolean(storageKey && window.localStorage.getItem(storageKey) === '1');
+}
+
+function markPageFavoritesServerSyncPending() {
+  const storageKey = favoritesPendingSyncKey.value;
+  if (storageKey) {
+    window.localStorage.setItem(storageKey, '1');
+  }
+}
+
+function clearPageFavoritesServerSyncPending() {
+  const storageKey = favoritesPendingSyncKey.value;
+  if (storageKey) {
+    window.localStorage.removeItem(storageKey);
+  }
+}
+
+function markPageFavoritesServerSynced() {
+  const storageKey = favoritesServerSyncKey.value;
+  if (storageKey) {
+    window.localStorage.setItem(storageKey, '1');
+  }
+  clearPageFavoritesServerSyncPending();
+}
+
+async function loadPageFavorites() {
+  loadPageFavoritesFromLocal();
+
+  if (!authStore.user) {
+    return;
+  }
+
+  const localFavorites = pageFavorites.value;
+  const shouldSeedServer = localFavorites.length > 0 && !hasSyncedPageFavoritesWithServer();
+  const shouldRestoreLocalToServer = hasPendingPageFavoritesServerSync();
+
+  try {
+    const serverFavorites = parsePageFavorites(await api.fetchPageFavorites());
+    if (shouldRestoreLocalToServer) {
+      pageFavorites.value = localFavorites;
+      await persistPageFavorites({ showErrorToast: false });
+      return;
+    }
+
+    if (serverFavorites.length > 0 || !shouldSeedServer) {
+      pageFavorites.value = serverFavorites;
+      persistPageFavoritesToLocal();
+      markPageFavoritesServerSynced();
+      return;
+    }
+
+    pageFavorites.value = localFavorites;
+    await persistPageFavorites({ showErrorToast: false });
+  } catch (error) {
+    console.warn('Unable to load page favorites from the server.', error);
+  }
+}
+
+async function persistPageFavorites(options: { showErrorToast?: boolean } = {}) {
+  const showErrorToast = options.showErrorToast ?? true;
+  const requestId = ++pageFavoritesSaveRequestId;
+
+  pageFavorites.value = parsePageFavorites(pageFavorites.value);
+  persistPageFavoritesToLocal();
+
+  if (!authStore.user) {
+    return;
+  }
+
+  markPageFavoritesServerSyncPending();
+
+  try {
+    const savedFavorites = parsePageFavorites(await api.savePageFavorites(pageFavorites.value));
+    if (requestId === pageFavoritesSaveRequestId) {
+      pageFavorites.value = savedFavorites;
+      persistPageFavoritesToLocal();
+      markPageFavoritesServerSynced();
+      pageFavoritesSyncWarningShown = false;
+    }
+  } catch (error) {
+    console.warn('Unable to sync page favorites with the server.', error);
+    if (showErrorToast && !pageFavoritesSyncWarningShown) {
+      pageFavoritesSyncWarningShown = true;
+      addToast({
+        title: 'Favorites Saved Locally',
+        message: 'Favorites changed on this browser, but could not sync across devices yet.',
+        variant: 'warning'
+      });
+    }
   }
 }
 
@@ -1153,9 +1458,7 @@ function buildFavoriteLabel(targetRoute: RouteLocationNormalized) {
 
   if (targetRoute.name === 'BisPlanner') {
     const characterClass = getRouteParamText(targetRoute.params.characterClass);
-    return characterClass
-      ? `BiS - ${formatFavoriteSegment(characterClass)}`
-      : 'BiS Planner';
+    return characterClass ? `BiS - ${formatFavoriteSegment(characterClass)}` : 'BiS Planner';
   }
 
   const metaTitle = typeof targetRoute.meta.title === 'string' ? targetRoute.meta.title : '';
@@ -1195,7 +1498,7 @@ function addCurrentPageFavorite() {
   };
 
   pageFavorites.value = [favorite, ...pageFavorites.value].slice(0, MAX_FAVORITES);
-  persistPageFavorites();
+  void persistPageFavorites();
   addToast({
     title: 'Favorite Added',
     message: `${favorite.label} was added to your Favorites list.`,
@@ -1205,6 +1508,7 @@ function addCurrentPageFavorite() {
 }
 
 function requestRemoveFavorite(favorite: PageFavorite) {
+  favoriteContextMenu.value = null;
   favoriteDeleteCandidate.value = favorite;
   activeDropdown.value = null;
   clearDropdownCloseTimer();
@@ -1221,11 +1525,270 @@ function confirmRemoveFavorite() {
   }
 
   pageFavorites.value = pageFavorites.value.filter((entry) => entry.id !== favorite.id);
-  persistPageFavorites();
+  void persistPageFavorites();
   favoriteDeleteCandidate.value = null;
   addToast({
     title: 'Favorite Removed',
     message: `${favorite.label} was removed from your Favorites list.`
+  });
+}
+
+function handleFavoritePointerDown(favorite: PageFavorite, event: PointerEvent) {
+  if (event.button !== 0) {
+    return;
+  }
+
+  event.preventDefault();
+  favoriteContextMenu.value = null;
+  favoritePointerDragActive = true;
+  draggedFavoriteId.value = favorite.id;
+  dragOverFavoriteId.value = favorite.id;
+  favoriteDragDropTarget.value = null;
+  favoriteDragDirty.value = false;
+}
+
+function handleFavoritePointerMove(event: PointerEvent) {
+  const draggedId = draggedFavoriteId.value;
+  if (!draggedId || typeof document === 'undefined') {
+    return;
+  }
+
+  autoScrollFavoritesList(event.clientY);
+
+  const dropTarget = resolveFavoriteDropTarget(event.clientY);
+  if (!dropTarget) {
+    favoriteDragDropTarget.value = null;
+    dragOverFavoriteId.value = draggedId;
+    return;
+  }
+
+  setFavoriteDropTarget(dropTarget.targetId, dropTarget.placement);
+}
+
+function autoScrollFavoritesList(clientY: number) {
+  const list = activeDropdownMenuRef.value?.querySelector<HTMLElement>('.nav-favorites__list');
+  if (!list) {
+    return;
+  }
+
+  const rect = list.getBoundingClientRect();
+  const edgeSize = 36;
+  const scrollStep = 10;
+
+  if (clientY < rect.top + edgeSize) {
+    list.scrollTop -= scrollStep;
+  } else if (clientY > rect.bottom - edgeSize) {
+    list.scrollTop += scrollStep;
+  }
+}
+
+function resolveFavoriteDropTarget(clientY: number) {
+  const draggedId = draggedFavoriteId.value;
+  if (!draggedId || typeof document === 'undefined') {
+    return null;
+  }
+
+  const rows = Array.from(document.querySelectorAll<HTMLElement>('.nav-favorites__row')).filter(
+    (row) => row.dataset.favoriteId && row.dataset.favoriteId !== draggedId
+  );
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  for (const row of rows) {
+    const targetId = row.dataset.favoriteId;
+    if (!targetId) {
+      continue;
+    }
+
+    const rect = row.getBoundingClientRect();
+    if (clientY < rect.top + rect.height / 2) {
+      return { targetId, placement: 'before' as const };
+    }
+  }
+
+  const lastTargetId = rows[rows.length - 1]?.dataset.favoriteId;
+  return lastTargetId ? { targetId: lastTargetId, placement: 'after' as const } : null;
+}
+
+function handleFavoriteDragStart(favorite: PageFavorite, event: DragEvent) {
+  favoriteContextMenu.value = null;
+  draggedFavoriteId.value = favorite.id;
+  dragOverFavoriteId.value = favorite.id;
+  favoriteDragDropTarget.value = null;
+  favoriteDragDirty.value = false;
+
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', favorite.id);
+  }
+}
+
+function reorderFavoriteList(
+  sourceFavorites: PageFavorite[],
+  draggedId: string,
+  targetId: string,
+  placement: FavoriteDropPlacement
+) {
+  if (draggedId === targetId) {
+    return sourceFavorites;
+  }
+
+  const favorites = [...sourceFavorites];
+  const draggedIndex = favorites.findIndex((favorite) => favorite.id === draggedId);
+  const targetIndexBeforeMove = favorites.findIndex((favorite) => favorite.id === targetId);
+
+  if (draggedIndex < 0 || targetIndexBeforeMove < 0) {
+    return sourceFavorites;
+  }
+
+  const [draggedFavorite] = favorites.splice(draggedIndex, 1);
+  const targetIndex = favorites.findIndex((favorite) => favorite.id === targetId);
+  if (targetIndex < 0) {
+    return sourceFavorites;
+  }
+  const insertionIndex = placement === 'after' ? targetIndex + 1 : targetIndex;
+  favorites.splice(insertionIndex, 0, draggedFavorite);
+  return favorites;
+}
+
+function setFavoriteDropTarget(targetId: string, placement: FavoriteDropPlacement) {
+  if (targetId === draggedFavoriteId.value) {
+    favoriteDragDropTarget.value = null;
+    dragOverFavoriteId.value = targetId;
+    return;
+  }
+
+  const existing = favoriteDragDropTarget.value;
+  if (existing?.targetId === targetId && existing.placement === placement) {
+    return;
+  }
+
+  favoriteDragDropTarget.value = { targetId, placement };
+  dragOverFavoriteId.value = targetId;
+}
+
+function commitFavoriteDragPreview() {
+  const draggedId = draggedFavoriteId.value;
+  const dropTarget = favoriteDragDropTarget.value;
+  if (!draggedId || !dropTarget) {
+    return;
+  }
+
+  const nextFavorites = reorderFavoriteList(
+    pageFavorites.value,
+    draggedId,
+    dropTarget.targetId,
+    dropTarget.placement
+  );
+  const currentOrder = pageFavorites.value.map((favorite) => favorite.id).join('|');
+  const nextOrder = nextFavorites.map((favorite) => favorite.id).join('|');
+
+  if (currentOrder !== nextOrder) {
+    pageFavorites.value = nextFavorites;
+    favoriteDragDirty.value = true;
+  }
+}
+
+function handleFavoriteDragOver(targetId: string, event: DragEvent) {
+  const draggedId = draggedFavoriteId.value;
+  if (!draggedId || draggedId === targetId) {
+    dragOverFavoriteId.value = targetId;
+    return;
+  }
+
+  const target = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+  const rect = target?.getBoundingClientRect();
+  const placement = rect && event.clientY > rect.top + rect.height / 2 ? 'after' : 'before';
+
+  setFavoriteDropTarget(targetId, placement);
+}
+
+function handleFavoriteDrop() {
+  finishFavoriteDrag();
+}
+
+function finishFavoriteDrag(options: { commit?: boolean } = {}) {
+  const shouldCommit = options.commit ?? true;
+  if (shouldCommit) {
+    commitFavoriteDragPreview();
+  }
+
+  if (shouldCommit && favoriteDragDirty.value) {
+    void persistPageFavorites();
+  }
+  favoritePointerDragActive = false;
+  draggedFavoriteId.value = null;
+  dragOverFavoriteId.value = null;
+  favoriteDragDropTarget.value = null;
+  favoriteDragDirty.value = false;
+}
+
+function getFavoriteDropClass(favoriteId: string) {
+  const dropTarget = favoriteDragDropTarget.value;
+  if (!dropTarget || dropTarget.targetId !== favoriteId) {
+    return '';
+  }
+  return dropTarget.placement === 'before'
+    ? 'nav-favorites__row--drop-before'
+    : 'nav-favorites__row--drop-after';
+}
+
+function openFavoriteContextMenu(favorite: PageFavorite, event: MouseEvent) {
+  favoriteContextMenu.value = {
+    favorite,
+    x: event.clientX,
+    y: event.clientY
+  };
+  clearDropdownCloseTimer();
+}
+
+async function startRenameFavoriteFromContext() {
+  const favorite = favoriteContextMenu.value?.favorite;
+  if (!favorite) {
+    return;
+  }
+
+  favoriteRenameCandidate.value = favorite;
+  favoriteRenameValue.value = favorite.label;
+  favoriteRenameError.value = '';
+  favoriteContextMenu.value = null;
+  activeDropdown.value = null;
+  clearDropdownCloseTimer();
+
+  await nextTick();
+  favoriteRenameInputRef.value?.focus();
+  favoriteRenameInputRef.value?.select();
+}
+
+function cancelRenameFavorite() {
+  favoriteRenameCandidate.value = null;
+  favoriteRenameValue.value = '';
+  favoriteRenameError.value = '';
+}
+
+function confirmRenameFavorite() {
+  const favorite = favoriteRenameCandidate.value;
+  if (!favorite) {
+    return;
+  }
+
+  const label = normalizeFavoriteLabel(favoriteRenameValue.value);
+  if (!label) {
+    favoriteRenameError.value = 'Name is required.';
+    return;
+  }
+
+  pageFavorites.value = pageFavorites.value.map((entry) =>
+    entry.id === favorite.id ? { ...entry, label } : entry
+  );
+  void persistPageFavorites();
+  cancelRenameFavorite();
+  addToast({
+    title: 'Favorite Renamed',
+    message: `${label} was saved to your Favorites list.`,
+    variant: 'success'
   });
 }
 
@@ -1568,12 +2131,13 @@ onMounted(async () => {
   hoverDropdownMediaQuery.addEventListener('change', updateHoverDropdownPreference);
   document.addEventListener('pointerdown', onDocumentPointerDown, true);
   document.addEventListener('pointermove', onDocumentPointerMove, true);
+  document.addEventListener('pointerup', onDocumentPointerUp, true);
   document.addEventListener('keydown', onDocumentKeydown, true);
   window.addEventListener('resize', handleDropdownViewportChange);
   window.addEventListener('scroll', handleDropdownViewportChange, true);
 
   await authStore.fetchCurrentUser();
-  loadPageFavorites();
+  await loadPageFavorites();
   if (authStore.isAuthenticated) {
     evaluatePasskeyPrompt();
   } else {
@@ -1606,6 +2170,7 @@ onBeforeUnmount(() => {
   hoverDropdownMediaQuery = null;
   document.removeEventListener('pointerdown', onDocumentPointerDown, true);
   document.removeEventListener('pointermove', onDocumentPointerMove, true);
+  document.removeEventListener('pointerup', onDocumentPointerUp, true);
   document.removeEventListener('keydown', onDocumentKeydown, true);
   window.removeEventListener('resize', handleDropdownViewportChange);
   window.removeEventListener('scroll', handleDropdownViewportChange, true);
@@ -1632,6 +2197,10 @@ watch(
   () => route.fullPath,
   () => {
     activeDropdown.value = null;
+    favoriteContextMenu.value = null;
+    if (draggedFavoriteId.value) {
+      finishFavoriteDrag({ commit: false });
+    }
     if (authStore.isAdmin) {
       refreshWebhookPendingActionCount();
     }
@@ -1642,7 +2211,10 @@ watch(
   () => authStore.user?.userId,
   (userId) => {
     cancelActivePasskeyPrompt();
-    loadPageFavorites();
+    pageFavoritesSyncWarningShown = false;
+    favoriteContextMenu.value = null;
+    cancelRenameFavorite();
+    void loadPageFavorites();
     if (userId) {
       evaluatePasskeyPrompt();
     } else {
@@ -2254,13 +2826,112 @@ function hasRaidStarted(raid: RaidEventSummary) {
   scrollbar-color: rgba(125, 211, 252, 0.4) rgba(15, 23, 42, 0.2);
 }
 
+.nav-favorites__list--dragging {
+  cursor: grabbing;
+}
+
+.nav-favorites__list--dragging .nav-favorites__link,
+.nav-favorites__list--dragging .nav-favorites__delete {
+  pointer-events: none;
+}
+
+.favorite-list-move {
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 .nav-favorites__row {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: stretch;
   gap: 0.3rem;
   border-radius: 8px;
+  transition:
+    background 0.16s ease,
+    box-shadow 0.16s ease,
+    opacity 0.16s ease;
+}
+
+.nav-favorites__row--drag-over {
+  background: rgba(14, 165, 233, 0.07);
+}
+
+.nav-favorites__row--dragging {
+  opacity: 0.86;
+  background:
+    linear-gradient(180deg, rgba(14, 165, 233, 0.18), rgba(20, 184, 166, 0.1)),
+    rgba(8, 47, 73, 0.42);
+  box-shadow:
+    inset 0 0 0 1px rgba(125, 211, 252, 0.24),
+    0 12px 24px rgba(8, 47, 73, 0.28);
+}
+
+.nav-favorites__row--drop-before::before,
+.nav-favorites__row--drop-after::after {
+  content: '';
+  position: absolute;
+  left: 0.2rem;
+  right: 0.2rem;
+  height: 2px;
+  border-radius: 999px;
+  background: #67e8f9;
+  box-shadow:
+    0 0 0 1px rgba(8, 47, 73, 0.8),
+    0 0 12px rgba(103, 232, 249, 0.7);
+  z-index: 2;
+}
+
+.nav-favorites__row--drop-before::before {
+  top: -0.18rem;
+}
+
+.nav-favorites__row--drop-after::after {
+  bottom: -0.18rem;
+}
+
+.nav-favorites__drag {
+  width: 1.85rem;
+  min-height: 2rem;
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.18);
+  color: rgba(186, 230, 253, 0.48);
+  cursor: grab;
+  opacity: 0.76;
+  touch-action: none;
+  user-select: none;
+  transition:
+    opacity 0.16s ease,
+    color 0.16s ease,
+    background 0.16s ease,
+    border-color 0.16s ease;
+}
+
+.nav-favorites__drag:active {
+  cursor: grabbing;
+}
+
+.nav-favorites__drag svg {
+  width: 1rem;
+  height: 1rem;
+  fill: currentColor;
+}
+
+.nav-favorites__row:hover .nav-favorites__drag,
+.nav-favorites__drag:focus-visible {
+  opacity: 1;
+  color: #bae6fd;
+  background: rgba(8, 47, 73, 0.36);
+  border-color: rgba(125, 211, 252, 0.18);
+}
+
+.nav-favorites__drag:focus-visible {
+  outline: 2px solid rgba(125, 211, 252, 0.5);
+  outline-offset: 2px;
 }
 
 .nav-favorites__link {
@@ -2327,12 +2998,13 @@ function hasRaidStarted(raid: RaidEventSummary) {
 }
 
 .nav-favorites__delete svg {
-  width: 0.9rem;
-  height: 0.9rem;
+  width: 1rem;
+  height: 1rem;
   fill: none;
   stroke: currentColor;
-  stroke-width: 2;
+  stroke-width: 1.8;
   stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .nav-favorites__row:hover .nav-favorites__delete,
@@ -2417,6 +3089,46 @@ function hasRaidStarted(raid: RaidEventSummary) {
   opacity: 0.55;
 }
 
+.favorite-context-menu {
+  position: fixed;
+  z-index: 21020;
+  width: 160px;
+  padding: 0.35rem;
+  border: 1px solid rgba(186, 230, 253, 0.2);
+  border-radius: 8px;
+  background:
+    linear-gradient(145deg, rgba(248, 250, 252, 0.1), rgba(15, 23, 42, 0.92) 38%),
+    rgba(15, 23, 42, 0.96);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 18px 40px rgba(0, 0, 0, 0.42);
+}
+
+.favorite-context-menu__item {
+  width: 100%;
+  min-height: 2.25rem;
+  display: flex;
+  align-items: center;
+  padding: 0 0.75rem;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: #e0f2fe;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.favorite-context-menu__item:hover,
+.favorite-context-menu__item:focus-visible {
+  color: #f8fafc;
+  background: rgba(14, 165, 233, 0.18);
+  border-color: rgba(125, 211, 252, 0.18);
+  outline: none;
+}
+
 /* Dropdown animation */
 .dropdown-enter-active {
   transition:
@@ -2456,6 +3168,23 @@ function hasRaidStarted(raid: RaidEventSummary) {
 
 .favorite-confirm {
   width: min(420px, 100%);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.95rem;
+  padding: 1rem;
+  border: 1px solid rgba(186, 230, 253, 0.2);
+  border-radius: 8px;
+  background:
+    linear-gradient(145deg, rgba(248, 250, 252, 0.11), rgba(15, 23, 42, 0.9) 38%),
+    rgba(15, 23, 42, 0.9);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 26px 70px rgba(0, 0, 0, 0.52),
+    0 0 36px rgba(14, 165, 233, 0.14);
+}
+
+.favorite-rename {
+  width: min(430px, 100%);
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 0.95rem;
@@ -2517,6 +3246,46 @@ function hasRaidStarted(raid: RaidEventSummary) {
   color: #e0f2fe;
 }
 
+.favorite-rename__body {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.favorite-rename__field {
+  display: grid;
+  gap: 0.35rem;
+  color: #dbeafe;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.favorite-rename__field input {
+  width: 100%;
+  min-height: 2.5rem;
+  padding: 0 0.75rem;
+  border: 1px solid rgba(125, 211, 252, 0.28);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.6);
+  color: #f8fafc;
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-transform: none;
+}
+
+.favorite-rename__field input:focus {
+  outline: 2px solid rgba(125, 211, 252, 0.52);
+  outline-offset: 2px;
+}
+
+.favorite-rename__error {
+  margin: 0;
+  color: #fecaca;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
 .favorite-confirm__actions {
   grid-column: 1 / -1;
   display: flex;
@@ -2570,6 +3339,22 @@ function hasRaidStarted(raid: RaidEventSummary) {
   background:
     linear-gradient(180deg, rgba(248, 113, 113, 0.32), rgba(127, 29, 29, 0.48)),
     rgba(69, 10, 10, 0.72);
+}
+
+.favorite-confirm__button--primary {
+  border-color: rgba(125, 211, 252, 0.34);
+  background:
+    linear-gradient(180deg, rgba(14, 165, 233, 0.26), rgba(20, 184, 166, 0.2)),
+    rgba(8, 47, 73, 0.58);
+  color: #e0f2fe;
+}
+
+.favorite-confirm__button--primary:hover,
+.favorite-confirm__button--primary:focus-visible {
+  border-color: rgba(125, 211, 252, 0.54);
+  background:
+    linear-gradient(180deg, rgba(14, 165, 233, 0.34), rgba(20, 184, 166, 0.28)),
+    rgba(8, 47, 73, 0.72);
 }
 
 .favorite-confirm-enter-active,
