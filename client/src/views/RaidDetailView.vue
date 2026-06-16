@@ -1,97 +1,116 @@
 <template>
   <section v-if="raid" class="raid-detail">
-    <header class="section-header raid-detail__header">
-      <div class="raid-detail__title-block">
-        <div class="raid-detail__title-top">
-          <button
-            class="btn btn--outline btn--icon raid-detail__back"
-            type="button"
-            @click="goBackToRaids"
-          >
-            <span aria-hidden="true">←</span>
-            <span>Back</span>
-          </button>
+    <header class="section-header raid-detail__header raid-hero">
+      <div class="raid-hero__topbar">
+        <button
+          class="btn btn--outline btn--icon raid-detail__back"
+          type="button"
+          @click="goBackToRaids"
+        >
+          <span aria-hidden="true">←</span>
+          <span>Back</span>
+        </button>
+        <div class="raid-hero__status-strip">
+          <span :class="['raid-status-badge', raidStatusBadge.variant]">
+            {{ raidStatusBadge.label }}
+          </span>
+          <span v-if="userGuildRoleLabel" class="badge raid-hero__role">
+            {{ userGuildRoleLabel }}
+          </span>
         </div>
-        <div class="raid-title-row">
-          <div class="raid-title-main">
-            <h1>
-              <span
-                v-if="raid.isRecurring"
-                class="raid-recurring-icon"
-                role="img"
-                :title="raidRecurrenceSummary"
-                :aria-label="raidRecurrenceSummary"
+      </div>
+
+      <div class="raid-hero__body">
+        <div class="raid-hero__main">
+          <div class="raid-title-row">
+            <div class="raid-title-main">
+              <h1>
+                <span
+                  v-if="raid.isRecurring"
+                  class="raid-recurring-icon"
+                  role="img"
+                  :title="raidRecurrenceSummary"
+                  :aria-label="raidRecurrenceSummary"
+                >
+                  ♻️
+                </span>
+                {{ raid.name }}
+              </h1>
+              <button
+                v-if="canManageRaid"
+                class="icon-button icon-button--edit"
+                type="button"
+                :disabled="renamingRaid"
+                @click="promptRenameRaid"
               >
-                ♻️
-              </span>
-              {{ raid.name }}
-            </h1>
-            <button
-              v-if="canManageRaid"
-              class="icon-button icon-button--edit"
-              type="button"
-              :disabled="renamingRaid"
-              @click="promptRenameRaid"
-            >
-              <span class="sr-only">Edit raid name</span>
-              ✎
-            </button>
+                <span class="sr-only">Edit raid name</span>
+                ✎
+              </button>
+            </div>
+          </div>
+          <p class="raid-hero__date">{{ formatRaidDate(raid.startTime) }}</p>
+          <div class="raid-hero__target-summary">
+            <span>Targets</span>
+            <strong>{{ formattedTargetZonesHeader || 'Not specified' }}</strong>
           </div>
         </div>
-        <span :class="['raid-status-badge', raidStatusBadge.variant]">{{
-          raidStatusBadge.label
-        }}</span>
-        <p class="muted">
-          {{ formatRaidDate(raid.startTime) }} • Targets:
-          {{ formattedTargetZonesHeader || 'Not specified' }}
-        </p>
-        <span v-if="userGuildRoleLabel" class="badge">{{ userGuildRoleLabel }}</span>
+
+        <div class="raid-hero__stats" aria-label="Raid summary">
+          <div v-for="stat in raidHeroStats" :key="stat.label" class="raid-hero__stat">
+            <span class="raid-hero__stat-value">{{ stat.value }}</span>
+            <span class="raid-hero__stat-label">{{ stat.label }}</span>
+            <span class="raid-hero__stat-detail">{{ stat.detail }}</span>
+          </div>
+        </div>
       </div>
-      <div class="header-actions">
-        <div v-if="raid.discordVoiceUrl || canManageRaidDiscordLink" class="raid-voice-actions">
-          <a
-            v-if="raid.discordVoiceUrl"
-            class="btn btn--discord-voice"
-            :href="raid.discordVoiceUrl"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <svg
-              class="raid-voice-actions__icon"
-              viewBox="0 0 24 24"
-              xmlns="http://www.w3.org/2000/svg"
-              aria-hidden="true"
+
+      <div class="raid-hero__footer">
+        <div class="header-actions">
+          <div v-if="raid.discordVoiceUrl || canManageRaidDiscordLink" class="raid-voice-actions">
+            <a
+              v-if="raid.discordVoiceUrl"
+              class="btn btn--discord-voice"
+              :href="raid.discordVoiceUrl"
+              target="_blank"
+              rel="noopener noreferrer"
             >
-              <path
-                fill="currentColor"
-                d="M20.317 4.369a19.91 19.91 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.211.375-.445.864-.608 1.249a18.27 18.27 0 0 0-5.487 0 13.4 13.4 0 0 0-.619-1.249.078.078 0 0 0-.079-.037 19.876 19.876 0 0 0-4.885 1.515.07.07 0 0 0-.032.027C1.675 9.093.934 13.577 1.276 18.011a.082.082 0 0 0 .031.057 19.967 19.967 0 0 0 5.993 3.035.082.082 0 0 0 .089-.027 14.046 14.046 0 0 0 1.238-1.999.078.078 0 0 0-.041-.105 13.186 13.186 0 0 1-1.872-.894.078.078 0 0 1-.008-.128c.125-.095.25-.195.37-.296a.074.074 0 0 1 .078-.009c3.928 1.799 8.18 1.799 12.062 0a.074.074 0 0 1 .079.009c.12.101.245.201.37.296a.078.078 0 0 1-.006.128c-.6.351-1.226.656-1.87.894a.078.078 0 0 0-.041.106c.36.689.78 1.379 1.236 1.998a.08.08 0 0 0 .089.028 19.911 19.911 0 0 0 6.004-3.036.08.08 0 0 0 .032-.056c.5-6.172-.839-10.62-3.548-13.615a.066.066 0 0 0-.031-.027ZM8.02 15.331c-1.18 0-2.157-1.085-2.157-2.419 0-1.333.95-2.419 2.157-2.419 1.222 0 2.184 1.103 2.157 2.419 0 1.334-.95 2.419-2.157 2.419Zm7.987 0c-1.18 0-2.157-1.085-2.157-2.419 0-1.333.95-2.419 2.157-2.419 1.222 0 2.184 1.103 2.157 2.419 0 1.334-.935 2.419-2.157 2.419Z"
-              />
-            </svg>
-            Chat on Discord
-          </a>
-          <button
-            v-if="canManageRaidDiscordLink"
-            class="btn btn--outline raid-voice-actions__manage"
-            type="button"
-            :disabled="updatingDiscordVoice"
-            @click="promptDiscordVoiceLink"
-          >
-            {{
-              updatingDiscordVoice
-                ? 'Saving…'
-                : raid.discordVoiceUrl
-                  ? 'Edit Discord Link'
-                  : 'Add Discord Link'
-            }}
+              <svg
+                class="raid-voice-actions__icon"
+                viewBox="0 0 24 24"
+                xmlns="http://www.w3.org/2000/svg"
+                aria-hidden="true"
+              >
+                <path
+                  fill="currentColor"
+                  d="M20.317 4.369a19.91 19.91 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.211.375-.445.864-.608 1.249a18.27 18.27 0 0 0-5.487 0 13.4 13.4 0 0 0-.619-1.249.078.078 0 0 0-.079-.037 19.876 19.876 0 0 0-4.885 1.515.07.07 0 0 0-.032.027C1.675 9.093.934 13.577 1.276 18.011a.082.082 0 0 0 .031.057 19.967 19.967 0 0 0 5.993 3.035.082.082 0 0 0 .089-.027 14.046 14.046 0 0 0 1.238-1.999.078.078 0 0 0-.041-.105 13.186 13.186 0 0 1-1.872-.894.078.078 0 0 1-.008-.128c.125-.095.25-.195.37-.296a.074.074 0 0 1 .078-.009c3.928 1.799 8.18 1.799 12.062 0a.074.074 0 0 1 .079.009c.12.101.245.201.37.296a.078.078 0 0 1-.006.128c-.6.351-1.226.656-1.87.894a.078.078 0 0 0-.041.106c.36.689.78 1.379 1.236 1.998a.08.08 0 0 0 .089.028 19.911 19.911 0 0 0 6.004-3.036.08.08 0 0 0 .032-.056c.5-6.172-.839-10.62-3.548-13.615a.066.066 0 0 0-.031-.027ZM8.02 15.331c-1.18 0-2.157-1.085-2.157-2.419 0-1.333.95-2.419 2.157-2.419 1.222 0 2.184 1.103 2.157 2.419 0 1.334-.95 2.419-2.157 2.419Zm7.987 0c-1.18 0-2.157-1.085-2.157-2.419 0-1.333.95-2.419 2.157-2.419 1.222 0 2.184 1.103 2.157 2.419 0 1.334-.935 2.419-2.157 2.419Z"
+                />
+              </svg>
+              Chat on Discord
+            </a>
+            <button
+              v-if="canManageRaidDiscordLink"
+              class="btn btn--outline raid-voice-actions__manage"
+              type="button"
+              :disabled="updatingDiscordVoice"
+              @click="promptDiscordVoiceLink"
+            >
+              {{
+                updatingDiscordVoice
+                  ? 'Saving…'
+                  : raid.discordVoiceUrl
+                    ? 'Edit Discord Link'
+                    : 'Add Discord Link'
+              }}
+            </button>
+          </div>
+          <button class="btn btn--outline share-btn" type="button" @click="copyRaidLink">
+            <span aria-hidden="true">🔗</span>
+            Share
+          </button>
+          <button class="btn btn--danger" :disabled="!canManageRaid" @click="confirmDeleteRaid">
+            Delete Raid
           </button>
         </div>
-        <button class="btn btn--outline share-btn" type="button" @click="copyRaidLink">
-          <span aria-hidden="true">🔗</span>
-          Share
-        </button>
-        <button class="btn btn--danger" :disabled="!canManageRaid" @click="confirmDeleteRaid">
-          Delete Raid
-        </button>
       </div>
       <div v-if="shareStatus" class="share-toast">{{ shareStatus }}</div>
       <input ref="fileInput" type="file" accept=".txt" hidden @change="handleFileUpload" />
@@ -569,257 +588,291 @@
       </transition>
     </section>
 
-    <section
-      class="card raid-recurrence-card"
-      :class="{ 'raid-recurrence-card--collapsed': recurrenceCardCollapsed }"
-    >
-      <header class="card__header raid-recurrence-card__header">
-        <div class="raid-recurrence-card__title">
-          <span class="raid-recurrence-card__icon" aria-hidden="true">♻️</span>
-          <div>
-            <h2>Recurrence</h2>
-            <p v-if="showRecurrenceSummaryText" class="muted">{{ raidRecurrenceSummary }}</p>
-          </div>
-        </div>
-        <div class="raid-recurrence-card__actions">
-          <label
-            class="recurrence-toggle"
-            :class="{
-              'recurrence-toggle--active': recurrenceForm.enabled,
-              'recurrence-toggle--disabled': !canManageRaid || savingRecurrence
-            }"
-          >
-            <input
-              v-model="recurrenceForm.enabled"
-              type="checkbox"
-              :disabled="!canManageRaid || savingRecurrence"
-            />
-            <span class="recurrence-toggle__track" aria-hidden="true">
-              <span class="recurrence-toggle__thumb"></span>
-            </span>
-            <span class="recurrence-toggle__label">
-              {{ recurrenceForm.enabled ? 'Recurrence enabled' : 'Enable recurrence' }}
-            </span>
-          </label>
-          <template v-if="canManageRaid && recurrenceForm.enabled">
-            <button
-              class="btn btn--outline"
-              type="button"
-              :disabled="!recurrenceDirty || savingRecurrence"
-              @click="resetRecurrence"
-            >
-              Reset
-            </button>
-            <button
-              class="btn"
-              type="button"
-              :disabled="!recurrenceDirty || savingRecurrence"
-              @click="saveRecurrence"
-            >
-              {{ savingRecurrence ? 'Saving…' : 'Save Recurrence' }}
-            </button>
-          </template>
-        </div>
-      </header>
-      <transition name="recurrence-fade">
-        <div v-if="showRecurrenceSummary" class="raid-recurrence-card__summary">
-          <span
-            :class="[
-              'recurrence-chip',
-              raid.isRecurring ? 'recurrence-chip--active' : 'recurrence-chip--inactive'
-            ]"
-          >
-            {{ raid.isRecurring ? 'Recurring' : 'One-time raid' }}
-          </span>
-        </div>
-      </transition>
-
-      <div
-        class="recurrence-form"
-        :class="{ 'recurrence-form--collapsed': !recurrenceForm.enabled }"
+    <div class="raid-planning-grid">
+      <section
+        class="card raid-recurrence-card"
+        :class="{ 'raid-recurrence-card--collapsed': recurrenceCardCollapsed }"
       >
-        <transition name="recurrence-collapse">
-          <div v-if="recurrenceForm.enabled" class="recurrence-fields">
-            <div class="recurrence-fields__grid">
-              <label class="form__field">
-                <span>Frequency</span>
-                <select v-model="recurrenceForm.frequency" :disabled="!canManageRaid">
-                  <option value="DAILY">Daily</option>
-                  <option value="WEEKLY">Weekly</option>
-                  <option value="MONTHLY">Monthly</option>
-                </select>
-              </label>
-              <label class="form__field form__field--inline">
-                <span>Repeat Every</span>
-                <input
-                  v-model.number="recurrenceForm.interval"
-                  type="number"
-                  min="1"
-                  class="recurrence-interval"
-                  :disabled="!canManageRaid"
-                />
-                <span class="recurrence-interval__suffix">{{ recurrenceIntervalSuffix }}</span>
-              </label>
-              <label class="form__field">
-                <span>Series End (optional)</span>
-                <input v-model="recurrenceForm.endDate" type="date" :disabled="!canManageRaid" />
-                <small class="form__hint">Leave empty to repeat until disabled.</small>
-              </label>
+        <header class="card__header raid-recurrence-card__header">
+          <div class="raid-recurrence-card__title">
+            <span class="raid-recurrence-card__icon" aria-hidden="true">♻️</span>
+            <div>
+              <h2>Recurrence</h2>
+              <p v-if="showRecurrenceSummaryText" class="muted">{{ raidRecurrenceSummary }}</p>
             </div>
-            <div v-if="recurrenceForm.endDate" class="recurrence-note">
-              <span class="recurrence-note__icon" aria-hidden="true">📅</span>
-              <span>Next events run until {{ formatRaidDateOnly(recurrenceForm.endDate) }}.</span>
-            </div>
+          </div>
+          <div class="raid-recurrence-card__actions">
+            <label
+              class="recurrence-toggle"
+              :class="{
+                'recurrence-toggle--active': recurrenceForm.enabled,
+                'recurrence-toggle--disabled': !canManageRaid || savingRecurrence
+              }"
+            >
+              <input
+                v-model="recurrenceForm.enabled"
+                type="checkbox"
+                :disabled="!canManageRaid || savingRecurrence"
+              />
+              <span class="recurrence-toggle__track" aria-hidden="true">
+                <span class="recurrence-toggle__thumb"></span>
+              </span>
+              <span class="recurrence-toggle__label">
+                {{ recurrenceForm.enabled ? 'Recurrence enabled' : 'Enable recurrence' }}
+              </span>
+            </label>
+            <template v-if="canManageRaid && recurrenceForm.enabled">
+              <button
+                class="btn btn--outline"
+                type="button"
+                :disabled="!recurrenceDirty || savingRecurrence"
+                @click="resetRecurrence"
+              >
+                Reset
+              </button>
+              <button
+                class="btn"
+                type="button"
+                :disabled="!recurrenceDirty || savingRecurrence"
+                @click="saveRecurrence"
+              >
+                {{ savingRecurrence ? 'Saving…' : 'Save Recurrence' }}
+              </button>
+            </template>
+          </div>
+        </header>
+        <transition name="recurrence-fade">
+          <div v-if="showRecurrenceSummary" class="raid-recurrence-card__summary">
+            <span
+              :class="[
+                'recurrence-chip',
+                raid.isRecurring ? 'recurrence-chip--active' : 'recurrence-chip--inactive'
+              ]"
+            >
+              {{ raid.isRecurring ? 'Recurring' : 'One-time raid' }}
+            </span>
           </div>
         </transition>
-        <p v-if="recurrenceError" class="error">{{ recurrenceError }}</p>
-        <p v-else-if="!canManageRaid" class="muted small">
-          You do not have permission to change recurrence settings.
-        </p>
+
+        <div
+          class="recurrence-form"
+          :class="{ 'recurrence-form--collapsed': !recurrenceForm.enabled }"
+        >
+          <transition name="recurrence-collapse">
+            <div v-if="recurrenceForm.enabled" class="recurrence-fields">
+              <div class="recurrence-fields__grid">
+                <label class="form__field">
+                  <span>Frequency</span>
+                  <select v-model="recurrenceForm.frequency" :disabled="!canManageRaid">
+                    <option value="DAILY">Daily</option>
+                    <option value="WEEKLY">Weekly</option>
+                    <option value="MONTHLY">Monthly</option>
+                  </select>
+                </label>
+                <label class="form__field form__field--inline">
+                  <span>Repeat Every</span>
+                  <input
+                    v-model.number="recurrenceForm.interval"
+                    type="number"
+                    min="1"
+                    class="recurrence-interval"
+                    :disabled="!canManageRaid"
+                  />
+                  <span class="recurrence-interval__suffix">{{ recurrenceIntervalSuffix }}</span>
+                </label>
+                <label class="form__field">
+                  <span>Series End (optional)</span>
+                  <input v-model="recurrenceForm.endDate" type="date" :disabled="!canManageRaid" />
+                  <small class="form__hint">Leave empty to repeat until disabled.</small>
+                </label>
+              </div>
+              <div v-if="recurrenceForm.endDate" class="recurrence-note">
+                <span class="recurrence-note__icon" aria-hidden="true">📅</span>
+                <span>Next events run until {{ formatRaidDateOnly(recurrenceForm.endDate) }}.</span>
+              </div>
+            </div>
+          </transition>
+          <p v-if="recurrenceError" class="error">{{ recurrenceError }}</p>
+          <p v-else-if="!canManageRaid" class="muted small">
+            You do not have permission to change recurrence settings.
+          </p>
+        </div>
+      </section>
+
+      <div class="raid-planning-grid__stack">
+        <section class="card raid-notes-card" :class="{ 'card--collapsed': !notesPanelExpanded }">
+          <header class="card__header raid-notes-card__header" @click="toggleNotesPanel">
+            <div class="raid-tool-heading">
+              <span class="raid-tool-heading__icon" aria-hidden="true">✦</span>
+              <div>
+                <p class="raid-tool-heading__eyebrow">Planning</p>
+                <h2>Raid Notes</h2>
+                <p class="raid-tool-heading__summary">
+                  <template v-if="notesHasContent">
+                    {{ notesLineCount }} {{ notesLineCount === 1 ? 'line' : 'lines' }} saved
+                  </template>
+                  <template v-else>No notes saved</template>
+                </p>
+              </div>
+            </div>
+            <div class="raid-notes-card__actions">
+              <button
+                v-if="canManageRaid && notesPanelExpanded"
+                class="btn btn--outline"
+                type="button"
+                :disabled="!notesDirty || savingNotes"
+                @click.stop="resetNotes"
+              >
+                Reset
+              </button>
+              <button
+                v-if="canManageRaid && notesPanelExpanded"
+                class="btn"
+                type="button"
+                :disabled="!notesDirty || savingNotes"
+                @click.stop="saveNotes"
+              >
+                {{ savingNotes ? 'Saving…' : 'Save Notes' }}
+              </button>
+              <button
+                class="collapse-indicator"
+                type="button"
+                @click.stop="toggleNotesPanel"
+                :aria-expanded="notesPanelExpanded"
+              >
+                <span class="collapse-indicator__icon" :data-expanded="notesPanelExpanded">⌄</span>
+              </button>
+            </div>
+          </header>
+          <div v-if="!notesPanelExpanded" class="raid-notes-card__preview">
+            <p>{{ notesPreview }}</p>
+          </div>
+          <transition name="panel-collapse">
+            <div v-show="notesPanelExpanded" class="raid-notes-card__body">
+              <template v-if="canManageRaid">
+                <div class="raid-notes-card__editor-shell">
+                  <textarea
+                    v-model="notesInput"
+                    class="raid-notes-card__textarea"
+                    rows="8"
+                    placeholder="Strategy, reminders, assignments, links..."
+                  ></textarea>
+                  <div class="raid-notes-card__editor-meta">
+                    <span>{{ notesLineCount }} {{ notesLineCount === 1 ? 'line' : 'lines' }}</span>
+                    <span>Visible to raid members</span>
+                  </div>
+                </div>
+                <p v-if="notesError" class="error">{{ notesError }}</p>
+              </template>
+              <template v-else>
+                <p v-if="(raid.notes ?? '').trim().length > 0" class="raid-notes-card__display">
+                  {{ raid.notes }}
+                </p>
+                <p v-else class="muted small">No notes have been added for this raid yet.</p>
+              </template>
+            </div>
+          </transition>
+        </section>
+
+        <section
+          class="card raid-targets-card"
+          :class="{ 'card--collapsed': !targetsPanelExpanded }"
+        >
+          <header class="card__header raid-targets-card__header" @click="toggleTargetsPanel">
+            <div class="raid-tool-heading">
+              <span
+                class="raid-tool-heading__icon raid-tool-heading__icon--goals"
+                aria-hidden="true"
+              >
+                ◎
+              </span>
+              <div>
+                <p class="raid-tool-heading__eyebrow">Objectives</p>
+                <h2>Raid Goals</h2>
+                <p class="raid-tool-heading__summary">{{ targetCompletionLabel }}</p>
+              </div>
+            </div>
+            <div class="raid-targets-card__actions">
+              <button
+                v-if="canManageRaid"
+                class="btn btn--outline"
+                type="button"
+                @click.stop="openTargetsModal"
+              >
+                Edit Goals
+              </button>
+              <button
+                class="collapse-indicator"
+                type="button"
+                @click.stop="toggleTargetsPanel"
+                :aria-expanded="targetsPanelExpanded"
+              >
+                <span class="collapse-indicator__icon" :data-expanded="targetsPanelExpanded"
+                  >⌄</span
+                >
+              </button>
+            </div>
+          </header>
+          <div v-if="displayTargetBosses.length > 0" class="raid-targets-card__progress-bar">
+            <span :style="{ width: `${targetCompletionPercent}%` }"></span>
+          </div>
+          <div v-if="!targetsPanelExpanded" class="raid-targets-card__preview">
+            <div v-if="displayTargetZones.length" class="raid-targets-card__zone-strip">
+              <span v-for="zone in targetZonePreview" :key="zone" class="raid-targets-card__zone">
+                {{ zone }}
+              </span>
+              <span v-if="targetZoneOverflow > 0" class="raid-targets-card__zone">
+                +{{ targetZoneOverflow }}
+              </span>
+            </div>
+            <p v-else class="muted small">No target zones specified.</p>
+            <div v-if="targetBossPreview.length" class="raid-targets-card__boss-preview">
+              <span
+                v-for="boss in targetBossPreview"
+                :key="boss.name"
+                :class="[
+                  'raid-targets-card__boss-pill',
+                  'raid-targets-card__boss-pill--' + boss.state
+                ]"
+              >
+                {{ boss.name }}
+              </span>
+              <span v-if="targetBossOverflow > 0" class="raid-targets-card__boss-pill">
+                +{{ targetBossOverflow }} more
+              </span>
+            </div>
+          </div>
+          <transition name="panel-collapse">
+            <div v-show="targetsPanelExpanded" class="raid-targets-card__body">
+              <div class="raid-targets-grid">
+                <div class="raid-targets-card__panel">
+                  <p class="raid-targets-card__label">Target Zones</p>
+                  <div class="raid-targets-card__zone-list" v-if="displayTargetZones.length">
+                    <span v-for="zone in displayTargetZones" :key="zone">{{ zone }}</span>
+                  </div>
+                  <p v-else class="muted small">No zones specified.</p>
+                </div>
+                <div class="raid-targets-card__panel">
+                  <p class="raid-targets-card__label">Target Bosses</p>
+                  <ul class="raid-targets-card__boss-list" v-if="targetBossCards.length">
+                    <li
+                      v-for="boss in targetBossCards"
+                      :key="boss.name"
+                      :class="['raid-targets-card__boss', 'raid-targets-card__boss--' + boss.state]"
+                    >
+                      <span>{{ boss.name }}</span>
+                      <span class="raid-targets-card__boss-status">{{ boss.label }}</span>
+                    </li>
+                  </ul>
+                  <p v-else class="muted small">No bosses specified.</p>
+                </div>
+              </div>
+              <p v-if="!canManageRaid" class="muted small">Only raid managers can edit goals.</p>
+            </div>
+          </transition>
+        </section>
       </div>
-    </section>
-
-    <section class="card raid-notes-card" :class="{ 'card--collapsed': !notesPanelExpanded }">
-      <header class="card__header raid-notes-card__header" @click="toggleNotesPanel">
-        <div class="card-header-main">
-          <h2>Raid Notes</h2>
-          <p v-if="!notesPanelExpanded" class="card-header-subtle">Tap to edit raid notes</p>
-          <p v-if="notesPanelExpanded" class="muted">
-            Share strategy details, reminders, or links with raiders.
-          </p>
-        </div>
-        <div class="raid-notes-card__actions">
-          <button
-            v-if="canManageRaid && notesPanelExpanded"
-            class="btn btn--outline"
-            type="button"
-            :disabled="!notesDirty || savingNotes"
-            @click.stop="resetNotes"
-          >
-            Reset
-          </button>
-          <button
-            v-if="canManageRaid && notesPanelExpanded"
-            class="btn"
-            type="button"
-            :disabled="!notesDirty || savingNotes"
-            @click.stop="saveNotes"
-          >
-            {{ savingNotes ? 'Saving…' : 'Save Notes' }}
-          </button>
-          <button
-            class="collapse-indicator"
-            type="button"
-            @click.stop="toggleNotesPanel"
-            :aria-expanded="notesPanelExpanded"
-          >
-            <span class="collapse-indicator__icon" :data-expanded="notesPanelExpanded">⌄</span>
-          </button>
-        </div>
-      </header>
-      <transition name="panel-collapse">
-        <div v-show="notesPanelExpanded" class="raid-notes-card__body">
-          <template v-if="canManageRaid">
-            <textarea
-              v-model="notesInput"
-              class="raid-notes-card__textarea"
-              rows="5"
-              placeholder="Add raid notes, reminders, or useful links."
-            ></textarea>
-            <p class="muted small">Raid notes are visible to all raid members.</p>
-            <p v-if="notesError" class="error">{{ notesError }}</p>
-          </template>
-          <template v-else>
-            <p v-if="(raid.notes ?? '').trim().length > 0" class="raid-notes-card__display">
-              {{ raid.notes }}
-            </p>
-            <p v-else class="muted small">No notes have been added for this raid yet.</p>
-          </template>
-        </div>
-      </transition>
-    </section>
-
-    <section class="card raid-targets-card" :class="{ 'card--collapsed': !targetsPanelExpanded }">
-      <header class="card__header raid-targets-card__header" @click="toggleTargetsPanel">
-        <div class="card-header-main">
-          <div class="raid-targets-header">
-            <h2>Raid Goals</h2>
-            <span v-if="displayTargetBosses.length > 0" class="raid-targets-progress">
-              {{ defeatedTargetBosses.size }} / {{ displayTargetBosses.length }}
-            </span>
-          </div>
-          <p v-if="!targetsPanelExpanded" class="card-header-subtle">Tap to view raid goals</p>
-          <p v-if="targetsPanelExpanded" class="muted">
-            Keep everyone aligned on zones and targets for this raid.
-          </p>
-        </div>
-        <div class="raid-targets-card__actions">
-          <button
-            v-if="canManageRaid && targetsPanelExpanded"
-            class="btn btn--outline"
-            type="button"
-            @click.stop="openTargetsModal"
-          >
-            Edit Goals
-          </button>
-          <button
-            class="collapse-indicator"
-            type="button"
-            @click.stop="toggleTargetsPanel"
-            :aria-expanded="targetsPanelExpanded"
-          >
-            <span class="collapse-indicator__icon" :data-expanded="targetsPanelExpanded">⌄</span>
-          </button>
-        </div>
-      </header>
-      <transition name="panel-collapse">
-        <div v-show="targetsPanelExpanded" class="raid-targets-card__body">
-          <div class="raid-targets-grid">
-            <div>
-              <p class="raid-targets-card__label">Target Zones</p>
-              <ul class="raid-targets-card__list" v-if="displayTargetZones.length">
-                <li v-for="zone in displayTargetZones" :key="zone">{{ zone }}</li>
-              </ul>
-              <p v-else class="muted small">No zones specified.</p>
-            </div>
-            <div>
-              <p class="raid-targets-card__label">Target Bosses</p>
-              <ul class="raid-targets-card__list" v-if="displayTargetBosses.length">
-                <li v-for="boss in displayTargetBosses" :key="boss">
-                  <span>{{ boss }}</span>
-                  <span
-                    v-if="targetBossStatus.get(boss)"
-                    class="raid-targets-card__check"
-                    title="Defeated"
-                    aria-label="Defeated"
-                  >
-                    ✔️
-                  </span>
-                  <span
-                    v-else-if="targetBossThreats.has(boss)"
-                    class="raid-targets-card__threat"
-                    title="Players killed"
-                    aria-label="Players killed"
-                  >
-                    ✖
-                  </span>
-                  <span
-                    v-else
-                    class="raid-targets-card__unknown"
-                    title="Pending"
-                    aria-label="Pending"
-                  >
-                    ?
-                  </span>
-                </li>
-              </ul>
-              <p v-else class="muted small">No bosses specified.</p>
-            </div>
-          </div>
-          <p v-if="!canManageRaid" class="muted small">Only raid managers can edit goals.</p>
-        </div>
-      </transition>
-    </section>
+    </div>
 
     <section class="card raid-kills-card">
       <header class="card__header raid-kills-card__header">
@@ -3243,6 +3296,20 @@ const initialNotes = ref('');
 const savingNotes = ref(false);
 const notesError = ref<string | null>(null);
 const notesDirty = computed(() => notesInput.value !== initialNotes.value);
+const notesContent = computed(() => (notesInput.value || raid.value?.notes || '').trim());
+const notesHasContent = computed(() => notesContent.value.length > 0);
+const notesLineCount = computed(() =>
+  notesHasContent.value
+    ? notesContent.value.split(/\r?\n/).filter((line) => line.trim().length > 0).length
+    : 0
+);
+const notesPreview = computed(() => {
+  if (!notesHasContent.value) {
+    return 'No raid notes have been added yet.';
+  }
+  const compact = notesContent.value.replace(/\s+/g, ' ').trim();
+  return compact.length > 220 ? `${compact.slice(0, 220).trimEnd()}...` : compact;
+});
 type TargetEntry = {
   id: string;
   value: string;
@@ -3380,6 +3447,39 @@ const targetBossThreats = computed(() => {
   });
   return threats;
 });
+const targetCompletionPercent = computed(() => {
+  const total = displayTargetBosses.value.length;
+  if (total === 0) {
+    return 0;
+  }
+  return Math.round((defeatedTargetBosses.value.size / total) * 100);
+});
+const targetCompletionLabel = computed(() => {
+  const total = displayTargetBosses.value.length;
+  if (total === 0) {
+    return 'No boss targets';
+  }
+  return `${defeatedTargetBosses.value.size} of ${total} bosses complete`;
+});
+const targetZonePreview = computed(() => displayTargetZones.value.slice(0, 6));
+const targetZoneOverflow = computed(() =>
+  Math.max(0, displayTargetZones.value.length - targetZonePreview.value.length)
+);
+const targetBossCards = computed(() =>
+  displayTargetBosses.value.map((boss) => {
+    const defeated = targetBossStatus.value.get(boss);
+    const threat = targetBossThreats.value.has(boss);
+    return {
+      name: boss,
+      state: defeated ? 'defeated' : threat ? 'threat' : 'pending',
+      label: defeated ? 'Defeated' : threat ? 'Player deaths' : 'Pending'
+    };
+  })
+);
+const targetBossPreview = computed(() => targetBossCards.value.slice(0, 5));
+const targetBossOverflow = computed(() =>
+  Math.max(0, targetBossCards.value.length - targetBossPreview.value.length)
+);
 const npcKillEvents = computed(() => raid.value?.npcKillEvents ?? []);
 const registeredCharacterNames = computed(() => guildMainCharacterNames.value);
 const npcKillSummary = computed(() => {
@@ -4355,6 +4455,34 @@ const raidStatusBadge = computed(() => {
   }
   return { label: 'Planned', variant: 'raid-status-badge--planned' };
 });
+const raidHeroStats = computed(() => [
+  {
+    label: 'Signups',
+    value: String(raidSignups.value.length),
+    detail: viewerSignups.value.length > 0 ? `${viewerSignups.value.length} yours` : 'registered'
+  },
+  {
+    label: 'Goals',
+    value:
+      displayTargetBosses.value.length > 0
+        ? `${defeatedTargetBosses.value.size}/${displayTargetBosses.value.length}`
+        : 'None',
+    detail:
+      displayTargetZones.value.length > 0
+        ? `${displayTargetZones.value.length} zones`
+        : 'no zones set'
+  },
+  {
+    label: 'Kills',
+    value: String(totalNpcKills.value),
+    detail: npcKillSummary.value.length > 0 ? `${npcKillSummary.value.length} NPCs` : 'not logged'
+  },
+  {
+    label: 'Loot',
+    value: String(groupedLoot.value.length),
+    detail: groupedLoot.value.length === 1 ? 'drop recorded' : 'drops recorded'
+  }
+]);
 
 async function loadUserCharacters() {
   loadingUserCharacters.value = true;
@@ -6493,9 +6621,16 @@ async function copyRaidLink() {
 
 <style scoped>
 .raid-detail {
+  --raid-surface: rgba(15, 23, 42, 0.78);
+  --raid-surface-strong: rgba(15, 23, 42, 0.92);
+  --raid-border: rgba(148, 163, 184, 0.2);
+  --raid-gold: #fbbf24;
+  --raid-blue: #60a5fa;
+  --raid-green: #22c55e;
   display: flex;
   flex-direction: column;
-  gap: 2rem;
+  gap: 1.5rem;
+  min-width: 0;
 }
 
 .section-header {
@@ -6504,17 +6639,47 @@ async function copyRaidLink() {
   justify-content: space-between;
 }
 
-.raid-detail__title-block {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  align-items: flex-start;
+.raid-detail__header.raid-hero {
+  position: relative;
+  display: grid;
+  gap: 1.15rem;
+  overflow: hidden;
+  padding: 1.25rem;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 1rem;
+  background:
+    radial-gradient(circle at 8% 0%, rgba(251, 191, 36, 0.18), transparent 30rem),
+    radial-gradient(circle at 100% 10%, rgba(96, 165, 250, 0.18), transparent 28rem),
+    linear-gradient(145deg, rgba(15, 23, 42, 0.96), rgba(15, 23, 42, 0.76));
+  box-shadow:
+    0 28px 80px rgba(2, 6, 23, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
-.raid-detail__title-top {
+.raid-detail__header.raid-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(251, 191, 36, 0.16), transparent 28%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 36%);
+  opacity: 0.85;
+}
+
+.raid-hero__topbar,
+.raid-hero__body,
+.raid-hero__footer {
+  position: relative;
+  z-index: 1;
+}
+
+.raid-hero__topbar {
   display: flex;
+  justify-content: space-between;
+  gap: 1rem;
   align-items: center;
-  gap: 0.75rem;
+  flex-wrap: wrap;
 }
 
 .raid-detail__back {
@@ -6522,6 +6687,30 @@ async function copyRaidLink() {
   align-items: center;
   gap: 0.4rem;
   padding: 0.4rem 0.85rem;
+}
+
+.raid-hero__status-strip {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.raid-hero__role {
+  border-color: rgba(96, 165, 250, 0.28);
+  background: rgba(59, 130, 246, 0.12);
+}
+
+.raid-hero__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.72fr);
+  gap: 1.25rem;
+  align-items: end;
+}
+
+.raid-hero__main {
+  min-width: 0;
 }
 
 .raid-title-row {
@@ -6541,10 +6730,94 @@ async function copyRaidLink() {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  margin: 0;
+  color: #f8fafc;
+  font-size: 2.7rem;
+  line-height: 0.98;
+  overflow-wrap: anywhere;
 }
 
 .raid-recurring-icon {
   font-size: 1.3rem;
+}
+
+.raid-hero__date {
+  margin: 0.8rem 0 0;
+  color: #cbd5e1;
+  font-size: 1rem;
+}
+
+.raid-hero__target-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  max-width: 100%;
+  margin-top: 0.85rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid rgba(251, 191, 36, 0.24);
+  border-radius: 999px;
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.raid-hero__target-summary span {
+  color: #fbbf24;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.raid-hero__target-summary strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.9rem;
+}
+
+.raid-hero__stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.raid-hero__stat {
+  min-width: 0;
+  padding: 0.85rem;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 0.85rem;
+  background: rgba(2, 6, 23, 0.28);
+}
+
+.raid-hero__stat-value {
+  display: block;
+  color: #f8fafc;
+  font-size: 1.55rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.raid-hero__stat-label {
+  display: block;
+  margin-top: 0.35rem;
+  color: #93c5fd;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.raid-hero__stat-detail {
+  display: block;
+  margin-top: 0.2rem;
+  color: #94a3b8;
+  font-size: 0.82rem;
+}
+
+.raid-hero__footer {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .raid-status-badge {
@@ -7028,13 +7301,17 @@ async function copyRaidLink() {
 }
 
 .card {
-  background: rgba(15, 23, 42, 0.7);
-  border: 1px solid rgba(148, 163, 184, 0.2);
+  background:
+    linear-gradient(145deg, rgba(15, 23, 42, 0.84), rgba(15, 23, 42, 0.64)), rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(148, 163, 184, 0.22);
   border-radius: 1rem;
   padding: 1.5rem;
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  box-shadow:
+    0 18px 48px rgba(2, 6, 23, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 .raid-signups-card {
@@ -8743,15 +9020,41 @@ th {
 }
 
 .card--collapsed {
-  padding-bottom: 0.75rem;
-  border-color: rgba(148, 163, 184, 0.25);
-  background: rgba(15, 23, 42, 0.35);
+  border-color: rgba(148, 163, 184, 0.28);
+  background:
+    linear-gradient(145deg, rgba(15, 23, 42, 0.66), rgba(15, 23, 42, 0.42)), rgba(15, 23, 42, 0.42);
   transition:
     background 0.2s ease,
     border-color 0.2s ease;
 }
 
-.raid-notes-card__header {
+.raid-planning-grid {
+  display: grid;
+  grid-template-columns: minmax(270px, 0.78fr) minmax(0, 1.22fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.raid-planning-grid__stack {
+  display: grid;
+  gap: 1.25rem;
+  min-width: 0;
+}
+
+.raid-notes-card,
+.raid-targets-card {
+  overflow: hidden;
+  border-color: rgba(96, 165, 250, 0.22);
+  background:
+    radial-gradient(circle at top left, rgba(14, 165, 233, 0.12), transparent 34rem),
+    linear-gradient(145deg, rgba(15, 23, 42, 0.9), rgba(15, 23, 42, 0.62));
+  box-shadow:
+    0 22px 60px rgba(2, 6, 23, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.raid-notes-card__header,
+.raid-targets-card__header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -8759,10 +9062,62 @@ th {
   cursor: pointer;
 }
 
-.raid-notes-card__actions {
+.raid-tool-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+.raid-tool-heading__icon {
+  width: 2.35rem;
+  height: 2.35rem;
+  border-radius: 0.7rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: #fef3c7;
+  background:
+    linear-gradient(135deg, rgba(245, 158, 11, 0.32), rgba(14, 165, 233, 0.18)),
+    rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(251, 191, 36, 0.24);
+}
+
+.raid-tool-heading__icon--goals {
+  color: #bfdbfe;
+  border-color: rgba(96, 165, 250, 0.32);
+  background:
+    linear-gradient(135deg, rgba(59, 130, 246, 0.3), rgba(34, 197, 94, 0.16)),
+    rgba(15, 23, 42, 0.72);
+}
+
+.raid-tool-heading h2 {
+  margin: 0.1rem 0 0;
+}
+
+.raid-tool-heading__eyebrow {
+  margin: 0;
+  color: #fbbf24;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.raid-tool-heading__summary {
+  margin: 0.25rem 0 0;
+  color: #cbd5e1;
+  font-size: 0.9rem;
+}
+
+.raid-notes-card__actions,
+.raid-targets-card__actions {
   display: flex;
   gap: 0.75rem;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
 }
 
 .raid-notes-card__body {
@@ -8771,23 +9126,53 @@ th {
   gap: 0.75rem;
 }
 
+.raid-notes-card__preview {
+  margin-top: 0.25rem;
+  padding: 0.95rem 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 0.8rem;
+  background: rgba(2, 6, 23, 0.24);
+}
+
+.raid-notes-card__preview p {
+  margin: 0;
+  color: #dbeafe;
+  line-height: 1.55;
+}
+
+.raid-notes-card__editor-shell {
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 0.85rem;
+  background: rgba(2, 6, 23, 0.28);
+}
+
 .raid-notes-card__textarea {
   width: 100%;
-  min-height: 150px;
+  min-height: 190px;
   resize: vertical;
-  background: rgba(15, 23, 42, 0.6);
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  border-radius: 0.75rem;
-  padding: 0.85rem;
+  background: transparent;
+  border: 0;
+  padding: 1rem;
   color: #e2e8f0;
   font-size: 0.95rem;
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
 .raid-notes-card__textarea:focus {
   outline: none;
-  border-color: rgba(59, 130, 246, 0.55);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18);
+  box-shadow: inset 0 0 0 2px rgba(59, 130, 246, 0.42);
+}
+
+.raid-notes-card__editor-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.65rem 0.9rem;
+  color: #94a3b8;
+  font-size: 0.8rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(15, 23, 42, 0.46);
 }
 
 .raid-notes-card__display {
@@ -8804,40 +9189,32 @@ th {
   margin-top: 0;
 }
 
-.raid-targets-card__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  cursor: pointer;
-}
-
-.raid-targets-header {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.raid-targets-progress {
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: #22c55e;
-  background: rgba(34, 197, 94, 0.15);
-  border: 1px solid rgba(34, 197, 94, 0.35);
-  border-radius: 999px;
-  padding: 0.15rem 0.6rem;
-}
-
-.raid-targets-card__actions {
-  display: flex;
-  gap: 0.75rem;
-  align-items: center;
-}
-
 .raid-targets-card__body {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+}
+
+.raid-targets-card__progress-bar {
+  height: 0.45rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+}
+
+.raid-targets-card__progress-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #22c55e, #60a5fa);
+  box-shadow: 0 0 20px rgba(34, 197, 94, 0.35);
+  transition: width 0.25s ease;
+}
+
+.raid-targets-card__preview {
+  display: grid;
+  gap: 0.8rem;
 }
 
 .raid-targets-grid {
@@ -8846,41 +9223,193 @@ th {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
+.raid-targets-card__panel {
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 0.85rem;
+  background: rgba(2, 6, 23, 0.22);
+}
+
 .raid-targets-card__label {
   font-weight: 600;
   margin-bottom: 0.35rem;
   display: block;
+  color: #dbeafe;
 }
 
-.raid-targets-card__list {
-  list-style: disc;
-  padding-left: 1.25rem;
+.raid-targets-card__zone-strip,
+.raid-targets-card__zone-list,
+.raid-targets-card__boss-preview {
   display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  color: #e2e8f0;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  min-width: 0;
 }
 
-.raid-targets-card__list li {
-  line-height: 1.4;
+.raid-targets-card__zone,
+.raid-targets-card__zone-list span {
+  max-width: 100%;
+  border: 1px solid rgba(251, 191, 36, 0.28);
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.1);
+  font-size: 0.84rem;
+  line-height: 1.2;
+}
+
+.raid-targets-card__boss-preview {
+  padding-top: 0.1rem;
+}
+
+.raid-targets-card__boss-pill {
+  max-width: 100%;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 999px;
+  padding: 0.38rem 0.7rem;
+  color: #cbd5e1;
+  background: rgba(15, 23, 42, 0.58);
+  font-size: 0.84rem;
+  line-height: 1.2;
+}
+
+.raid-targets-card__boss-pill--defeated {
+  border-color: rgba(34, 197, 94, 0.36);
+  color: #bbf7d0;
+  background: rgba(34, 197, 94, 0.14);
+}
+
+.raid-targets-card__boss-pill--threat {
+  border-color: rgba(248, 113, 113, 0.36);
+  color: #fecaca;
+  background: rgba(248, 113, 113, 0.12);
+}
+
+.raid-targets-card__boss-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.raid-targets-card__boss {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 0.75rem;
+  color: #e2e8f0;
+  background: rgba(15, 23, 42, 0.48);
 }
 
-.raid-targets-card__check {
-  font-size: 0.85rem;
-  color: #4ade80;
+.raid-targets-card__boss > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
-.raid-targets-card__threat {
-  font-size: 0.9rem;
-  color: #f87171;
+.raid-targets-card__boss-status {
+  flex: 0 0 auto;
+  color: #94a3b8;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
-.raid-targets-card__unknown {
-  font-size: 0.85rem;
-  color: #fbbf24;
+.raid-targets-card__boss--defeated {
+  border-color: rgba(34, 197, 94, 0.34);
+  background: rgba(34, 197, 94, 0.11);
+}
+
+.raid-targets-card__boss--defeated .raid-targets-card__boss-status {
+  color: #86efac;
+}
+
+.raid-targets-card__boss--threat {
+  border-color: rgba(248, 113, 113, 0.35);
+  background: rgba(248, 113, 113, 0.1);
+}
+
+.raid-targets-card__boss--threat .raid-targets-card__boss-status {
+  color: #fca5a5;
+}
+
+@media (max-width: 1100px) {
+  .raid-hero__body {
+    grid-template-columns: 1fr;
+  }
+
+  .raid-hero__stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 880px) {
+  .raid-planning-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .raid-detail__header.raid-hero {
+    padding: 1rem;
+  }
+
+  .raid-title-main h1 {
+    font-size: 2rem;
+  }
+
+  .raid-hero__stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .raid-hero__footer,
+  .header-actions {
+    justify-content: flex-start;
+  }
+
+  .raid-notes-card__header,
+  .raid-targets-card__header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .raid-notes-card__actions,
+  .raid-targets-card__actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 520px) {
+  .raid-hero__topbar,
+  .raid-hero__status-strip,
+  .raid-hero__target-summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .raid-hero__target-summary {
+    border-radius: 0.8rem;
+  }
+
+  .raid-hero__target-summary strong {
+    white-space: normal;
+  }
+
+  .raid-hero__stats {
+    grid-template-columns: 1fr;
+  }
+
+  .raid-notes-card__editor-meta,
+  .raid-targets-card__boss {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 
 .raid-kills-card__header {
@@ -9145,6 +9674,8 @@ th {
 .modal.raid-targets-modal {
   width: min(1400px, calc(100vw - 1.5rem));
   max-width: min(1400px, calc(100vw - 1.5rem));
+  max-height: calc(100vh - 3rem);
+  overflow-y: auto;
   background: linear-gradient(155deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.92) 100%);
   border: 1px solid rgba(148, 163, 184, 0.25);
   box-shadow: 0 30px 60px rgba(15, 23, 42, 0.55);
@@ -9589,7 +10120,7 @@ th {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 70;
+  z-index: 10060;
   padding: 1.5rem;
 }
 
