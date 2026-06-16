@@ -13380,14 +13380,18 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
 
 /* ===== Next patch kanban board ===== */
 .tm-board {
+  --tm-board-lane-min: clamp(16rem, 23vw, 18.5rem);
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: minmax(15rem, 1fr);
+  grid-auto-columns: minmax(var(--tm-board-lane-min), 1fr);
   gap: 0.72rem;
   min-height: 0;
   overflow: auto;
   padding: 0.1rem 0.3rem 0.5rem 0.1rem;
+  overscroll-behavior-inline: contain;
   scrollbar-width: thin;
+  scrollbar-gutter: stable;
+  scroll-padding-inline: 0.1rem 0.3rem;
   scroll-snap-type: x proximity;
 }
 
@@ -15089,29 +15093,29 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
   color: var(--tm-muted);
 }
 
-/* ===== Board responsive: stack lanes vertically on narrow screens ===== */
+/* ===== Board responsive: preserve kanban columns on narrow screens ===== */
 @media (max-width: 720px) {
   .tm-board {
-    grid-auto-flow: row;
-    grid-auto-columns: auto;
-    grid-template-columns: minmax(0, 1fr);
-    align-items: start;
+    --tm-board-lane-min: min(84vw, 19rem);
+    grid-auto-flow: column;
+    grid-auto-columns: var(--tm-board-lane-min);
+    grid-template-columns: none;
+    align-items: stretch;
     gap: 0.6rem;
-    overflow-x: hidden;
-    scroll-snap-type: none;
-    padding-right: 0.1rem;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    padding-right: 0.3rem;
   }
 
   .tm-board-lane {
-    min-height: auto;
-    scroll-snap-align: none;
+    min-height: 0;
+    scroll-snap-align: start;
   }
 
-  /* Stacked lanes flow within the board's own scroll instead of each scrolling internally. */
   .tm-board-lane__body {
-    flex: 0 0 auto;
-    min-height: auto;
-    overflow-y: visible;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
   }
 
   /* Touch can't drag — give the lane accent a touch more weight as the primary cue. */
