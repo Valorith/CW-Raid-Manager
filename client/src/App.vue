@@ -446,7 +446,6 @@
           <div class="nav-favorites">
             <div class="nav-favorites__header">
               <span>Saved Pages</span>
-              <span>{{ pageFavorites.length }}</span>
             </div>
             <div v-if="pageFavorites.length === 0" class="nav-favorites__empty">
               No favorites saved yet.
@@ -2765,20 +2764,6 @@ function hasRaidStarted(raid: RaidEventSummary) {
   font-weight: 800;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-}
-
-.nav-favorites__header span:last-child {
-  min-width: 1.45rem;
-  height: 1.45rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  border: 1px solid rgba(125, 211, 252, 0.24);
-  background: rgba(8, 47, 73, 0.48);
-  color: #bae6fd;
-  font-size: 0.7rem;
-  letter-spacing: 0;
 }
 
 .nav-favorites__empty {
