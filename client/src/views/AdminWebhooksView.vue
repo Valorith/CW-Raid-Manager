@@ -5744,6 +5744,7 @@ function formatIssueHandoff(message: InboundWebhookMessage) {
   const inboxLink = getWebhookInboxMessageUrl(message.id);
   const reportText = getCrashReportText(message);
   const reviewText = formatIssueHandoffReview(message);
+  const taskText = formatIssueHandoffTask(reportText);
   const linkedChanges =
     message.linkedTestChanges && message.linkedTestChanges.length > 0
       ? message.linkedTestChanges
@@ -5773,8 +5774,26 @@ function formatIssueHandoff(message: InboundWebhookMessage) {
     reviewText,
     '',
     'Codex task:',
-    'Open the inbox item above for current context. Use the EQEmu Oracle skill to ground your decision-making in the relevant scripting API, schema, and official docs before choosing an approach. Then ground the implementation in EQEmu/Server code where relevant, review the evidence, and fix the issue as appropriate.'
+    taskText
   ].join('\n');
+}
+
+function formatIssueHandoffTask(reportText: string) {
+  const taskLines = [
+    'Open the inbox item above for current context. Use the EQEmu Oracle plugin to ground your decision-making in the relevant scripting API, schema, and official docs before choosing an approach. Then ground the implementation in EQEmu/Server code where relevant, review the evidence, and fix the issue as appropriate.'
+  ];
+
+  if (looksLikeScriptErrorText(reportText)) {
+    const scriptLink = getScriptGitHubLink(reportText);
+    const scriptReference = scriptLink
+      ? ` Subject script candidate: ${scriptLink.repository}/${scriptLink.path}:${scriptLink.line}.`
+      : '';
+    taskLines.push(
+      `Because this appears to be a script error, also use the EQEmu Oracle plugin to download the subject script from the test server before editing.${scriptReference} Investigate the downloaded script, apply a local fix if appropriate, and ask the user for permission before uploading any fix back to the test server.`
+    );
+  }
+
+  return taskLines.join('\n');
 }
 
 function getWebhookInboxMessageUrl(messageId: string) {
