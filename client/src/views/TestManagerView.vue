@@ -1,5 +1,10 @@
 <template>
-  <div class="tm-shell">
+  <div
+    class="tm-shell"
+    :class="{
+      'tm-shell--next-patch-board': currentSection === 'next-patch' && nextPatchLayoutIsBoard
+    }"
+  >
     <section class="tm-hero">
       <div>
         <p class="tm-eyebrow">Global Test Server Workspace</p>
@@ -1718,7 +1723,10 @@
       </section>
 
       <section v-else-if="currentSection === 'next-patch'" key="next-patch" class="tm-next-patch">
-        <main class="tm-panel tm-next-patch-panel">
+        <main
+          class="tm-panel tm-next-patch-panel"
+          :class="{ 'tm-next-patch-panel--board': nextPatchLayoutIsBoard }"
+        >
           <div class="tm-panel__header tm-next-patch__header">
             <div class="tm-next-patch__intro">
               <h2><span aria-hidden="true">✓</span> Next Patch</h2>
@@ -15087,6 +15095,7 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
     grid-auto-flow: row;
     grid-auto-columns: auto;
     grid-template-columns: minmax(0, 1fr);
+    align-items: start;
     gap: 0.6rem;
     overflow-x: hidden;
     scroll-snap-type: none;
@@ -15094,11 +15103,14 @@ button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focu
   }
 
   .tm-board-lane {
+    min-height: auto;
     scroll-snap-align: none;
   }
 
   /* Stacked lanes flow within the board's own scroll instead of each scrolling internally. */
   .tm-board-lane__body {
+    flex: 0 0 auto;
+    min-height: auto;
     overflow-y: visible;
   }
 
@@ -23326,6 +23338,26 @@ button.tm-version-badge {
   .tm-next-patch-panel {
     height: auto;
     overflow: visible;
+  }
+
+  .tm-shell--next-patch-board {
+    height: auto;
+    min-height: calc(100dvh - var(--tm-app-header-height));
+    overflow: visible;
+  }
+
+  .tm-shell--next-patch-board .tm-next-patch {
+    overflow: visible;
+  }
+
+  .tm-shell--next-patch-board .tm-next-patch-panel--board {
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .tm-shell--next-patch-board .tm-board {
+    height: clamp(36rem, 72dvh, 52rem);
   }
 
   .tm-panel__header.tm-next-patch__header {
