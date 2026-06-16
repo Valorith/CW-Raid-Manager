@@ -59,9 +59,6 @@
               />
             </svg>
             Favorites
-            <span v-if="pageFavorites.length > 0" class="nav__favorite-count">
-              {{ formatCounter(pageFavorites.length) }}
-            </span>
             <svg class="nav__chevron" viewBox="0 0 20 20" aria-hidden="true">
               <path
                 d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
@@ -2602,28 +2599,6 @@ function hasRaidStarted(raid: RaidEventSummary) {
   min-width: 17px;
   margin-left: 1rem;
   color: #fee2e2;
-}
-
-.nav__favorite-count {
-  min-width: 18px;
-  height: 18px;
-  padding: 0 6px;
-  border-radius: 999px;
-  border: 1px solid rgba(125, 211, 252, 0.34);
-  background:
-    linear-gradient(180deg, rgba(45, 212, 191, 0.28), rgba(14, 116, 144, 0.28)),
-    rgba(8, 47, 73, 0.4);
-  color: #ccfbf1;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    0 0 12px rgba(20, 184, 166, 0.16);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  font-size: 10px;
-  font-weight: 800;
-  line-height: 1;
 }
 
 /* Keep old .nav__link as alias for any remaining uses */
