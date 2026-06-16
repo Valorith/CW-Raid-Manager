@@ -516,6 +516,53 @@
                 </button>
               </div>
             </TransitionGroup>
+            <div
+              v-if="shouldShowFavoritePagination"
+              class="nav-favorites__pagination"
+              aria-label="Favorites pages"
+            >
+              <button
+                type="button"
+                class="nav-favorites__page-button"
+                :disabled="favoriteCurrentPageIndex === 0 || Boolean(draggedFavoriteId)"
+                aria-label="Previous favorites page"
+                title="Previous page"
+                @click.stop="goToPreviousFavoritePage"
+              >
+                <svg viewBox="0 0 20 20" aria-hidden="true">
+                  <path d="m12 5-5 5 5 5" />
+                </svg>
+              </button>
+              <div class="nav-favorites__page-dots">
+                <button
+                  v-for="pageIndex in favoritePaginationPages"
+                  :key="pageIndex"
+                  type="button"
+                  class="nav-favorites__page-dot"
+                  :class="{
+                    'nav-favorites__page-dot--active': pageIndex === favoriteCurrentPageIndex
+                  }"
+                  :aria-label="`Favorites page ${pageIndex + 1}`"
+                  :aria-current="pageIndex === favoriteCurrentPageIndex ? 'page' : undefined"
+                  :disabled="Boolean(draggedFavoriteId)"
+                  @click.stop="setFavoritePage(pageIndex)"
+                ></button>
+              </div>
+              <button
+                type="button"
+                class="nav-favorites__page-button"
+                :disabled="
+                  favoriteCurrentPageIndex >= favoritePageCount - 1 || Boolean(draggedFavoriteId)
+                "
+                aria-label="Next favorites page"
+                title="Next page"
+                @click.stop="goToNextFavoritePage"
+              >
+                <svg viewBox="0 0 20 20" aria-hidden="true">
+                  <path d="m8 5 5 5-5 5" />
+                </svg>
+              </button>
+            </div>
             <div class="nav-favorites__footer">
               <button
                 type="button"
@@ -893,6 +940,7 @@ const passkeyPromptSaving = ref(false);
 
 const FAVORITES_STORAGE_PREFIX = 'cwraid-page-favorites';
 const MAX_FAVORITES = 24;
+const FAVORITES_PER_PAGE = 5;
 const ROUTE_LABELS: Record<string, string> = {
   Dashboard: 'Dashboard',
   Market: 'Market',
@@ -928,6 +976,7 @@ const favoriteContextMenu = ref<{ favorite: PageFavorite; x: number; y: number }
 const favoriteRenameCandidate = ref<PageFavorite | null>(null);
 const favoriteRenameValue = ref('');
 const favoriteRenameError = ref('');
+const favoritePageIndex = ref(0);
 const draggedFavoriteId = ref<string | null>(null);
 const dragOverFavoriteId = ref<string | null>(null);
 const favoriteDragDirty = ref(false);
@@ -955,12 +1004,24 @@ const currentFavoriteLabel = computed(() => buildFavoriteLabel(route));
 const isCurrentPageFavorite = computed(() =>
   pageFavorites.value.some((favorite) => favorite.path === currentFavoritePath.value)
 );
+const favoritePageCount = computed(() =>
+  Math.max(1, Math.ceil(pageFavorites.value.length / FAVORITES_PER_PAGE))
+);
+const favoriteCurrentPageIndex = computed(() =>
+  Math.min(favoritePageIndex.value, favoritePageCount.value - 1)
+);
+const favoritePaginationPages = computed(() =>
+  Array.from({ length: favoritePageCount.value }, (_, index) => index)
+);
+const shouldShowFavoritePagination = computed(() => favoritePageCount.value > 1);
 const displayedPageFavorites = computed(() => {
   const draggedId = draggedFavoriteId.value;
   const dropTarget = favoriteDragDropTarget.value;
+  const pageStart = favoriteCurrentPageIndex.value * FAVORITES_PER_PAGE;
+  const pageEnd = pageStart + FAVORITES_PER_PAGE;
 
   if (!draggedId || !dropTarget) {
-    return pageFavorites.value;
+    return pageFavorites.value.slice(pageStart, pageEnd);
   }
 
   return reorderFavoriteList(
@@ -968,7 +1029,7 @@ const displayedPageFavorites = computed(() => {
     draggedId,
     dropTarget.targetId,
     dropTarget.placement
-  );
+  ).slice(pageStart, pageEnd);
 });
 const favoriteContextMenuStyle = computed<CSSProperties>(() => {
   if (!favoriteContextMenu.value || typeof window === 'undefined') {
@@ -1432,6 +1493,26 @@ async function persistPageFavorites(options: { showErrorToast?: boolean } = {}) 
   }
 }
 
+function clampFavoritePage() {
+  favoritePageIndex.value = Math.min(
+    Math.max(favoritePageIndex.value, 0),
+    favoritePageCount.value - 1
+  );
+}
+
+function setFavoritePage(pageIndex: number) {
+  favoritePageIndex.value = Math.min(Math.max(pageIndex, 0), favoritePageCount.value - 1);
+  void nextTick(() => updateDropdownPosition('favorites'));
+}
+
+function goToPreviousFavoritePage() {
+  setFavoritePage(favoriteCurrentPageIndex.value - 1);
+}
+
+function goToNextFavoritePage() {
+  setFavoritePage(favoriteCurrentPageIndex.value + 1);
+}
+
 function formatFavoriteSegment(value: string) {
   return value
     .replace(/[-_]+/g, ' ')
@@ -1494,6 +1575,7 @@ function addCurrentPageFavorite() {
   };
 
   pageFavorites.value = [favorite, ...pageFavorites.value].slice(0, MAX_FAVORITES);
+  favoritePageIndex.value = 0;
   void persistPageFavorites();
   addToast({
     title: 'Favorite Added',
@@ -2217,6 +2299,14 @@ watch(
       passkeyPromptVisible.value = false;
       startPasskeyAutofill();
     }
+  }
+);
+
+watch(
+  () => pageFavorites.value.length,
+  () => {
+    clampFavoritePage();
+    void nextTick(() => updateDropdownPosition('favorites'));
   }
 );
 
@@ -2984,6 +3074,107 @@ function hasRaidStarted(raid: RaidEventSummary) {
 .nav-favorites__delete:focus-visible {
   outline: 2px solid rgba(248, 113, 113, 0.5);
   outline-offset: 2px;
+}
+
+.nav-favorites__pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.15rem 0.1rem 0.05rem;
+}
+
+.nav-favorites__page-button {
+  width: 1.8rem;
+  height: 1.8rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(125, 211, 252, 0.18);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.18);
+  color: rgba(186, 230, 253, 0.72);
+  cursor: pointer;
+  transition:
+    color 0.16s ease,
+    background 0.16s ease,
+    border-color 0.16s ease,
+    opacity 0.16s ease;
+}
+
+.nav-favorites__page-button svg {
+  width: 0.95rem;
+  height: 0.95rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.nav-favorites__page-button:hover:not(:disabled),
+.nav-favorites__page-button:focus-visible:not(:disabled) {
+  color: #e0f2fe;
+  background: rgba(8, 47, 73, 0.42);
+  border-color: rgba(125, 211, 252, 0.32);
+}
+
+.nav-favorites__page-button:focus-visible {
+  outline: 2px solid rgba(125, 211, 252, 0.48);
+  outline-offset: 2px;
+}
+
+.nav-favorites__page-button:disabled {
+  cursor: default;
+  opacity: 0.32;
+}
+
+.nav-favorites__page-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+}
+
+.nav-favorites__page-dot {
+  width: 1rem;
+  height: 1rem;
+  position: relative;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.nav-favorites__page-dot::before {
+  content: '';
+  position: absolute;
+  inset: 0.28rem;
+  border-radius: inherit;
+  background: rgba(125, 211, 252, 0.28);
+  transition:
+    background 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
+}
+
+.nav-favorites__page-dot:hover::before,
+.nav-favorites__page-dot:focus-visible::before {
+  background: rgba(186, 230, 253, 0.72);
+}
+
+.nav-favorites__page-dot--active::before {
+  background: #67e8f9;
+  box-shadow: 0 0 10px rgba(103, 232, 249, 0.48);
+  transform: scale(1.25);
+}
+
+.nav-favorites__page-dot:focus-visible {
+  outline: 2px solid rgba(125, 211, 252, 0.42);
+  outline-offset: 2px;
+}
+
+.nav-favorites__page-dot:disabled {
+  cursor: default;
 }
 
 .nav-favorites__footer {
