@@ -4956,13 +4956,19 @@ export async function setTestChangeChecklistItemShared(
 export async function addTestChangeChecklistItem(
   actorUserId: string,
   changeId: string,
-  input: { title: string; details?: string | null; category?: string | null }
+  input: {
+    title: string;
+    details?: string | null;
+    category?: string | null;
+    parentId?: string | null;
+  }
 ) {
   await ensureAdmin(actorUserId);
 
   const title = input.title.trim();
   const details = input.details?.trim() || null;
   const category = input.category?.trim() || null;
+  const parentId = input.parentId?.trim() || null;
   if (!title) {
     throw new Error('Checklist item title is required.');
   }
@@ -4984,6 +4990,49 @@ export async function addTestChangeChecklistItem(
     }
 
     const sortOrder = (change.checklist[0]?.sortOrder ?? -1) + 1;
+    if (parentId) {
+      const parent = await tx.testChangeChecklistItem.findFirst({
+        where: { id: parentId, changeId, parentId: null },
+        select: {
+          id: true,
+          title: true,
+          category: true,
+          shared: true,
+          children: { select: { id: true }, take: 1 }
+        }
+      });
+      if (!parent || parent.children.length === 0) {
+        throw new Error('Sub-checklist not found for this change.');
+      }
+
+      const checklistItem = await tx.testChangeChecklistItem.create({
+        data: {
+          changeId,
+          parentId: parent.id,
+          title,
+          details,
+          category: category ?? parent.category,
+          sortOrder,
+          shared: parent.shared
+        }
+      });
+
+      await appendHistory(tx, {
+        changeId,
+        actorUserId,
+        eventType: TestHistoryEventType.CHECKLIST_UPDATED,
+        label: 'Sub-checklist item added',
+        detail: `Checklist item "${checklistItem.title}" was added to sub-checklist "${parent.title}".`,
+        metadata: {
+          checklistItemId: checklistItem.id,
+          checklistItemTitle: checklistItem.title,
+          parentChecklistItemId: parent.id,
+          parentChecklistItemTitle: parent.title
+        }
+      });
+      return;
+    }
+
     const checklistItem = await tx.testChangeChecklistItem.create({
       data: {
         changeId,

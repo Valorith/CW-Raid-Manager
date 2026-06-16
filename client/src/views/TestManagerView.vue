@@ -4542,20 +4542,34 @@
       aria-labelledby="subchecklist-viewer-title"
       @click.self="closeSubchecklistViewer"
     >
-      <section class="tm-modal__panel tm-subchecklist-viewer">
+      <section
+        class="tm-modal__panel tm-subchecklist-viewer"
+        :class="{ 'tm-subchecklist-viewer--adding': subchecklistItemAddOpen }"
+      >
         <div class="tm-panel__header">
           <div>
             <p class="tm-modal-eyebrow">Sub-checklist</p>
             <h2 id="subchecklist-viewer-title">{{ activeSubchecklistGroup.title }}</h2>
           </div>
-          <button
-            type="button"
-            class="tm-icon-btn"
-            aria-label="Close"
-            @click="closeSubchecklistViewer"
-          >
-            ×
-          </button>
+          <div class="tm-subchecklist-viewer__header-actions">
+            <button
+              v-if="authStore.isAdmin"
+              type="button"
+              class="tm-btn tm-btn--ghost tm-subchecklist-viewer__add-trigger"
+              :disabled="subchecklistItemAddOpen || subchecklistItemAddSaving"
+              @click="openSubchecklistItemAdd"
+            >
+              Add item
+            </button>
+            <button
+              type="button"
+              class="tm-icon-btn"
+              aria-label="Close"
+              @click="closeSubchecklistViewer"
+            >
+              ×
+            </button>
+          </div>
         </div>
 
         <div class="tm-subchecklist-viewer__progress">
@@ -4574,6 +4588,41 @@
             {{ activeSubchecklistGroup.childCount }}</span
           >
         </div>
+
+        <form
+          v-if="authStore.isAdmin && subchecklistItemAddOpen"
+          class="tm-subchecklist-viewer__add-form"
+          @submit.prevent="saveSubchecklistItemAdd"
+        >
+          <label class="tm-subchecklist-viewer__add-field">
+            <span>New item</span>
+            <input
+              ref="subchecklistItemAddInput"
+              v-model="subchecklistItemAddTitle"
+              class="tm-input"
+              maxlength="191"
+              placeholder="Checklist item title"
+              :disabled="subchecklistItemAddSaving"
+            />
+          </label>
+          <div class="tm-subchecklist-viewer__add-actions">
+            <button
+              type="button"
+              class="tm-btn tm-btn--ghost"
+              :disabled="subchecklistItemAddSaving"
+              @click="closeSubchecklistItemAdd"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              class="tm-btn tm-btn--primary"
+              :disabled="!subchecklistItemAddTitle.trim() || subchecklistItemAddSaving"
+            >
+              {{ subchecklistItemAddSaving ? 'Adding...' : 'Add' }}
+            </button>
+          </div>
+        </form>
 
         <ul class="tm-subchecklist-viewer__list">
           <li
@@ -5509,6 +5558,10 @@ const subchecklistEditorForm = ref<{ title: string; category: string; text: stri
 });
 const subchecklistViewerOpen = ref(false);
 const subchecklistViewerGroupId = ref<string | null>(null);
+const subchecklistItemAddInput = ref<HTMLInputElement | null>(null);
+const subchecklistItemAddOpen = ref(false);
+const subchecklistItemAddTitle = ref('');
+const subchecklistItemAddSaving = ref(false);
 const groupCompleteConfirm = ref<{
   groupId: string;
   title: string;
@@ -10016,13 +10069,85 @@ async function confirmGroupComplete() {
 }
 
 function openSubchecklistViewer(groupId: string) {
+  resetSubchecklistItemAdd();
   subchecklistViewerGroupId.value = groupId;
   subchecklistViewerOpen.value = true;
 }
 
 function closeSubchecklistViewer() {
+  if (subchecklistItemAddSaving.value) {
+    return;
+  }
+  resetSubchecklistItemAdd();
   subchecklistViewerOpen.value = false;
   subchecklistViewerGroupId.value = null;
+}
+
+function resetSubchecklistItemAdd() {
+  subchecklistItemAddOpen.value = false;
+  subchecklistItemAddTitle.value = '';
+}
+
+async function openSubchecklistItemAdd() {
+  if (!authStore.isAdmin || !activeChange.value || !activeSubchecklistGroup.value) {
+    return;
+  }
+  subchecklistItemAddTitle.value = '';
+  subchecklistItemAddOpen.value = true;
+  await nextTick();
+  subchecklistItemAddInput.value?.focus();
+}
+
+function closeSubchecklistItemAdd() {
+  if (subchecklistItemAddSaving.value) {
+    return;
+  }
+  resetSubchecklistItemAdd();
+}
+
+async function saveSubchecklistItemAdd() {
+  const change = activeChange.value;
+  const group = activeSubchecklistGroup.value;
+  if (!authStore.isAdmin || !change || !group || subchecklistItemAddSaving.value) {
+    return;
+  }
+
+  const title = subchecklistItemAddTitle.value.trim();
+  if (!title) {
+    addToast({
+      title: 'Sub-checklist Item Required',
+      message: 'Enter a checklist item title before adding it.',
+      variant: 'warning'
+    });
+    return;
+  }
+
+  subchecklistItemAddSaving.value = true;
+  try {
+    const updated = await api.addTestChangeChecklistItem(change.id, {
+      title,
+      details: null,
+      category: group.category || null,
+      parentId: group.id
+    });
+    replaceCachedChange(updated);
+    selectedChange.value = updated;
+    resetSubchecklistItemAdd();
+    addToast({
+      title: 'Sub-checklist Item Added',
+      message: `Added "${title}" to "${group.title}".`,
+      variant: 'success'
+    });
+    await loadChanges();
+  } catch (error) {
+    addToast({
+      title: 'Sub-checklist Add Failed',
+      message: getApiErrorMessage(error, 'Unable to add sub-checklist item.'),
+      variant: 'error'
+    });
+  } finally {
+    subchecklistItemAddSaving.value = false;
+  }
 }
 
 function openSubchecklistEditor(group?: TestChange['checklist'][number]) {
@@ -21549,10 +21674,59 @@ button.tm-version-badge {
   gap: 0.85rem;
 }
 
+.tm-modal__panel.tm-subchecklist-viewer.tm-subchecklist-viewer--adding {
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+}
+
+.tm-subchecklist-viewer__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.tm-subchecklist-viewer__add-trigger {
+  min-height: 2.2rem;
+  padding-inline: 0.8rem;
+}
+
 .tm-subchecklist-viewer__progress {
   display: flex;
   align-items: center;
   gap: 0.7rem;
+}
+
+.tm-subchecklist-viewer__add-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.7rem;
+  padding: 0.75rem;
+  border: 1px solid rgba(85, 183, 255, 0.2);
+  border-radius: 12px;
+  background:
+    linear-gradient(90deg, rgba(85, 183, 255, 0.08), transparent 75%),
+    rgba(255, 255, 255, 0.025);
+}
+
+.tm-subchecklist-viewer__add-field {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.tm-subchecklist-viewer__add-field > span {
+  color: var(--tm-muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tm-subchecklist-viewer__add-actions {
+  display: flex;
+  gap: 0.45rem;
 }
 
 .tm-subchecklist-viewer__bar {
@@ -21764,6 +21938,14 @@ button.tm-version-badge {
 
   .tm-subchecklist-editor__textarea {
     min-height: 7rem;
+  }
+
+  .tm-subchecklist-viewer__add-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tm-subchecklist-viewer__add-actions {
+    justify-content: flex-end;
   }
 }
 

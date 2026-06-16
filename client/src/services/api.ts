@@ -3544,6 +3544,7 @@ export interface AddTestChangeChecklistItemPayload {
   title: string;
   details?: string | null;
   category?: string | null;
+  parentId?: string | null;
 }
 
 export interface UpdateTestChangeChecklistItemPayload {

@@ -728,7 +728,8 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
       const bodySchema = z.object({
         title: z.string().trim().min(1).max(191),
         details: z.string().trim().max(1000).nullable().optional(),
-        category: z.string().trim().max(80).nullable().optional()
+        category: z.string().trim().max(80).nullable().optional(),
+        parentId: z.string().trim().min(1).nullable().optional()
       });
       const params = paramsSchema.safeParse(request.params);
       const body = bodySchema.safeParse(request.body ?? {});
