@@ -17,6 +17,14 @@
           <span v-if="userGuildRoleLabel" class="badge raid-hero__role">
             {{ userGuildRoleLabel }}
           </span>
+          <span
+            v-if="raid.isRecurring"
+            class="raid-meta-pill"
+            :title="raidRecurrenceSummary"
+            :aria-label="raidRecurrenceSummary"
+          >
+            Recurring
+          </span>
         </div>
       </div>
 
@@ -25,15 +33,6 @@
           <div class="raid-title-row">
             <div class="raid-title-main">
               <h1>
-                <span
-                  v-if="raid.isRecurring"
-                  class="raid-recurring-icon"
-                  role="img"
-                  :title="raidRecurrenceSummary"
-                  :aria-label="raidRecurrenceSummary"
-                >
-                  ♻️
-                </span>
                 {{ raid.name }}
               </h1>
               <button
@@ -55,61 +54,66 @@
           </div>
         </div>
 
-        <div class="raid-hero__stats" aria-label="Raid summary">
-          <div v-for="stat in raidHeroStats" :key="stat.label" class="raid-hero__stat">
-            <span class="raid-hero__stat-value">{{ stat.value }}</span>
-            <span class="raid-hero__stat-label">{{ stat.label }}</span>
-            <span class="raid-hero__stat-detail">{{ stat.detail }}</span>
+        <div class="raid-hero__side">
+          <div class="raid-hero__stats" aria-label="Raid summary">
+            <div v-for="stat in raidHeroStats" :key="stat.label" class="raid-hero__stat">
+              <span class="raid-hero__stat-value">{{ stat.value }}</span>
+              <span class="raid-hero__stat-label">{{ stat.label }}</span>
+              <span class="raid-hero__stat-detail">{{ stat.detail }}</span>
+            </div>
           </div>
-        </div>
-      </div>
 
-      <div class="raid-hero__footer">
-        <div class="header-actions">
-          <div v-if="raid.discordVoiceUrl || canManageRaidDiscordLink" class="raid-voice-actions">
-            <a
-              v-if="raid.discordVoiceUrl"
-              class="btn btn--discord-voice"
-              :href="raid.discordVoiceUrl"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <svg
-                class="raid-voice-actions__icon"
-                viewBox="0 0 24 24"
-                xmlns="http://www.w3.org/2000/svg"
-                aria-hidden="true"
+          <div class="raid-hero__footer">
+            <div class="header-actions">
+              <div
+                v-if="raid.discordVoiceUrl || canManageRaidDiscordLink"
+                class="raid-voice-actions"
               >
-                <path
-                  fill="currentColor"
-                  d="M20.317 4.369a19.91 19.91 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.211.375-.445.864-.608 1.249a18.27 18.27 0 0 0-5.487 0 13.4 13.4 0 0 0-.619-1.249.078.078 0 0 0-.079-.037 19.876 19.876 0 0 0-4.885 1.515.07.07 0 0 0-.032.027C1.675 9.093.934 13.577 1.276 18.011a.082.082 0 0 0 .031.057 19.967 19.967 0 0 0 5.993 3.035.082.082 0 0 0 .089-.027 14.046 14.046 0 0 0 1.238-1.999.078.078 0 0 0-.041-.105 13.186 13.186 0 0 1-1.872-.894.078.078 0 0 1-.008-.128c.125-.095.25-.195.37-.296a.074.074 0 0 1 .078-.009c3.928 1.799 8.18 1.799 12.062 0a.074.074 0 0 1 .079.009c.12.101.245.201.37.296a.078.078 0 0 1-.006.128c-.6.351-1.226.656-1.87.894a.078.078 0 0 0-.041.106c.36.689.78 1.379 1.236 1.998a.08.08 0 0 0 .089.028 19.911 19.911 0 0 0 6.004-3.036.08.08 0 0 0 .032-.056c.5-6.172-.839-10.62-3.548-13.615a.066.066 0 0 0-.031-.027ZM8.02 15.331c-1.18 0-2.157-1.085-2.157-2.419 0-1.333.95-2.419 2.157-2.419 1.222 0 2.184 1.103 2.157 2.419 0 1.334-.95 2.419-2.157 2.419Zm7.987 0c-1.18 0-2.157-1.085-2.157-2.419 0-1.333.95-2.419 2.157-2.419 1.222 0 2.184 1.103 2.157 2.419 0 1.334-.935 2.419-2.157 2.419Z"
-                />
-              </svg>
-              Chat on Discord
-            </a>
-            <button
-              v-if="canManageRaidDiscordLink"
-              class="btn btn--outline raid-voice-actions__manage"
-              type="button"
-              :disabled="updatingDiscordVoice"
-              @click="promptDiscordVoiceLink"
-            >
-              {{
-                updatingDiscordVoice
-                  ? 'Saving…'
-                  : raid.discordVoiceUrl
-                    ? 'Edit Discord Link'
-                    : 'Add Discord Link'
-              }}
-            </button>
+                <a
+                  v-if="raid.discordVoiceUrl"
+                  class="btn btn--discord-voice"
+                  :href="raid.discordVoiceUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <svg
+                    class="raid-voice-actions__icon"
+                    viewBox="0 0 24 24"
+                    xmlns="http://www.w3.org/2000/svg"
+                    aria-hidden="true"
+                  >
+                    <path
+                      fill="currentColor"
+                      d="M20.317 4.369a19.91 19.91 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.211.375-.445.864-.608 1.249a18.27 18.27 0 0 0-5.487 0 13.4 13.4 0 0 0-.619-1.249.078.078 0 0 0-.079-.037 19.876 19.876 0 0 0-4.885 1.515.07.07 0 0 0-.032.027C1.675 9.093.934 13.577 1.276 18.011a.082.082 0 0 0 .031.057 19.967 19.967 0 0 0 5.993 3.035.082.082 0 0 0 .089-.027 14.046 14.046 0 0 0 1.238-1.999.078.078 0 0 0-.041-.105 13.186 13.186 0 0 1-1.872-.894.078.078 0 0 1-.008-.128c.125-.095.25-.195.37-.296a.074.074 0 0 1 .078-.009c3.928 1.799 8.18 1.799 12.062 0a.074.074 0 0 1 .079.009c.12.101.245.201.37.296a.078.078 0 0 1-.006.128c-.6.351-1.226.656-1.87.894a.078.078 0 0 0-.041.106c.36.689.78 1.379 1.236 1.998a.08.08 0 0 0 .089.028 19.911 19.911 0 0 0 6.004-3.036.08.08 0 0 0 .032-.056c.5-6.172-.839-10.62-3.548-13.615a.066.066 0 0 0-.031-.027ZM8.02 15.331c-1.18 0-2.157-1.085-2.157-2.419 0-1.333.95-2.419 2.157-2.419 1.222 0 2.184 1.103 2.157 2.419 0 1.334-.95 2.419-2.157 2.419Zm7.987 0c-1.18 0-2.157-1.085-2.157-2.419 0-1.333.95-2.419 2.157-2.419 1.222 0 2.184 1.103 2.157 2.419 0 1.334-.935 2.419-2.157 2.419Z"
+                    />
+                  </svg>
+                  Chat on Discord
+                </a>
+                <button
+                  v-if="canManageRaidDiscordLink"
+                  class="btn btn--outline raid-voice-actions__manage"
+                  type="button"
+                  :disabled="updatingDiscordVoice"
+                  @click="promptDiscordVoiceLink"
+                >
+                  {{
+                    updatingDiscordVoice
+                      ? 'Saving…'
+                      : raid.discordVoiceUrl
+                        ? 'Edit Discord Link'
+                        : 'Add Discord Link'
+                  }}
+                </button>
+              </div>
+              <button class="btn btn--outline share-btn" type="button" @click="copyRaidLink">
+                <span aria-hidden="true">🔗</span>
+                Share
+              </button>
+              <button class="btn btn--danger" :disabled="!canManageRaid" @click="confirmDeleteRaid">
+                Delete Raid
+              </button>
+            </div>
           </div>
-          <button class="btn btn--outline share-btn" type="button" @click="copyRaidLink">
-            <span aria-hidden="true">🔗</span>
-            Share
-          </button>
-          <button class="btn btn--danger" :disabled="!canManageRaid" @click="confirmDeleteRaid">
-            Delete Raid
-          </button>
         </div>
       </div>
       <div v-if="shareStatus" class="share-toast">{{ shareStatus }}</div>
@@ -6621,15 +6625,16 @@ async function copyRaidLink() {
 
 <style scoped>
 .raid-detail {
-  --raid-surface: rgba(15, 23, 42, 0.78);
-  --raid-surface-strong: rgba(15, 23, 42, 0.92);
-  --raid-border: rgba(148, 163, 184, 0.2);
-  --raid-gold: #fbbf24;
-  --raid-blue: #60a5fa;
-  --raid-green: #22c55e;
+  --raid-surface: rgba(10, 16, 31, 0.68);
+  --raid-surface-strong: rgba(12, 18, 34, 0.86);
+  --raid-border: rgba(132, 153, 184, 0.22);
+  --raid-border-quiet: rgba(132, 153, 184, 0.14);
+  --raid-gold: #d6aa45;
+  --raid-blue: #78a8d8;
+  --raid-green: #4fb981;
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 1.15rem;
   min-width: 0;
 }
 
@@ -6642,36 +6647,10 @@ async function copyRaidLink() {
 .raid-detail__header.raid-hero {
   position: relative;
   display: grid;
-  gap: 1.15rem;
+  gap: 1.35rem;
   overflow: hidden;
-  padding: 1.25rem;
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  border-radius: 1rem;
-  background:
-    radial-gradient(circle at 8% 0%, rgba(251, 191, 36, 0.18), transparent 30rem),
-    radial-gradient(circle at 100% 10%, rgba(96, 165, 250, 0.18), transparent 28rem),
-    linear-gradient(145deg, rgba(15, 23, 42, 0.96), rgba(15, 23, 42, 0.76));
-  box-shadow:
-    0 28px 80px rgba(2, 6, 23, 0.32),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
-}
-
-.raid-detail__header.raid-hero::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    linear-gradient(90deg, rgba(251, 191, 36, 0.16), transparent 28%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 36%);
-  opacity: 0.85;
-}
-
-.raid-hero__topbar,
-.raid-hero__body,
-.raid-hero__footer {
-  position: relative;
-  z-index: 1;
+  padding: 0.35rem 0 1.35rem;
+  border-bottom: 1px solid var(--raid-border);
 }
 
 .raid-hero__topbar {
@@ -6686,7 +6665,7 @@ async function copyRaidLink() {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  padding: 0.4rem 0.85rem;
+  padding: 0.38rem 0.75rem;
 }
 
 .raid-hero__status-strip {
@@ -6698,19 +6677,32 @@ async function copyRaidLink() {
 }
 
 .raid-hero__role {
-  border-color: rgba(96, 165, 250, 0.28);
-  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(120, 168, 216, 0.28);
+  background: rgba(120, 168, 216, 0.09);
+}
+
+.raid-meta-pill {
+  border: 1px solid rgba(214, 170, 69, 0.28);
+  border-radius: 999px;
+  padding: 0.28rem 0.62rem;
+  color: #f0d99b;
+  background: rgba(214, 170, 69, 0.08);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .raid-hero__body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.72fr);
-  gap: 1.25rem;
-  align-items: end;
+  grid-template-columns: minmax(0, 1fr) minmax(640px, 0.72fr);
+  gap: 2rem;
+  align-items: start;
 }
 
 .raid-hero__main {
   min-width: 0;
+  padding-top: 0.25rem;
 }
 
 .raid-title-row {
@@ -6731,9 +6723,10 @@ async function copyRaidLink() {
   align-items: center;
   gap: 0.5rem;
   margin: 0;
-  color: #f8fafc;
-  font-size: 2.7rem;
-  line-height: 0.98;
+  color: #edf3f8;
+  font-size: 3.05rem;
+  letter-spacing: 0;
+  line-height: 1;
   overflow-wrap: anywhere;
 }
 
@@ -6742,27 +6735,26 @@ async function copyRaidLink() {
 }
 
 .raid-hero__date {
-  margin: 0.8rem 0 0;
-  color: #cbd5e1;
-  font-size: 1rem;
+  margin: 0.65rem 0 0;
+  color: #aebace;
+  font-size: 0.98rem;
 }
 
 .raid-hero__target-summary {
   display: inline-flex;
   align-items: center;
-  gap: 0.55rem;
+  gap: 0.65rem;
   max-width: 100%;
-  margin-top: 0.85rem;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid rgba(251, 191, 36, 0.24);
-  border-radius: 999px;
-  color: #fde68a;
-  background: rgba(245, 158, 11, 0.1);
+  margin-top: 1rem;
+  padding: 0.65rem 0;
+  border-top: 1px solid var(--raid-border-quiet);
+  border-bottom: 1px solid var(--raid-border-quiet);
+  color: #d8c486;
 }
 
 .raid-hero__target-summary span {
-  color: #fbbf24;
-  font-size: 0.74rem;
+  color: var(--raid-gold);
+  font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -6776,33 +6768,42 @@ async function copyRaidLink() {
   font-size: 0.9rem;
 }
 
+.raid-hero__side {
+  display: grid;
+  gap: 1.15rem;
+  justify-items: stretch;
+}
+
 .raid-hero__stats {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.65rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-top: 1px solid var(--raid-border);
+  border-bottom: 1px solid var(--raid-border);
 }
 
 .raid-hero__stat {
   min-width: 0;
-  padding: 0.85rem;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  border-radius: 0.85rem;
-  background: rgba(2, 6, 23, 0.28);
+  padding: 0.9rem 1rem;
+  border-left: 1px solid var(--raid-border-quiet);
+}
+
+.raid-hero__stat:first-child {
+  border-left: 0;
 }
 
 .raid-hero__stat-value {
   display: block;
-  color: #f8fafc;
-  font-size: 1.55rem;
+  color: #edf3f8;
+  font-size: 1.8rem;
   font-weight: 800;
   line-height: 1;
 }
 
 .raid-hero__stat-label {
   display: block;
-  margin-top: 0.35rem;
-  color: #93c5fd;
-  font-size: 0.74rem;
+  margin-top: 0.42rem;
+  color: var(--raid-blue);
+  font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -6811,8 +6812,8 @@ async function copyRaidLink() {
 .raid-hero__stat-detail {
   display: block;
   margin-top: 0.2rem;
-  color: #94a3b8;
-  font-size: 0.82rem;
+  color: #8493a9;
+  font-size: 0.8rem;
 }
 
 .raid-hero__footer {
@@ -6874,15 +6875,15 @@ async function copyRaidLink() {
   gap: 0.45rem;
   padding: 0.55rem 1rem;
   border-radius: 999px;
-  background: linear-gradient(120deg, #5865f2, #4752c4);
-  border: 1px solid rgba(71, 82, 196, 0.7);
+  background: #5865f2;
+  border: 1px solid rgba(111, 125, 255, 0.65);
   color: #fff;
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   font-size: 0.82rem;
   text-decoration: none;
-  box-shadow: 0 12px 26px rgba(88, 101, 242, 0.35);
+  box-shadow: none;
   transition:
     transform 0.2s ease,
     box-shadow 0.2s ease;
@@ -6890,7 +6891,7 @@ async function copyRaidLink() {
 
 .btn--discord-voice:hover {
   transform: translateY(-1px);
-  box-shadow: 0 18px 32px rgba(88, 101, 242, 0.45);
+  box-shadow: 0 8px 20px rgba(88, 101, 242, 0.22);
 }
 
 .btn--discord-voice:focus-visible {
@@ -6938,11 +6939,17 @@ async function copyRaidLink() {
 .raid-recurrence-card__title {
   display: flex;
   align-items: center;
-  gap: 0.9rem;
+  gap: 0.7rem;
 }
 
 .raid-recurrence-card__icon {
-  font-size: 1.6rem;
+  width: 0.55rem;
+  height: 2.2rem;
+  border-radius: 999px;
+  overflow: hidden;
+  color: transparent;
+  background: var(--raid-green);
+  flex: 0 0 auto;
 }
 
 .raid-recurrence-card__actions {
@@ -7301,20 +7308,18 @@ async function copyRaidLink() {
 }
 
 .card {
-  background:
-    linear-gradient(145deg, rgba(15, 23, 42, 0.84), rgba(15, 23, 42, 0.64)), rgba(15, 23, 42, 0.7);
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  border-radius: 1rem;
+  background: rgba(10, 16, 31, 0.58);
+  border: 1px solid var(--raid-border);
+  border-radius: 8px;
   padding: 1.5rem;
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  box-shadow:
-    0 18px 48px rgba(2, 6, 23, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  box-shadow: none;
 }
 
 .raid-signups-card {
+  background: rgba(10, 16, 31, 0.66);
   gap: 1.75rem;
 }
 
@@ -9021,8 +9026,7 @@ th {
 
 .card--collapsed {
   border-color: rgba(148, 163, 184, 0.28);
-  background:
-    linear-gradient(145deg, rgba(15, 23, 42, 0.66), rgba(15, 23, 42, 0.42)), rgba(15, 23, 42, 0.42);
+  background: rgba(10, 16, 31, 0.48);
   transition:
     background 0.2s ease,
     border-color 0.2s ease;
@@ -9044,13 +9048,9 @@ th {
 .raid-notes-card,
 .raid-targets-card {
   overflow: hidden;
-  border-color: rgba(96, 165, 250, 0.22);
-  background:
-    radial-gradient(circle at top left, rgba(14, 165, 233, 0.12), transparent 34rem),
-    linear-gradient(145deg, rgba(15, 23, 42, 0.9), rgba(15, 23, 42, 0.62));
-  box-shadow:
-    0 22px 60px rgba(2, 6, 23, 0.28),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  border-color: var(--raid-border);
+  background: rgba(10, 16, 31, 0.5);
+  box-shadow: none;
 }
 
 .raid-notes-card__header,
@@ -9065,31 +9065,27 @@ th {
 .raid-tool-heading {
   display: flex;
   align-items: flex-start;
-  gap: 0.85rem;
+  gap: 0.7rem;
   min-width: 0;
 }
 
 .raid-tool-heading__icon {
-  width: 2.35rem;
-  height: 2.35rem;
-  border-radius: 0.7rem;
+  width: 0.55rem;
+  height: 2.2rem;
+  margin-top: 0.1rem;
+  border-radius: 999px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  color: #fef3c7;
-  background:
-    linear-gradient(135deg, rgba(245, 158, 11, 0.32), rgba(14, 165, 233, 0.18)),
-    rgba(15, 23, 42, 0.72);
-  border: 1px solid rgba(251, 191, 36, 0.24);
+  overflow: hidden;
+  color: transparent;
+  background: var(--raid-gold);
+  border: 0;
 }
 
 .raid-tool-heading__icon--goals {
-  color: #bfdbfe;
-  border-color: rgba(96, 165, 250, 0.32);
-  background:
-    linear-gradient(135deg, rgba(59, 130, 246, 0.3), rgba(34, 197, 94, 0.16)),
-    rgba(15, 23, 42, 0.72);
+  background: var(--raid-blue);
 }
 
 .raid-tool-heading h2 {
@@ -9098,7 +9094,7 @@ th {
 
 .raid-tool-heading__eyebrow {
   margin: 0;
-  color: #fbbf24;
+  color: var(--raid-gold);
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.12em;
@@ -9128,10 +9124,9 @@ th {
 
 .raid-notes-card__preview {
   margin-top: 0.25rem;
-  padding: 0.95rem 1rem;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  border-radius: 0.8rem;
-  background: rgba(2, 6, 23, 0.24);
+  padding: 0.95rem 0 0;
+  border-top: 1px solid var(--raid-border-quiet);
+  background: transparent;
 }
 
 .raid-notes-card__preview p {
@@ -9142,9 +9137,9 @@ th {
 
 .raid-notes-card__editor-shell {
   overflow: hidden;
-  border: 1px solid rgba(148, 163, 184, 0.24);
-  border-radius: 0.85rem;
-  background: rgba(2, 6, 23, 0.28);
+  border: 1px solid var(--raid-border);
+  border-radius: 8px;
+  background: rgba(4, 8, 18, 0.4);
 }
 
 .raid-notes-card__textarea {
@@ -9171,8 +9166,8 @@ th {
   padding: 0.65rem 0.9rem;
   color: #94a3b8;
   font-size: 0.8rem;
-  border-top: 1px solid rgba(148, 163, 184, 0.16);
-  background: rgba(15, 23, 42, 0.46);
+  border-top: 1px solid var(--raid-border-quiet);
+  background: rgba(10, 16, 31, 0.42);
 }
 
 .raid-notes-card__display {
@@ -9196,19 +9191,19 @@ th {
 }
 
 .raid-targets-card__progress-bar {
-  height: 0.45rem;
+  height: 0.28rem;
   overflow: hidden;
   border-radius: 999px;
-  background: rgba(15, 23, 42, 0.7);
-  border: 1px solid rgba(148, 163, 184, 0.15);
+  background: rgba(132, 153, 184, 0.16);
+  border: 0;
 }
 
 .raid-targets-card__progress-bar span {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #22c55e, #60a5fa);
-  box-shadow: 0 0 20px rgba(34, 197, 94, 0.35);
+  background: var(--raid-green);
+  box-shadow: none;
   transition: width 0.25s ease;
 }
 
@@ -9226,9 +9221,9 @@ th {
 .raid-targets-card__panel {
   min-width: 0;
   padding: 1rem;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  border-radius: 0.85rem;
-  background: rgba(2, 6, 23, 0.22);
+  border: 1px solid var(--raid-border-quiet);
+  border-radius: 8px;
+  background: rgba(4, 8, 18, 0.26);
 }
 
 .raid-targets-card__label {
@@ -9250,11 +9245,11 @@ th {
 .raid-targets-card__zone,
 .raid-targets-card__zone-list span {
   max-width: 100%;
-  border: 1px solid rgba(251, 191, 36, 0.28);
+  border: 1px solid rgba(214, 170, 69, 0.32);
   border-radius: 999px;
   padding: 0.35rem 0.7rem;
-  color: #fde68a;
-  background: rgba(245, 158, 11, 0.1);
+  color: #dfca8e;
+  background: rgba(214, 170, 69, 0.08);
   font-size: 0.84rem;
   line-height: 1.2;
 }
@@ -9265,11 +9260,11 @@ th {
 
 .raid-targets-card__boss-pill {
   max-width: 100%;
-  border: 1px solid rgba(148, 163, 184, 0.22);
+  border: 1px solid var(--raid-border);
   border-radius: 999px;
   padding: 0.38rem 0.7rem;
   color: #cbd5e1;
-  background: rgba(15, 23, 42, 0.58);
+  background: rgba(10, 16, 31, 0.56);
   font-size: 0.84rem;
   line-height: 1.2;
 }
@@ -9301,10 +9296,10 @@ th {
   gap: 0.75rem;
   min-width: 0;
   padding: 0.65rem 0.75rem;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  border-radius: 0.75rem;
+  border: 1px solid var(--raid-border-quiet);
+  border-radius: 8px;
   color: #e2e8f0;
-  background: rgba(15, 23, 42, 0.48);
+  background: rgba(10, 16, 31, 0.45);
 }
 
 .raid-targets-card__boss > span:first-child {
