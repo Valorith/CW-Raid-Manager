@@ -4653,26 +4653,46 @@
       role="dialog"
       aria-modal="true"
       aria-labelledby="group-complete-confirm-title"
+      aria-describedby="group-complete-confirm-body group-complete-confirm-details"
       @click.self="closeGroupCompleteConfirm"
     >
-      <section class="tm-modal__panel tm-confirm-modal">
+      <section class="tm-modal__panel tm-confirm-modal tm-confirm-modal--subchecklist">
         <div class="tm-confirm-modal__header">
           <span class="tm-confirm-modal__icon" aria-hidden="true">
             {{ groupCompleteConfirm.complete ? '✓' : '↺' }}
           </span>
           <div>
-            <p>Sub-checklist</p>
+            <p>Parent checklist item</p>
             <h2 id="group-complete-confirm-title">
-              {{ groupCompleteConfirm.complete ? 'Complete all items?' : 'Reopen all items?' }}
+              {{
+                groupCompleteConfirm.complete
+                  ? 'Auto-complete sub-checklist?'
+                  : 'Reopen sub-checklist items?'
+              }}
             </h2>
           </div>
         </div>
-        <p class="tm-confirm-modal__body">
-          This {{ groupCompleteConfirm.complete ? 'marks' : 'reopens' }} all
-          {{ groupCompleteConfirm.total }} item{{ groupCompleteConfirm.total === 1 ? '' : 's' }} in
-          "{{ groupCompleteConfirm.title }}"
-          {{ groupCompleteConfirm.complete ? 'as complete' : '' }}.
+        <p id="group-complete-confirm-body" class="tm-confirm-modal__body">
+          <template v-if="groupCompleteConfirm.complete">
+            Completing "{{ groupCompleteConfirm.title }}" will auto-complete every item in its
+            included sub-checklist.
+          </template>
+          <template v-else>
+            Reopening "{{ groupCompleteConfirm.title }}" will reopen the items in its included
+            sub-checklist.
+          </template>
         </p>
+        <div id="group-complete-confirm-details" class="tm-confirm-modal__details">
+          <span>Included sub-checklist</span>
+          <p>
+            {{ groupCompleteConfirm.total }} item{{ groupCompleteConfirm.total === 1 ? '' : 's' }}
+            will be {{ groupCompleteConfirm.complete ? 'marked complete' : 'reopened' }} together.
+          </p>
+          <p>
+            Review the sub-checklist first if you need to verify individual items before applying
+            the parent action.
+          </p>
+        </div>
         <div class="tm-confirm-modal__actions">
           <button
             type="button"
@@ -4692,8 +4712,8 @@
               groupCompleteConfirmSaving
                 ? 'Working…'
                 : groupCompleteConfirm.complete
-                  ? 'Complete All'
-                  : 'Reopen All'
+                  ? 'Auto-complete Items'
+                  : 'Reopen Items'
             }}
           </button>
         </div>
@@ -12111,6 +12131,7 @@ watch(
   () => {
     notesOpen.value = false;
     checklistNotePromptItemId.value = null;
+    groupCompleteConfirm.value = null;
     feedbackError.value = '';
     deletingNoteIds.value = new Set();
     deletingChecklistItemIds.value = new Set();
@@ -12132,6 +12153,7 @@ watch(
     if (readyToTest === false) {
       closeChecklistNote();
       checklistNotePromptItemId.value = null;
+      groupCompleteConfirm.value = null;
     }
   }
 );
@@ -12141,6 +12163,7 @@ function closeTopmostModalOnEscape() {
   const closers: Array<{ open: boolean; close: () => void }> = [
     { open: Boolean(discordHandoffLink.value), close: closeDiscordHandoffPrompt },
     { open: Boolean(coverageNote.value), close: closeCoverageNote },
+    { open: Boolean(groupCompleteConfirm.value), close: closeGroupCompleteConfirm },
     { open: Boolean(checklistDeleteConfirm.value), close: closeChecklistDeleteConfirm },
     { open: editChecklistRemovalConfirm.value !== null, close: closeEditChecklistRemovalConfirm },
     { open: Boolean(checklistNotePromptItemId.value), close: closeChecklistNotePrompt },
@@ -22466,6 +22489,31 @@ button.tm-version-badge {
   background: rgba(24, 94, 88, 0.2);
   color: #78d9d0;
   box-shadow: 0 0 18px rgba(87, 199, 189, 0.14);
+}
+
+.tm-confirm-modal--subchecklist {
+  border-color: rgba(87, 199, 189, 0.42);
+  background:
+    radial-gradient(circle at 16% 0%, rgba(87, 199, 189, 0.14), transparent 16rem),
+    linear-gradient(180deg, rgba(12, 22, 24, 0.98), rgba(5, 9, 10, 0.98));
+}
+
+.tm-confirm-modal--subchecklist .tm-confirm-modal__icon {
+  border-color: rgba(87, 199, 189, 0.56);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 80%),
+    rgba(24, 94, 88, 0.24);
+  color: #78d9d0;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 20px rgba(87, 199, 189, 0.18);
+}
+
+.tm-confirm-modal--subchecklist .tm-confirm-modal__details {
+  border-color: rgba(87, 199, 189, 0.26);
+  background:
+    linear-gradient(180deg, rgba(87, 199, 189, 0.07), transparent),
+    rgba(0, 0, 0, 0.22);
 }
 
 .tm-version-editor-modal {
