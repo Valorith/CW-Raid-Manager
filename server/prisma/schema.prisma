@@ -1491,6 +1491,7 @@ model TestChangeChecklistItem {
   category    String?    @db.VarChar(80)
   sortOrder   Int        @default(0)
   shared      Boolean    @default(false)
+  blocked     Boolean    @default(false)
   sharedCompletedAt DateTime?
   sharedCompletedById String?
   createdAt   DateTime   @default(now())

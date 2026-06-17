@@ -42,6 +42,7 @@ import {
   saveChangeNote,
   setTestChangeNextPatch,
   setTestChangeReadyToTest,
+  setTestChangeChecklistItemBlocked,
   setTestChangeChecklistItemShared,
   setTestChangeStatus,
   setTestChangeTestServerVersion,
@@ -778,6 +779,37 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
       } catch (error) {
         return reply.badRequest(
           error instanceof Error ? error.message : 'Unable to update checklist sharing.'
+        );
+      }
+    }
+  );
+
+  server.patch(
+    '/changes/:changeId/checklist/:checklistItemId/blocked',
+    { preHandler: [authenticate, requireCanView] },
+    async (request, reply) => {
+      const paramsSchema = z.object({
+        changeId: z.string().min(1),
+        checklistItemId: z.string().min(1)
+      });
+      const bodySchema = z.object({ blocked: z.boolean() });
+      const params = paramsSchema.safeParse(request.params);
+      const body = bodySchema.safeParse(request.body ?? {});
+      if (!params.success || !body.success) {
+        return reply.badRequest('Invalid checklist blocked payload.');
+      }
+
+      try {
+        const change = await setTestChangeChecklistItemBlocked(
+          request.user.userId,
+          params.data.changeId,
+          params.data.checklistItemId,
+          body.data
+        );
+        return { change };
+      } catch (error) {
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to update checklist blocked status.'
         );
       }
     }

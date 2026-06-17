@@ -1160,7 +1160,9 @@
                     'tm-testing-checklist__row--complete': topLevelItemComplete(item),
                     'tm-testing-checklist__row--admin': authStore.isAdmin,
                     'tm-testing-checklist__row--group': isChecklistGroup(item),
-                    'tm-testing-checklist__row--shared': item.shared
+                    'tm-testing-checklist__row--shared': item.shared,
+                    'tm-testing-checklist__row--blocked':
+                      item.blocked || (isChecklistGroup(item) && groupBlockedCount(item) > 0)
                   }"
                 >
                   <span>
@@ -1182,6 +1184,13 @@
                     <span class="tm-testing-checklist__title-line">
                       <strong>{{ index + 1 }}. {{ item.title }}</strong>
                       <span v-if="item.shared" class="tm-shared-badge">Shared</span>
+                      <span v-if="item.blocked" class="tm-blocked-badge">Blocked</span>
+                      <span
+                        v-else-if="isChecklistGroup(item) && groupBlockedCount(item) > 0"
+                        class="tm-blocked-badge tm-blocked-badge--count"
+                      >
+                        {{ groupBlockedCount(item) }} blocked
+                      </span>
                     </span>
                     <small
                       v-if="isChecklistGroup(item)"
@@ -1204,7 +1213,7 @@
                     </small>
                   </span>
                   <span>{{ item.category || activeChange.category }}</span>
-                  <span>
+                  <span class="tm-checklist-action-cell">
                     <button
                       v-if="isChecklistGroup(item)"
                       type="button"
@@ -1243,14 +1252,33 @@
                         hasViewerChecklistItemNote(item.id) ? '▤' : '✎'
                       }}</span>
                     </button>
+                    <button
+                      v-if="!isChecklistGroup(item)"
+                      type="button"
+                      class="tm-checklist-block-btn"
+                      :class="{ 'tm-checklist-block-btn--active': item.blocked }"
+                      :aria-pressed="item.blocked ? 'true' : 'false'"
+                      :aria-label="blockedToggleLabel(item)"
+                      :title="blockedToggleTitle(item)"
+                      :disabled="!canToggleChecklistItemBlocked(item) || isBlockingChecklistItem(item.id)"
+                      @click="toggleChecklistItemBlocked(item)"
+                    >
+                      <span aria-hidden="true">!</span>
+                    </button>
                   </span>
                   <span
                     class="tm-testing-checklist__status"
                     :class="{
-                      'tm-testing-checklist__status--done': topLevelItemComplete(item)
+                      'tm-testing-checklist__status--done': topLevelItemComplete(item),
+                      'tm-testing-checklist__status--blocked':
+                        item.blocked || (isChecklistGroup(item) && groupBlockedCount(item) > 0)
                     }"
                   >
-                    <template v-if="isChecklistGroup(item)"
+                    <template v-if="item.blocked">Blocked</template>
+                    <template v-else-if="isChecklistGroup(item) && groupBlockedCount(item) > 0">
+                      {{ groupBlockedCount(item) }} Blocked
+                    </template>
+                    <template v-else-if="isChecklistGroup(item)"
                       >{{ groupCompletedCount(item) }} / {{ item.childCount }}</template
                     >
                     <template v-else>{{
@@ -4631,7 +4659,8 @@
             class="tm-subchecklist-viewer__item"
             :class="{
               'tm-subchecklist-viewer__item--done': isViewerChecklistItemComplete(child.id),
-              'tm-subchecklist-viewer__item--shared': child.shared
+              'tm-subchecklist-viewer__item--shared': child.shared,
+              'tm-subchecklist-viewer__item--blocked': child.blocked
             }"
           >
             <label>
@@ -4654,6 +4683,7 @@
                 <span class="tm-subchecklist-viewer__text-line">
                   <span class="tm-subchecklist-viewer__text">{{ child.title }}</span>
                   <span v-if="child.shared" class="tm-shared-badge">Shared</span>
+                  <span v-if="child.blocked" class="tm-blocked-badge">Blocked</span>
                 </span>
                 <span
                   v-if="sharedCompletionLabel(child)"
@@ -4697,6 +4727,18 @@
               @click.stop="openChecklistNote(child.id)"
             >
               <span aria-hidden="true">{{ hasViewerChecklistItemNote(child.id) ? '▤' : '✎' }}</span>
+            </button>
+            <button
+              type="button"
+              class="tm-checklist-block-btn tm-checklist-block-btn--sub"
+              :class="{ 'tm-checklist-block-btn--active': child.blocked }"
+              :aria-pressed="child.blocked ? 'true' : 'false'"
+              :aria-label="blockedToggleLabel(child)"
+              :title="blockedToggleTitle(child)"
+              :disabled="!canToggleChecklistItemBlocked(child) || isBlockingChecklistItem(child.id)"
+              @click.stop="toggleChecklistItemBlocked(child)"
+            >
+              <span aria-hidden="true">!</span>
             </button>
           </li>
         </ul>
@@ -5606,6 +5648,7 @@ const feedbackError = ref('');
 const deletingNoteIds = ref<Set<string>>(new Set());
 const deletingChecklistItemIds = ref<Set<string>>(new Set());
 const sharingChecklistItemIds = ref<Set<string>>(new Set());
+const blockingChecklistItemIds = ref<Set<string>>(new Set());
 const notesEditor = ref<{
   getHtml: () => string;
   setHtml: (html: string) => void;
@@ -9971,8 +10014,19 @@ function canToggleTopLevelChecklistItem(item: TestChange['checklist'][number]) {
   return canToggleChecklistItem(item, !topLevelItemComplete(item));
 }
 
+function canToggleChecklistItemBlocked(item: TestChange['checklist'][number]) {
+  if (isChecklistGroup(item) || !activeChange.value || isTerminalChangeStatus(activeChange.value.status)) {
+    return false;
+  }
+  return viewerCanEditChecklist.value || authStore.isAdmin;
+}
+
 function groupCompletedCount(group: TestChange['checklist'][number]) {
   return childrenOf(group.id).filter((child) => isViewerChecklistItemComplete(child.id)).length;
+}
+
+function groupBlockedCount(group: TestChange['checklist'][number]) {
+  return childrenOf(group.id).filter((child) => child.blocked).length;
 }
 
 function isGroupComplete(group: TestChange['checklist'][number]) {
@@ -10013,6 +10067,21 @@ function sharedToggleTitle(item: TestChange['checklist'][number]) {
       : 'Share this sub-checklist and all of its items';
   }
   return item.shared ? 'Make this checklist item personal again' : 'Share this checklist item';
+}
+
+function blockedToggleLabel(item: TestChange['checklist'][number]) {
+  const target = item.parentId ? 'sub-checklist item' : 'checklist item';
+  return `${item.blocked ? 'Clear blocked flag for' : 'Mark blocked'} ${target} ${item.title}`;
+}
+
+function blockedToggleTitle(item: TestChange['checklist'][number]) {
+  if (item.blocked) {
+    return 'Clear blocked status';
+  }
+  if (!canToggleChecklistItemBlocked(item)) {
+    return 'Only active testers or admins can mark checklist items blocked';
+  }
+  return 'Mark blocked and add a note explaining why';
 }
 
 function checklistGroupName(parentId: string) {
@@ -10366,6 +10435,20 @@ function setChecklistItemSharing(checklistItemId: string, sharing: boolean) {
   sharingChecklistItemIds.value = next;
 }
 
+function isBlockingChecklistItem(checklistItemId: string) {
+  return blockingChecklistItemIds.value.has(checklistItemId);
+}
+
+function setChecklistItemBlocking(checklistItemId: string, blocking: boolean) {
+  const next = new Set(blockingChecklistItemIds.value);
+  if (blocking) {
+    next.add(checklistItemId);
+  } else {
+    next.delete(checklistItemId);
+  }
+  blockingChecklistItemIds.value = next;
+}
+
 async function toggleChecklistItemShared(item: TestChange['checklist'][number]) {
   if (!authStore.isAdmin || !activeChange.value || isSharingChecklistItem(item.id)) {
     return;
@@ -10395,6 +10478,52 @@ async function toggleChecklistItemShared(item: TestChange['checklist'][number]) 
     });
   } finally {
     setChecklistItemSharing(item.id, false);
+  }
+}
+
+async function toggleChecklistItemBlocked(item: TestChange['checklist'][number]) {
+  if (!activeChange.value || isBlockingChecklistItem(item.id)) {
+    return;
+  }
+  if (!canToggleChecklistItemBlocked(item)) {
+    addToast({
+      title: 'Blocked Update Unavailable',
+      message: 'Checklist items can only be blocked while the change is open and you can update checklist progress.',
+      variant: 'warning'
+    });
+    return;
+  }
+
+  const nextBlocked = !item.blocked;
+  const shouldOpenNote = nextBlocked && viewerCanEditChecklist.value;
+  setChecklistItemBlocking(item.id, true);
+  try {
+    const updated = await api.setTestChangeChecklistItemBlocked(activeChange.value.id, item.id, {
+      blocked: nextBlocked
+    });
+    replaceCachedChange(updated);
+    selectedChange.value = updated;
+    addToast({
+      title: nextBlocked ? 'Checklist Item Blocked' : 'Checklist Item Unblocked',
+      message: nextBlocked
+        ? shouldOpenNote
+          ? `Marked "${item.title}" as blocked. Add the note with the reason.`
+          : `Marked "${item.title}" as blocked. Capture the reason in the item note when tester notes are available.`
+        : `Cleared the blocked flag for "${item.title}".`,
+      variant: nextBlocked ? 'warning' : 'success'
+    });
+    await loadChanges();
+    if (shouldOpenNote) {
+      await openChecklistNote(item.id);
+    }
+  } catch (error) {
+    addToast({
+      title: 'Blocked Update Failed',
+      message: getApiErrorMessage(error, 'Unable to update checklist blocked status.'),
+      variant: 'error'
+    });
+  } finally {
+    setChecklistItemBlocking(item.id, false);
   }
 }
 
@@ -12286,6 +12415,7 @@ watch(
     deletingNoteIds.value = new Set();
     deletingChecklistItemIds.value = new Set();
     sharingChecklistItemIds.value = new Set();
+    blockingChecklistItemIds.value = new Set();
     testerSearch.value = '';
     testerStatusFilter.value = 'All Statuses';
     testerResultFilter.value = 'All Results';
@@ -20828,7 +20958,7 @@ button.tm-version-badge {
 .tm-testing-checklist__head,
 .tm-testing-checklist__row {
   display: grid;
-  grid-template-columns: 4.5rem minmax(16rem, 1fr) 8rem 4.25rem 7rem;
+  grid-template-columns: 4.5rem minmax(16rem, 1fr) 8rem 5.25rem 7rem;
   gap: 1rem;
   align-items: center;
   padding: 0.62rem 0.75rem;
@@ -20837,7 +20967,7 @@ button.tm-version-badge {
 
 .tm-testing-checklist__head--admin,
 .tm-testing-checklist__row--admin {
-  grid-template-columns: 4.5rem minmax(16rem, 1fr) 8rem 4.25rem 7rem 6.25rem;
+  grid-template-columns: 4.5rem minmax(16rem, 1fr) 8rem 5.25rem 7rem 6.25rem;
 }
 
 .tm-testing-checklist__head {
@@ -20995,6 +21125,56 @@ button.tm-version-badge {
   box-shadow: none;
 }
 
+.tm-checklist-block-btn {
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid rgba(255, 107, 85, 0.16);
+  border-radius: var(--tm-control-radius);
+  background: rgba(255, 107, 85, 0.035);
+  color: rgba(255, 151, 130, 0.58);
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease,
+    opacity 160ms ease,
+    transform 160ms ease;
+}
+
+.tm-checklist-block-btn:hover,
+.tm-checklist-block-btn:focus-visible,
+.tm-checklist-block-btn--active {
+  border-color: rgba(255, 107, 85, 0.64);
+  color: #ffd3c9;
+  background:
+    radial-gradient(circle at 68% 24%, rgba(255, 211, 201, 0.2), transparent 32%),
+    linear-gradient(135deg, rgba(255, 107, 85, 0.22), rgba(217, 164, 95, 0.1));
+  box-shadow:
+    0 0 0 1px rgba(255, 107, 85, 0.12),
+    0 0 16px rgba(255, 107, 85, 0.18);
+  transform: translateY(-1px);
+}
+
+.tm-checklist-block-btn:focus-visible {
+  outline: 2px solid rgba(255, 145, 126, 0.65);
+  outline-offset: 2px;
+}
+
+.tm-checklist-block-btn:disabled {
+  cursor: default;
+  opacity: 0.42;
+  transform: none;
+  box-shadow: none;
+}
+
 .tm-testing-checklist__row {
   cursor: pointer;
   position: relative;
@@ -21113,6 +21293,20 @@ button.tm-version-badge {
     rgba(24, 58, 31, 0.12);
 }
 
+.tm-testing-checklist__row--blocked {
+  border-color: rgba(255, 107, 85, 0.34);
+  background:
+    linear-gradient(90deg, rgba(255, 107, 85, 0.12), transparent 50%),
+    rgba(255, 255, 255, 0.014);
+  box-shadow: inset 3px 0 0 rgba(255, 107, 85, 0.68);
+}
+
+.tm-testing-checklist__row--blocked:hover {
+  background:
+    linear-gradient(90deg, rgba(255, 107, 85, 0.16), transparent 52%),
+    rgba(255, 255, 255, 0.018);
+}
+
 .tm-testing-checklist__row > span:nth-child(2) {
   display: grid;
   gap: 0.16rem;
@@ -21160,6 +21354,36 @@ button.tm-version-badge {
   backdrop-filter: blur(10px);
 }
 
+.tm-blocked-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.18rem;
+  padding: 0.1rem 0.46rem;
+  border: 1px solid rgba(255, 107, 85, 0.44);
+  border-radius: 999px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.018)),
+    rgba(255, 107, 85, 0.13);
+  color: rgba(255, 210, 200, 0.96);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 0 16px rgba(255, 107, 85, 0.12);
+  font-size: 0.64rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+  backdrop-filter: blur(10px);
+}
+
+.tm-blocked-badge--count {
+  border-color: rgba(255, 145, 126, 0.34);
+  color: rgba(255, 218, 211, 0.88);
+  background: rgba(255, 107, 85, 0.09);
+}
+
 .tm-shared-completion-label {
   display: inline-flex;
   width: fit-content;
@@ -21200,6 +21424,19 @@ button.tm-version-badge {
   background: rgba(46, 96, 44, 0.18);
 }
 
+.tm-testing-checklist__status--blocked {
+  border-color: rgba(255, 107, 85, 0.62);
+  color: rgba(255, 205, 194, 0.96);
+  background: rgba(255, 107, 85, 0.13);
+}
+
+.tm-checklist-action-cell {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.32rem;
+}
+
 .tm-checklist-note-btn {
   width: 2rem;
   height: 2rem;
@@ -21211,23 +21448,64 @@ button.tm-version-badge {
   align-items: center;
   justify-content: center;
   padding: 0;
+  position: relative;
   font: inherit;
   font-size: 0.95rem;
 }
 
-.tm-checklist-note-btn:hover,
-.tm-checklist-note-btn--has-note {
+.tm-checklist-note-btn:hover {
   border-color: rgba(85, 183, 255, 0.45);
   color: var(--tm-blue);
   background: rgba(14, 72, 120, 0.16);
 }
 
-.tm-checklist-note-btn:disabled {
+.tm-checklist-note-btn--has-note {
+  border-color: rgba(217, 164, 95, 0.86);
+  color: #ffe3ad;
+  background:
+    radial-gradient(circle at 72% 24%, rgba(255, 226, 160, 0.32), transparent 30%),
+    linear-gradient(135deg, rgba(217, 164, 95, 0.28), rgba(14, 72, 120, 0.28));
+  box-shadow:
+    0 0 0 1px rgba(217, 164, 95, 0.16),
+    0 0 16px rgba(217, 164, 95, 0.28);
+  text-shadow: 0 0 8px rgba(255, 219, 150, 0.6);
+}
+
+.tm-checklist-note-btn--has-note::after {
+  content: '';
+  position: absolute;
+  top: 0.2rem;
+  right: 0.2rem;
+  width: 0.42rem;
+  height: 0.42rem;
+  border: 1px solid rgba(8, 18, 28, 0.9);
+  border-radius: 999px;
+  background: var(--tm-gold);
+  box-shadow: 0 0 10px rgba(217, 164, 95, 0.8);
+}
+
+.tm-checklist-note-btn--has-note:hover {
+  border-color: rgba(255, 219, 150, 0.96);
+  color: #fff3d9;
+  background:
+    radial-gradient(circle at 72% 24%, rgba(255, 238, 190, 0.4), transparent 30%),
+    linear-gradient(135deg, rgba(217, 164, 95, 0.34), rgba(14, 72, 120, 0.32));
+  box-shadow:
+    0 0 0 1px rgba(217, 164, 95, 0.24),
+    0 0 18px rgba(217, 164, 95, 0.36);
+}
+
+.tm-checklist-note-btn:disabled:not(.tm-checklist-note-btn--has-note) {
   cursor: default;
   opacity: 0.4;
   border-color: var(--tm-border-soft);
   color: var(--tm-muted);
   background: rgba(255, 255, 255, 0.018);
+}
+
+.tm-checklist-note-btn--has-note:disabled {
+  cursor: default;
+  opacity: 0.72;
 }
 
 .tm-testing-checklist__row input[type='checkbox']:disabled {
@@ -21788,7 +22066,7 @@ button.tm-version-badge {
 
 .tm-subchecklist-viewer__item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   align-items: center;
   border: 1px solid var(--tm-border-soft);
   border-radius: 10px;
@@ -21904,6 +22182,18 @@ button.tm-version-badge {
   color: rgba(202, 232, 199, 0.86);
 }
 
+.tm-subchecklist-viewer__item--blocked {
+  border-color: rgba(255, 107, 85, 0.36);
+  background:
+    linear-gradient(90deg, rgba(255, 107, 85, 0.12), transparent 54%),
+    rgba(255, 255, 255, 0.016);
+  box-shadow: inset 3px 0 0 rgba(255, 107, 85, 0.62);
+}
+
+.tm-subchecklist-viewer__item--blocked .tm-subchecklist-viewer__text {
+  color: #ffd8cf;
+}
+
 .tm-subchecklist-viewer__item--shared {
   border-color: rgba(85, 183, 255, 0.24);
   background:
@@ -21919,11 +22209,23 @@ button.tm-version-badge {
     rgba(24, 58, 31, 0.1);
 }
 
+.tm-subchecklist-viewer__item--shared.tm-subchecklist-viewer__item--blocked {
+  border-color: rgba(255, 107, 85, 0.4);
+  background:
+    linear-gradient(90deg, rgba(255, 107, 85, 0.13), transparent 54%),
+    linear-gradient(90deg, rgba(85, 183, 255, 0.055), transparent 76%),
+    rgba(255, 255, 255, 0.016);
+}
+
 .tm-subchecklist-viewer__item > .tm-checklist-share-btn--sub {
   margin-right: 0.25rem;
 }
 
 .tm-checklist-note-btn--sub {
+  margin-right: 0.55rem;
+}
+
+.tm-checklist-block-btn--sub {
   margin-right: 0.55rem;
 }
 

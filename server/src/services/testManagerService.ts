@@ -2138,6 +2138,7 @@ function serializeChange(change: ChangeSerializeRecord, viewerUserId?: string) {
       parentId: item.parentId ?? null,
       childCount: childCountByParent.get(item.id) ?? 0,
       shared: item.shared,
+      blocked: item.blocked,
       sharedCompletedAt: item.sharedCompletedAt?.toISOString() ?? null,
       sharedCompletedBy: serializeUser(item.sharedCompletedBy)
     })),
@@ -4946,6 +4947,82 @@ export async function setTestChangeChecklistItemShared(
         shared: input.shared,
         isGroup,
         affectedItemCount: targetIds.length
+      }
+    });
+  });
+
+  return getTestChange(changeId, actorUserId);
+}
+
+export async function setTestChangeChecklistItemBlocked(
+  actorUserId: string,
+  changeId: string,
+  checklistItemId: string,
+  input: { blocked: boolean }
+) {
+  const actor = await getCurrentUser(actorUserId);
+  if (!actor) {
+    throw new Error('User not found.');
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const [change, checklistItem] = await Promise.all([
+      tx.testChange.findUnique({
+        where: { id: changeId },
+        select: { id: true, status: true, readyToTest: true }
+      }),
+      tx.testChangeChecklistItem.findFirst({
+        where: { id: checklistItemId, changeId },
+        select: {
+          id: true,
+          title: true,
+          blocked: true,
+          children: { select: { id: true } }
+        }
+      })
+    ]);
+    if (!change) {
+      throw new Error('Change not found.');
+    }
+    if (!checklistItem) {
+      throw new Error('Checklist item not found for this change.');
+    }
+    if (checklistItem.children.length > 0) {
+      throw new Error('Open the sub-checklist and block individual items.');
+    }
+    if (isTerminalChangeStatus(change.status)) {
+      throw new Error('Checklist items can only be blocked while the change is open.');
+    }
+    if (!actor.admin) {
+      ensureChangeAcceptsTesterInput(change);
+      const tester = await tx.testChangeTester.findUnique({
+        where: { changeId_userId: { changeId, userId: actorUserId } },
+        select: { id: true, status: true, result: true }
+      });
+      ensureActiveTestingAssignment(tester);
+    }
+
+    if (checklistItem.blocked === input.blocked) {
+      return;
+    }
+
+    await tx.testChangeChecklistItem.update({
+      where: { id: checklistItem.id },
+      data: { blocked: input.blocked }
+    });
+
+    await appendHistory(tx, {
+      changeId,
+      actorUserId,
+      eventType: TestHistoryEventType.CHECKLIST_UPDATED,
+      label: input.blocked ? 'Checklist item blocked' : 'Checklist item unblocked',
+      detail: `${displayName(actor)} ${input.blocked ? 'marked' : 'cleared'} "${
+        checklistItem.title
+      }" ${input.blocked ? 'as blocked' : 'from blocked'}.`,
+      metadata: {
+        checklistItemId,
+        checklistItemTitle: checklistItem.title,
+        blocked: input.blocked
       }
     });
   });
