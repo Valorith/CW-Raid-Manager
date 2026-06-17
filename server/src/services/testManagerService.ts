@@ -1717,6 +1717,16 @@ const baseChangeInclude = {
           guide: true,
           tester: true
         }
+      },
+      testerProgress: {
+        where: {
+          notesHtml: { not: null }
+        },
+        orderBy: { updatedAt: 'desc' as const },
+        select: {
+          notesHtml: true,
+          updatedAt: true
+        }
       }
     }
   },
@@ -2040,7 +2050,26 @@ function hasDetailedWebhookReport(
   return 'labelAssignments' in link.message && 'actionRuns' in link.message;
 }
 
+function sharedChecklistNote(
+  item: ChangeSerializeRecord['checklist'][number]
+): { notesHtml: string; updatedAt: Date | null } {
+  const notedProgress =
+    item.testerProgress.find((progress) =>
+      getRichTextPlainText(progress.notesHtml ?? '').length > 0
+    ) ?? item.testerProgress[0];
+
+  return {
+    notesHtml: notedProgress?.notesHtml ?? '',
+    updatedAt: notedProgress?.updatedAt ?? null
+  };
+}
+
 function serializeChange(change: ChangeSerializeRecord, viewerUserId?: string) {
+  const sharedChecklistNotes = new Map(
+    change.checklist
+      .filter((item) => item.shared)
+      .map((item) => [item.id, sharedChecklistNote(item)])
+  );
   const testerRows = change.testers.map((tester) => ({
     id: tester.id,
     assignment: tester.assignment,
@@ -2057,13 +2086,14 @@ function serializeChange(change: ChangeSerializeRecord, viewerUserId?: string) {
     checklistProgress: change.checklist.map((item) => {
       const progress = tester.checklistProgress.find((entry) => entry.checklistItemId === item.id);
       if (item.shared) {
+        const sharedNote = sharedChecklistNotes.get(item.id);
         return {
           checklistItemId: item.id,
           completed: Boolean(item.sharedCompletedAt),
           completedAt: item.sharedCompletedAt?.toISOString() ?? null,
           completedBy: serializeUser(item.sharedCompletedBy),
-          notesHtml: progress?.notesHtml ?? '',
-          updatedAt: item.updatedAt.toISOString()
+          notesHtml: sharedNote?.notesHtml ?? '',
+          updatedAt: (sharedNote?.updatedAt ?? item.updatedAt).toISOString()
         };
       }
       return {
@@ -2139,6 +2169,7 @@ function serializeChange(change: ChangeSerializeRecord, viewerUserId?: string) {
       childCount: childCountByParent.get(item.id) ?? 0,
       shared: item.shared,
       blocked: item.blocked,
+      notesHtml: item.shared ? (sharedChecklistNotes.get(item.id)?.notesHtml ?? '') : '',
       sharedCompletedAt: item.sharedCompletedAt?.toISOString() ?? null,
       sharedCompletedBy: serializeUser(item.sharedCompletedBy)
     })),
@@ -4761,7 +4792,44 @@ export async function updateTesterChecklistProgress(
         }
       }
 
-      if (!target.shared || (hasNotes && !isGroup)) {
+      if (target.shared) {
+        if (hasNotes && !isGroup) {
+          const sharedNotesHtml = notesHtml ?? '';
+          if (!tester) {
+            tester = await tx.testChangeTester.findUnique({
+              where: { changeId_userId: { changeId, userId: actorUserId } },
+              select: { id: true, status: true, result: true }
+            });
+            ensureActiveTestingAssignment(tester);
+          }
+
+          await tx.testChangeChecklistProgress.upsert({
+            where: {
+              testerId_checklistItemId: {
+                testerId: tester.id,
+                checklistItemId: target.id
+              }
+            },
+            update: {
+              notesHtml: sharedNotesHtml
+            },
+            create: {
+              testerId: tester.id,
+              checklistItemId: target.id,
+              completed: false,
+              completedAt: null,
+              notesHtml: sharedNotesHtml
+            }
+          });
+          await tx.testChangeChecklistProgress.updateMany({
+            where: { checklistItemId: target.id },
+            data: { notesHtml: sharedNotesHtml }
+          });
+        }
+        continue;
+      }
+
+      if (!target.shared) {
         if (!tester) {
           tester = await tx.testChangeTester.findUnique({
             where: { changeId_userId: { changeId, userId: actorUserId } },

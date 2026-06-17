@@ -1491,7 +1491,7 @@
                     v-if="hasCoverageCellNote(tester, item.id)"
                     type="button"
                     class="tm-coverage-note-btn"
-                    :aria-label="`View note from ${tester.user?.displayName ?? 'Tester'} for ${item.title}`"
+                    :aria-label="coverageNoteButtonLabel(tester, item)"
                     @click="openCoverageNote(tester, item)"
                   >
                     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -5581,6 +5581,7 @@ interface CoverageNoteView {
   itemTitle: string;
   notesHtml: string;
   updatedAt: string | null;
+  shared: boolean;
 }
 type WebhookReportModalTab = 'raw' | 'ai';
 interface ContextLinkGroup {
@@ -11111,6 +11112,12 @@ function viewerChecklistItemEntry(checklistItemId: string) {
 }
 
 function viewerChecklistItemNoteHtml(checklistItemId: string) {
+  const item = activeChange.value?.checklist.find(
+    (checklistItem) => checklistItem.id === checklistItemId
+  );
+  if (item?.shared) {
+    return item.notesHtml || viewerChecklistItemEntry(checklistItemId)?.notesHtml || '';
+  }
   return viewerChecklistItemEntry(checklistItemId)?.notesHtml ?? '';
 }
 
@@ -11128,6 +11135,12 @@ function testerChecklistEntry(tester: TestChange['testers'][number], checklistIt
 }
 
 function coverageCellNoteHtml(tester: TestChange['testers'][number], checklistItemId: string) {
+  const item = activeChange.value?.checklist.find(
+    (checklistItem) => checklistItem.id === checklistItemId
+  );
+  if (item?.shared) {
+    return item.notesHtml || testerChecklistEntry(tester, checklistItemId)?.notesHtml || '';
+  }
   return testerChecklistEntry(tester, checklistItemId)?.notesHtml ?? '';
 }
 
@@ -11140,16 +11153,28 @@ function openCoverageNote(
   item: TestChange['checklist'][number]
 ) {
   const entry = testerChecklistEntry(tester, item.id);
-  if (!entry || !plainText(entry.notesHtml).length) {
+  const notesHtml = item.shared ? item.notesHtml || entry?.notesHtml || '' : entry?.notesHtml || '';
+  if (!plainText(notesHtml).length) {
     return;
   }
 
   coverageNote.value = {
-    testerName: tester.user?.displayName ?? 'Tester',
+    testerName: item.shared ? 'Shared checklist note' : (tester.user?.displayName ?? 'Tester'),
     itemTitle: item.title,
-    notesHtml: entry.notesHtml,
-    updatedAt: entry.updatedAt
+    notesHtml,
+    updatedAt: entry?.updatedAt ?? null,
+    shared: item.shared
   };
+}
+
+function coverageNoteButtonLabel(
+  tester: TestChange['testers'][number],
+  item: TestChange['checklist'][number]
+) {
+  if (item.shared) {
+    return `View shared note for ${item.title}`;
+  }
+  return `View note from ${tester.user?.displayName ?? 'Tester'} for ${item.title}`;
 }
 
 function closeCoverageNote() {

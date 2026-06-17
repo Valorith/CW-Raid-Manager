@@ -3314,6 +3314,7 @@ export interface TestChangeChecklistItem {
   childCount: number;
   shared: boolean;
   blocked: boolean;
+  notesHtml: string;
   sharedCompletedAt: string | null;
   sharedCompletedBy: TestManagerUserSummary | null;
 }
