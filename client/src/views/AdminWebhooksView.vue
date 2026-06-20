@@ -1504,7 +1504,11 @@
                   <button
                     class="crash-select-button"
                     type="button"
-                    :aria-label="`View crashes for ${group.serverVersion}`"
+                    :aria-label="
+                      selectedCrashVersion === group.serverVersion
+                        ? `Hide crashes for ${group.serverVersion}`
+                        : `View crashes for ${group.serverVersion}`
+                    "
                     @click.stop="selectCrashVersion(group.serverVersion)"
                   >
                     {{ selectedCrashVersion === group.serverVersion ? '-' : '+' }}
@@ -1524,7 +1528,11 @@
                     type="button"
                     @click.stop="selectCrashVersion(group.serverVersion)"
                   >
-                    View Crashes ->
+                    {{
+                      selectedCrashVersion === group.serverVersion
+                        ? 'Hide Crashes'
+                        : 'View Crashes ->'
+                    }}
                   </button>
                 </td>
               </tr>
@@ -1638,18 +1646,16 @@
             </div>
             <div class="crash-stack-panel__actions">
               <button
-                class="btn btn--outline btn--small"
+                class="btn btn--accent btn--small btn--crash-record"
                 type="button"
                 @click="openCrashInboxMessage(selectedCrashReport)"
               >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M14 4h6v6" />
+                  <path d="M20 4 12 12" />
+                  <path d="M19 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5" />
+                </svg>
                 Open Record
-              </button>
-              <button
-                class="btn btn--accent btn--small"
-                type="button"
-                @click="openCrashInspectorForReport(selectedCrashReport)"
-              >
-                Inspect
               </button>
             </div>
           </header>
@@ -5626,6 +5632,13 @@ async function refreshCrashTelemetry() {
 }
 
 async function selectCrashVersion(version: string) {
+  if (selectedCrashVersion.value === version) {
+    selectedCrashVersion.value = null;
+    selectedCrashReport.value = null;
+    crashReports.value = [];
+    return;
+  }
+
   selectedCrashVersion.value = version;
   await loadCrashReports(version);
 }
@@ -8729,13 +8742,6 @@ function openCrashInspector() {
   showCrashInspector.value = true;
 }
 
-function openCrashInspectorForReport(report: CrashTelemetryReport) {
-  inspectorCrashText.value = report.crashReport;
-  inspectorResult.value = null;
-  inspectorError.value = null;
-  showCrashInspector.value = true;
-}
-
 function closeCrashInspector() {
   showCrashInspector.value = false;
   inspectorResult.value = null;
@@ -9355,6 +9361,29 @@ function escapeHtml(text: string): string {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.5rem;
+}
+
+.btn--crash-record {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 1.85rem;
+  padding-inline: 0.82rem 0.92rem;
+  border-color: rgba(96, 165, 250, 0.82);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 8px 20px rgba(37, 99, 235, 0.2);
+}
+
+.btn--crash-record svg {
+  width: 0.88rem;
+  height: 0.88rem;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
 }
 
 .crash-meta-grid {
