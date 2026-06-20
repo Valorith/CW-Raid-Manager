@@ -85,6 +85,16 @@ type TestChangeContextLinkInput = {
   description?: string | null;
 };
 
+type NormalizedTestChangeContextLink = {
+  id: string;
+  kind: TestChangeContextLinkKind;
+  label: string;
+  url: string;
+  description: string;
+  githubPullRequestMetadata?: Prisma.JsonValue;
+  githubIssueMetadata?: Prisma.JsonValue;
+};
+
 type TestChangeChecklistInput = {
   id?: string | null;
   title: string;
@@ -452,7 +462,11 @@ function githubMetadataCheckedAt(metadata: Prisma.JsonValue | null): string | nu
   return githubString(value.checkedAt) ?? githubString(value.fetchedAt);
 }
 
-function shouldRefreshGithubMetadata(metadata: Prisma.JsonValue | null): boolean {
+function shouldRefreshGithubMetadata(metadata: Prisma.JsonValue | null, force = false): boolean {
+  if (force) {
+    return true;
+  }
+
   const checkedAt = githubMetadataCheckedAt(metadata);
   if (!checkedAt) {
     return true;
@@ -874,46 +888,192 @@ function contextLinkFallbackLabel(kind: TestChangeContextLinkKind, url: string):
   }
 }
 
-function normalizeContextLinks(value: unknown): Array<{
-  id: string;
-  kind: TestChangeContextLinkKind;
-  label: string;
-  url: string;
-  description: string;
-}> {
-  const rawLinks = Array.isArray(value) ? value.slice(0, 20) : [];
+function storedContextLinkGithubMetadata(value: unknown): Prisma.JsonValue | undefined {
+  return jsonObject(value) ? (value as Prisma.JsonValue) : undefined;
+}
 
-  return rawLinks
-    .map((item) => {
-      const raw = jsonObject(item);
-      if (!raw) {
-        return null;
+type GitHubContextLinkReference =
+  | { type: 'pullRequest'; reference: GitHubPullRequestReference }
+  | { type: 'issue'; reference: GitHubIssueReference };
+
+function githubContextLinkReference(
+  link: Pick<NormalizedTestChangeContextLink, 'url'>
+): GitHubContextLinkReference | null {
+  try {
+    const reference = normalizeGithubPullRequestUrl(link.url);
+    if (reference) {
+      return { type: 'pullRequest', reference };
+    }
+  } catch {
+    // Non-PR GitHub URLs can still be issues.
+  }
+
+  try {
+    const reference = normalizeGithubIssueUrl(link.url);
+    if (reference) {
+      return { type: 'issue', reference };
+    }
+  } catch {
+    // Non-issue GitHub URLs stay generic context links.
+  }
+
+  return null;
+}
+
+function contextLinkGithubKey(link: NormalizedTestChangeContextLink): string | null {
+  const githubReference = githubContextLinkReference(link);
+  return githubReference
+    ? `${githubReference.type}:${githubReference.reference.repository}#${githubReference.reference.number}`
+    : null;
+}
+
+function contextLinkBase(link: NormalizedTestChangeContextLink) {
+  return {
+    id: link.id,
+    kind: link.kind,
+    label: link.label,
+    url: link.url,
+    description: link.description
+  };
+}
+
+function contextLinkHistoryPayload(links: NormalizedTestChangeContextLink[]) {
+  return links.map(contextLinkBase);
+}
+
+function mergeContextLinkGithubMetadata(
+  nextLinks: NormalizedTestChangeContextLink[],
+  previousLinks: NormalizedTestChangeContextLink[]
+) {
+  const previousByKey = new Map<string, NormalizedTestChangeContextLink>();
+  previousLinks.forEach((link) => {
+    const key = contextLinkGithubKey(link);
+    if (key) {
+      previousByKey.set(key, link);
+    }
+  });
+
+  return nextLinks.map((link) => {
+    const key = contextLinkGithubKey(link);
+    const previous = key ? previousByKey.get(key) : null;
+    const githubReference = githubContextLinkReference(link);
+    if (!previous || !githubReference) {
+      return link;
+    }
+
+    if (githubReference.type === 'pullRequest') {
+      const metadata = link.githubPullRequestMetadata ?? previous.githubPullRequestMetadata;
+      return metadata ? { ...contextLinkBase(link), githubPullRequestMetadata: metadata } : link;
+    }
+
+    const metadata = link.githubIssueMetadata ?? previous.githubIssueMetadata;
+    return metadata ? { ...contextLinkBase(link), githubIssueMetadata: metadata } : link;
+  });
+}
+
+async function refreshContextLinksGithubMetadata(
+  links: NormalizedTestChangeContextLink[],
+  force = false
+): Promise<NormalizedTestChangeContextLink[]> {
+  return Promise.all(
+    links.map(async (link) => {
+      const githubReference = githubContextLinkReference(link);
+      if (!githubReference) {
+        return contextLinkBase(link);
       }
 
-      const url = normalizeContextLinkUrl(raw.url);
-      if (!url) {
-        return null;
+      if (githubReference.type === 'pullRequest') {
+        const previousMetadata = link.githubPullRequestMetadata ?? null;
+        if (!shouldRefreshGithubMetadata(previousMetadata, force)) {
+          return {
+            ...contextLinkBase(link),
+            githubPullRequestMetadata: previousMetadata
+          };
+        }
+
+        const metadata = await fetchGithubPullRequestMetadata(
+          githubReference.reference,
+          previousMetadata
+        );
+        return {
+          ...contextLinkBase(link),
+          githubPullRequestMetadata: metadata as Prisma.JsonValue
+        };
       }
 
-      const kind = isTestChangeContextLinkKind(raw.kind) ? raw.kind : inferContextLinkKind(url);
-      const rawId = trimmedString(raw.id, 64);
-      const id = /^[A-Za-z0-9_-]{1,64}$/.test(rawId) ? rawId : `ctx_${randomUUID()}`;
-      const label = trimmedString(raw.label, 140) || contextLinkFallbackLabel(kind, url);
-      const description = trimmedString(raw.description, 500);
+      const previousMetadata = link.githubIssueMetadata ?? null;
+      if (!shouldRefreshGithubMetadata(previousMetadata, force)) {
+        return {
+          ...contextLinkBase(link),
+          githubIssueMetadata: previousMetadata
+        };
+      }
 
-      return { id, kind, label, url, description };
+      const metadata = await fetchGithubIssueMetadata(githubReference.reference, previousMetadata);
+      return {
+        ...contextLinkBase(link),
+        githubIssueMetadata: metadata as Prisma.JsonValue
+      };
     })
-    .filter(
-      (
-        link
-      ): link is {
-        id: string;
-        kind: TestChangeContextLinkKind;
-        label: string;
-        url: string;
-        description: string;
-      } => Boolean(link)
+  );
+}
+
+function serializeContextLinks(value: unknown) {
+  return normalizeContextLinks(value).map((link) => {
+    const githubReference = githubContextLinkReference(link);
+    return {
+      ...contextLinkBase(link),
+      githubPullRequest:
+        githubReference?.type === 'pullRequest'
+          ? serializeGithubPullRequest(
+              githubReference.reference.url,
+              link.githubPullRequestMetadata ?? null
+            )
+          : null,
+      githubIssue:
+        githubReference?.type === 'issue'
+          ? serializeGithubIssue(githubReference.reference.url, link.githubIssueMetadata ?? null)
+          : null
+    };
+  });
+}
+
+function normalizeContextLinks(value: unknown): NormalizedTestChangeContextLink[] {
+  const rawLinks = Array.isArray(value) ? value.slice(0, 20) : [];
+  const links: NormalizedTestChangeContextLink[] = [];
+
+  for (const item of rawLinks) {
+    const raw = jsonObject(item);
+    if (!raw) {
+      continue;
+    }
+
+    const url = normalizeContextLinkUrl(raw.url);
+    if (!url) {
+      continue;
+    }
+
+    const kind = isTestChangeContextLinkKind(raw.kind) ? raw.kind : inferContextLinkKind(url);
+    const rawId = trimmedString(raw.id, 64);
+    const id = /^[A-Za-z0-9_-]{1,64}$/.test(rawId) ? rawId : `ctx_${randomUUID()}`;
+    const label = trimmedString(raw.label, 140) || contextLinkFallbackLabel(kind, url);
+    const description = trimmedString(raw.description, 500);
+    const githubPullRequestMetadata = storedContextLinkGithubMetadata(
+      raw.githubPullRequestMetadata
     );
+    const githubIssueMetadata = storedContextLinkGithubMetadata(raw.githubIssueMetadata);
+    const link: NormalizedTestChangeContextLink = { id, kind, label, url, description };
+
+    if (githubPullRequestMetadata !== undefined) {
+      link.githubPullRequestMetadata = githubPullRequestMetadata;
+    }
+    if (githubIssueMetadata !== undefined) {
+      link.githubIssueMetadata = githubIssueMetadata;
+    }
+    links.push(link);
+  }
+
+  return links;
 }
 
 function contextLinksJson(value: unknown): Prisma.InputJsonValue {
@@ -2148,7 +2308,7 @@ function serializeChange(change: ChangeSerializeRecord, viewerUserId?: string) {
     testServerVersion: change.testServerVersion ?? null,
     githubPullRequest: serializeGithubPullRequest(change.githubPrUrl, change.githubPrMetadata),
     githubIssue: serializeGithubIssue(change.githubIssueUrl, change.githubIssueMetadata),
-    contextLinks: normalizeContextLinks(change.contextLinks),
+    contextLinks: serializeContextLinks(change.contextLinks),
     includeInNextPatch: change.includeInNextPatch,
     readyToTest: change.readyToTest,
     autoClosePassCount: change.autoClosePassCount,
@@ -3297,7 +3457,7 @@ export async function getTestChange(changeId: string, userId: string) {
   return change ? serializeChange(change, userId) : null;
 }
 
-async function refreshGithubMetadataForChange(changeId: string): Promise<void> {
+async function refreshGithubMetadataForChange(changeId: string, force = false): Promise<void> {
   const change = await prisma.testChange.findUnique({
     where: { id: changeId },
     select: {
@@ -3305,7 +3465,8 @@ async function refreshGithubMetadataForChange(changeId: string): Promise<void> {
       githubPrUrl: true,
       githubPrMetadata: true,
       githubIssueUrl: true,
-      githubIssueMetadata: true
+      githubIssueMetadata: true,
+      contextLinks: true
     }
   });
   if (!change) {
@@ -3313,7 +3474,7 @@ async function refreshGithubMetadataForChange(changeId: string): Promise<void> {
   }
 
   const data: Prisma.TestChangeUpdateInput = {};
-  if (change.githubPrUrl && shouldRefreshGithubMetadata(change.githubPrMetadata)) {
+  if (change.githubPrUrl && shouldRefreshGithubMetadata(change.githubPrMetadata, force)) {
     try {
       const reference = normalizeGithubPullRequestUrl(change.githubPrUrl);
       if (reference) {
@@ -3327,7 +3488,7 @@ async function refreshGithubMetadataForChange(changeId: string): Promise<void> {
     }
   }
 
-  if (change.githubIssueUrl && shouldRefreshGithubMetadata(change.githubIssueMetadata)) {
+  if (change.githubIssueUrl && shouldRefreshGithubMetadata(change.githubIssueMetadata, force)) {
     try {
       const reference = normalizeGithubIssueUrl(change.githubIssueUrl);
       if (reference) {
@@ -3341,6 +3502,12 @@ async function refreshGithubMetadataForChange(changeId: string): Promise<void> {
     }
   }
 
+  const previousContextLinks = normalizeContextLinks(change.contextLinks);
+  const nextContextLinks = await refreshContextLinksGithubMetadata(previousContextLinks, force);
+  if (JSON.stringify(previousContextLinks) !== JSON.stringify(nextContextLinks)) {
+    data.contextLinks = contextLinksJson(nextContextLinks);
+  }
+
   if (Object.keys(data).length > 0) {
     await prisma.testChange.update({
       where: { id: change.id },
@@ -3349,17 +3516,18 @@ async function refreshGithubMetadataForChange(changeId: string): Promise<void> {
   }
 }
 
-async function refreshGithubMetadataWithDedupe(changeId: string): Promise<void> {
-  const existingRefresh = githubMetadataRefreshes.get(changeId);
+async function refreshGithubMetadataWithDedupe(changeId: string, force = false): Promise<void> {
+  const refreshKey = `${changeId}:${force ? 'force' : 'cached'}`;
+  const existingRefresh = githubMetadataRefreshes.get(refreshKey);
   if (existingRefresh) {
     await existingRefresh;
     return;
   }
 
-  const refresh = refreshGithubMetadataForChange(changeId).finally(() => {
-    githubMetadataRefreshes.delete(changeId);
+  const refresh = refreshGithubMetadataForChange(changeId, force).finally(() => {
+    githubMetadataRefreshes.delete(refreshKey);
   });
-  githubMetadataRefreshes.set(changeId, refresh);
+  githubMetadataRefreshes.set(refreshKey, refresh);
   await refresh;
 }
 
@@ -3371,7 +3539,7 @@ export async function refreshTestChangeGithubMetadata(changeId: string, userId: 
     return null;
   }
 
-  await refreshGithubMetadataWithDedupe(resolvedChangeId);
+  await refreshGithubMetadataWithDedupe(resolvedChangeId, true);
   return getTestChange(resolvedChangeId, userId);
 }
 
@@ -3469,6 +3637,9 @@ export async function createTestChange(
   await ensureAdmin(actorUserId);
   const githubPullRequest = await buildGithubPullRequestFields(input.githubPrUrl);
   const githubIssue = await buildGithubIssueFields(input.githubIssueUrl);
+  const contextLinks = await refreshContextLinksGithubMetadata(
+    normalizeContextLinks(input.contextLinks ?? [])
+  );
   const currentTestServerVersion = await readCurrentTestServerVersion();
   const testServerVersion = normalizeTestServerVersion(input.testServerVersion);
   const readyToTest = !isTestServerVersionNewerThanCurrent(
@@ -3490,7 +3661,7 @@ export async function createTestChange(
         githubPrMetadata: githubPullRequest.githubPrMetadata,
         githubIssueUrl: githubIssue.githubIssueUrl,
         githubIssueMetadata: githubIssue.githubIssueMetadata,
-        contextLinks: contextLinksJson(input.contextLinks ?? []),
+        contextLinks: contextLinksJson(contextLinks),
         includeInNextPatch: input.includeInNextPatch ?? true,
         readyToTest,
         autoClosePassCount: input.autoClosePassCount ?? 0,
@@ -3601,10 +3772,17 @@ export async function updateTestChange(
   const shouldPauseForVersion =
     existing.readyToTest &&
     isTestServerVersionNewerThanCurrent(testServerVersion, currentTestServerVersion);
-  const nextContextLinks =
+  const existingContextLinks = normalizeContextLinks(existing.contextLinks);
+  const requestedContextLinks =
     typeof input.contextLinks === 'undefined'
-      ? normalizeContextLinks(existing.contextLinks)
+      ? existingContextLinks
       : normalizeContextLinks(input.contextLinks);
+  const nextContextLinks = await refreshContextLinksGithubMetadata(
+    mergeContextLinkGithubMetadata(requestedContextLinks, existingContextLinks)
+  );
+  const shouldPersistContextLinks =
+    typeof input.contextLinks !== 'undefined' ||
+    JSON.stringify(existingContextLinks) !== JSON.stringify(nextContextLinks);
   const checklistInput =
     typeof input.checklist === 'undefined' ? null : normalizeChecklistInput(input.checklist);
   const shouldEvaluateAutoClose =
@@ -3622,9 +3800,7 @@ export async function updateTestChange(
     githubPrMetadata: githubPullRequest.githubPrMetadata,
     githubIssueUrl: githubIssue.githubIssueUrl,
     githubIssueMetadata: githubIssue.githubIssueMetadata,
-    ...(typeof input.contextLinks === 'undefined'
-      ? {}
-      : { contextLinks: contextLinksJson(input.contextLinks) }),
+    ...(shouldPersistContextLinks ? { contextLinks: contextLinksJson(nextContextLinks) } : {}),
     ...(typeof input.includeInNextPatch === 'boolean'
       ? { includeInNextPatch: input.includeInNextPatch }
       : {}),
@@ -3776,7 +3952,7 @@ export async function updateTestChange(
           readyToTest: existing.readyToTest,
           githubPrUrl: existing.githubPrUrl,
           githubIssueUrl: existing.githubIssueUrl,
-          contextLinks: normalizeContextLinks(existing.contextLinks),
+          contextLinks: contextLinkHistoryPayload(existingContextLinks),
           includeInNextPatch: existing.includeInNextPatch,
           autoClosePassCount: existing.autoClosePassCount,
           dueAt: existing.dueAt?.toISOString() ?? null,
@@ -3792,7 +3968,7 @@ export async function updateTestChange(
           readyToTest: shouldPauseForVersion ? false : existing.readyToTest,
           githubPrUrl: data.githubPrUrl,
           githubIssueUrl: data.githubIssueUrl,
-          contextLinks: nextContextLinks,
+          contextLinks: contextLinkHistoryPayload(nextContextLinks),
           includeInNextPatch:
             typeof data.includeInNextPatch === 'boolean'
               ? data.includeInNextPatch
@@ -3881,10 +4057,16 @@ export async function updateTestChangeContextLinks(
   }
 
   const previousLinks = normalizeContextLinks(existing.contextLinks);
-  const nextLinks = normalizeContextLinks(contextLinks);
-  if (JSON.stringify(previousLinks) === JSON.stringify(nextLinks)) {
+  const requestedLinks = normalizeContextLinks(contextLinks);
+  if (
+    JSON.stringify(contextLinkHistoryPayload(previousLinks)) ===
+    JSON.stringify(contextLinkHistoryPayload(requestedLinks))
+  ) {
     return getTestChange(changeId, actorUserId);
   }
+  const nextLinks = await refreshContextLinksGithubMetadata(
+    mergeContextLinkGithubMetadata(requestedLinks, previousLinks)
+  );
 
   await prisma.$transaction(async (tx) => {
     await tx.testChange.update({
@@ -3899,8 +4081,8 @@ export async function updateTestChangeContextLinks(
       label: 'Context links updated',
       detail: 'Linked context references were updated by an administrator.',
       metadata: {
-        from: { contextLinks: previousLinks },
-        to: { contextLinks: nextLinks }
+        from: { contextLinks: contextLinkHistoryPayload(previousLinks) },
+        to: { contextLinks: contextLinkHistoryPayload(nextLinks) }
       }
     });
   });

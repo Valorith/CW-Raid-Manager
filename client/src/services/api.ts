@@ -3430,6 +3430,8 @@ export interface TestChangeContextLink {
   label: string;
   url: string;
   description: string;
+  githubPullRequest?: TestChangePullRequest | null;
+  githubIssue?: TestChangeIssue | null;
 }
 
 export interface TestChangePullRequest {

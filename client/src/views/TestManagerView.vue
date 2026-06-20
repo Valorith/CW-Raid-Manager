@@ -5021,67 +5021,280 @@
               <small>{{ group.links.length }}</small>
             </div>
             <div class="tm-context-link-cards">
-              <article
-                v-for="link in group.links"
-                :key="link.id"
-                class="tm-context-link-card"
-                :class="`tm-context-link-card--${contextLinkTone(link)}`"
-              >
-                <div class="tm-context-link-card__icon" aria-hidden="true">
-                  {{ contextLinkKindMeta(link.kind).icon }}
-                </div>
-                <div class="tm-context-link-card__body">
-                  <a
-                    :href="link.url"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    @click="openContextWebLink($event, link)"
-                  >
-                    {{ link.label }}
-                  </a>
-                  <p v-if="link.description">{{ link.description }}</p>
-                  <small>{{ contextLinkHost(link) }}</small>
-                </div>
-                <div class="tm-context-link-card__actions">
-                  <button
-                    v-if="link.kind === 'DISCORD' && contextLinkAppHref(link)"
-                    type="button"
-                    class="tm-context-link-card__open tm-context-link-card__open--discord"
-                    :aria-label="`Open ${link.label} in Discord app`"
-                    @click="openDiscordHandoffPrompt($event, link)"
-                  >
-                    <svg
-                      class="tm-context-link-card__open-icon tm-context-link-card__open-icon--discord"
-                      viewBox="0 0 24 24"
-                      aria-hidden="true"
-                      focusable="false"
+              <template v-for="link in group.links" :key="link.id">
+                <article
+                  v-if="link.githubPullRequest"
+                  class="tm-context-link-card tm-context-link-card--github tm-context-link-card--github-record tm-github-linked-record"
+                  :class="`tm-github-linked-record--${githubPrTone(link.githubPullRequest)}`"
+                >
+                  <div class="tm-context-github-record__main">
+                    <div class="tm-context-github-record__header">
+                      <div class="tm-github-linked-record__body">
+                        <small>Pull Request</small>
+                        <a
+                          :href="githubPrHref(link.githubPullRequest)"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          @click="openGithubLink($event, githubPrHref(link.githubPullRequest))"
+                        >
+                          {{
+                            link.githubPullRequest.metadata.title ||
+                            link.label ||
+                            githubPrLabel(link.githubPullRequest)
+                          }}
+                        </a>
+                      </div>
+                    </div>
+                    <p class="tm-context-github-record__meta">
+                      <span>{{ githubPrLabel(link.githubPullRequest) }}</span>
+                      <span v-if="link.githubPullRequest.metadata.authorLogin">
+                        by @{{ link.githubPullRequest.metadata.authorLogin }}
+                      </span>
+                      <span v-if="githubPrMergedAt(link.githubPullRequest)">
+                        merged {{ githubPrMergedAtRelative(link.githubPullRequest) }}
+                      </span>
+                    </p>
+                    <p v-if="link.description" class="tm-context-link-card__description">
+                      {{ link.description }}
+                    </p>
+                    <div class="tm-context-github-record__details">
+                      <div class="tm-context-github-record__metrics">
+                        <span>
+                          <strong>{{
+                            githubPrMetric(link.githubPullRequest.metadata.changedFiles)
+                          }}</strong>
+                          files
+                        </span>
+                        <span>
+                          <strong>{{
+                            githubPrSignedMetric(link.githubPullRequest.metadata.additions, '+')
+                          }}</strong>
+                          added
+                        </span>
+                        <span>
+                          <strong>{{
+                            githubPrSignedMetric(link.githubPullRequest.metadata.deletions, '-')
+                          }}</strong>
+                          removed
+                        </span>
+                      </div>
+                      <div
+                        v-if="link.githubPullRequest.metadata.labels.length"
+                        class="tm-github-pr-panel__labels tm-context-link-card__github-labels"
+                      >
+                        <span
+                          v-for="label in link.githubPullRequest.metadata.labels"
+                          :key="label.name"
+                          :style="{ '--label-color': githubLabelColor(label.color) }"
+                        >
+                          {{ label.name }}
+                        </span>
+                      </div>
+                    </div>
+                    <p
+                      v-if="!link.githubPullRequest.metadata.available"
+                      class="tm-context-github-record__summary"
                     >
-                      <path
-                        d="M18.9 5.2A16 16 0 0 0 15.1 4l-.2.4a12.3 12.3 0 0 1 3 1.4 13.3 13.3 0 0 0-9.8 0 12.3 12.3 0 0 1 3-1.4L10.9 4a16 16 0 0 0-3.8 1.2C4.7 8.8 4 12.3 4.3 15.8a15.6 15.6 0 0 0 4.7 2.4l.9-1.5a9.9 9.9 0 0 1-1.4-.7l.3-.2a11.4 11.4 0 0 0 6.4 0l.3.2a9.9 9.9 0 0 1-1.4.7l.9 1.5a15.6 15.6 0 0 0 4.7-2.4c.4-4.1-.7-7.5-2.8-10.6ZM9.5 13.8c-.9 0-1.6-.8-1.6-1.8s.7-1.8 1.6-1.8 1.6.8 1.6 1.8-.7 1.8-1.6 1.8Zm5 0c-.9 0-1.6-.8-1.6-1.8s.7-1.8 1.6-1.8 1.6.8 1.6 1.8-.7 1.8-1.6 1.8Z"
-                      />
-                    </svg>
-                    <span>Open</span>
-                  </button>
-                  <button
-                    v-else
-                    type="button"
-                    class="tm-context-link-card__open"
-                    :aria-label="`Open ${link.label}`"
-                    @click="openContextLink($event, link)"
-                  >
-                    <svg
-                      class="tm-context-link-card__open-icon"
-                      viewBox="0 0 24 24"
-                      aria-hidden="true"
-                      focusable="false"
+                      {{
+                        link.githubPullRequest.metadata.statusMessage ||
+                        'GitHub metadata is unavailable.'
+                      }}
+                    </p>
+                    <p v-else class="tm-context-github-record__summary">
+                      {{ githubPrBranchSummary(link.githubPullRequest) }}
+                      <template v-if="link.githubPullRequest.metadata.updatedAt">
+                        · GitHub updated {{ relativeTime(link.githubPullRequest.metadata.updatedAt) }}
+                      </template>
+                    </p>
+                  </div>
+                  <div class="tm-context-github-record__actions">
+                    <strong class="tm-github-linked-record__state">
+                      {{ githubPrStateLabel(link.githubPullRequest) }}
+                    </strong>
+                    <a
+                      class="tm-github-linked-record__open tm-context-github-record__open"
+                      :href="githubPrHref(link.githubPullRequest)"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      :aria-label="`Open ${githubPrLabel(link.githubPullRequest)} pull request in GitHub`"
+                      @click="openGithubLink($event, githubPrHref(link.githubPullRequest))"
                     >
-                      <path d="M10 13a5 5 0 0 0 7.1 0l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1" />
-                      <path d="M14 11a5 5 0 0 0-7.1 0l-2 2A5 5 0 0 0 12 20.1l1.1-1.1" />
-                    </svg>
-                    <span>Open</span>
-                  </button>
-                </div>
-              </article>
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path
+                          d="M12 .5a12 12 0 0 0-3.79 23.39c.6.11.82-.26.82-.58v-2.24c-3.34.73-4.04-1.42-4.04-1.42-.55-1.39-1.33-1.76-1.33-1.76-1.09-.75.08-.73.08-.73 1.2.08 1.84 1.24 1.84 1.24 1.07 1.83 2.81 1.3 3.49.99.11-.78.42-1.3.76-1.6-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.12-.3-.54-1.52.12-3.18 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 6.01 0c2.29-1.55 3.3-1.23 3.3-1.23.66 1.66.24 2.88.12 3.18.77.84 1.24 1.91 1.24 3.22 0 4.61-2.81 5.62-5.49 5.92.43.37.81 1.1.81 2.22v3.29c0 .32.22.69.83.57A12 12 0 0 0 12 .5Z"
+                        />
+                      </svg>
+                      <span>Open</span>
+                    </a>
+                  </div>
+                </article>
+
+                <article
+                  v-else-if="link.githubIssue"
+                  class="tm-context-link-card tm-context-link-card--github tm-context-link-card--github-record tm-github-linked-record"
+                  :class="`tm-github-linked-record--${githubIssueTone(link.githubIssue)}`"
+                >
+                  <div class="tm-context-github-record__main">
+                    <div class="tm-context-github-record__header">
+                      <div class="tm-github-linked-record__body">
+                        <small>Issue</small>
+                        <a
+                          :href="githubIssueHref(link.githubIssue)"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          @click="openGithubLink($event, githubIssueHref(link.githubIssue))"
+                        >
+                          {{
+                            link.githubIssue.metadata.title ||
+                            link.label ||
+                            githubIssueLabel(link.githubIssue)
+                          }}
+                        </a>
+                      </div>
+                    </div>
+                    <p class="tm-context-github-record__meta">
+                      <span>{{ githubIssueLabel(link.githubIssue) }}</span>
+                      <span v-if="link.githubIssue.metadata.authorLogin">
+                        by @{{ link.githubIssue.metadata.authorLogin }}
+                      </span>
+                      <span v-if="link.githubIssue.metadata.closedAt">
+                        closed {{ relativeTime(link.githubIssue.metadata.closedAt) }}
+                      </span>
+                    </p>
+                    <p v-if="link.description" class="tm-context-link-card__description">
+                      {{ link.description }}
+                    </p>
+                    <div class="tm-context-github-record__details">
+                      <div class="tm-context-github-record__metrics">
+                        <span>
+                          <strong>{{ githubPrMetric(link.githubIssue.metadata.comments) }}</strong>
+                          comments
+                        </span>
+                        <span>
+                          <strong>{{ link.githubIssue.metadata.labels.length }}</strong>
+                          labels
+                        </span>
+                        <span>
+                          <strong>{{ link.githubIssue.metadata.closedAt ? 'yes' : 'no' }}</strong>
+                          closed
+                        </span>
+                      </div>
+                      <div
+                        v-if="link.githubIssue.metadata.labels.length"
+                        class="tm-github-pr-panel__labels tm-context-link-card__github-labels"
+                      >
+                        <span
+                          v-for="label in link.githubIssue.metadata.labels"
+                          :key="label.name"
+                          :style="{ '--label-color': githubLabelColor(label.color) }"
+                        >
+                          {{ label.name }}
+                        </span>
+                      </div>
+                    </div>
+                    <p
+                      v-if="!link.githubIssue.metadata.available"
+                      class="tm-context-github-record__summary"
+                    >
+                      {{
+                        link.githubIssue.metadata.statusMessage ||
+                        'GitHub metadata is unavailable.'
+                      }}
+                    </p>
+                    <p v-else class="tm-context-github-record__summary">
+                      {{ githubIssueSummary(link.githubIssue) }}
+                      <template v-if="link.githubIssue.metadata.updatedAt">
+                        · GitHub updated {{ relativeTime(link.githubIssue.metadata.updatedAt) }}
+                      </template>
+                    </p>
+                  </div>
+                  <div class="tm-context-github-record__actions">
+                    <strong class="tm-github-linked-record__state">
+                      {{ githubIssueStateLabel(link.githubIssue) }}
+                    </strong>
+                    <a
+                      class="tm-github-linked-record__open tm-context-github-record__open"
+                      :href="githubIssueHref(link.githubIssue)"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      :aria-label="`Open ${githubIssueLabel(link.githubIssue)} issue in GitHub`"
+                      @click="openGithubLink($event, githubIssueHref(link.githubIssue))"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path
+                          d="M12 .5a12 12 0 0 0-3.79 23.39c.6.11.82-.26.82-.58v-2.24c-3.34.73-4.04-1.42-4.04-1.42-.55-1.39-1.33-1.76-1.33-1.76-1.09-.75.08-.73.08-.73 1.2.08 1.84 1.24 1.84 1.24 1.07 1.83 2.81 1.3 3.49.99.11-.78.42-1.3.76-1.6-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.12-.3-.54-1.52.12-3.18 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 6.01 0c2.29-1.55 3.3-1.23 3.3-1.23.66 1.66.24 2.88.12 3.18.77.84 1.24 1.91 1.24 3.22 0 4.61-2.81 5.62-5.49 5.92.43.37.81 1.1.81 2.22v3.29c0 .32.22.69.83.57A12 12 0 0 0 12 .5Z"
+                        />
+                      </svg>
+                      <span>Open</span>
+                    </a>
+                  </div>
+                </article>
+
+                <article
+                  v-else
+                  class="tm-context-link-card"
+                  :class="`tm-context-link-card--${contextLinkTone(link)}`"
+                >
+                  <div class="tm-context-link-card__icon" aria-hidden="true">
+                    {{ contextLinkKindMeta(link.kind).icon }}
+                  </div>
+                  <div class="tm-context-link-card__body">
+                    <a
+                      :href="link.url"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      @click="openContextWebLink($event, link)"
+                    >
+                      {{ link.label }}
+                    </a>
+                    <p v-if="link.description">{{ link.description }}</p>
+                    <small>{{ contextLinkHost(link) }}</small>
+                  </div>
+                  <div class="tm-context-link-card__actions">
+                    <button
+                      v-if="link.kind === 'DISCORD' && contextLinkAppHref(link)"
+                      type="button"
+                      class="tm-context-link-card__open tm-context-link-card__open--discord"
+                      :aria-label="`Open ${link.label} in Discord app`"
+                      @click="openDiscordHandoffPrompt($event, link)"
+                    >
+                      <svg
+                        class="tm-context-link-card__open-icon tm-context-link-card__open-icon--discord"
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                        focusable="false"
+                      >
+                        <path
+                          d="M18.9 5.2A16 16 0 0 0 15.1 4l-.2.4a12.3 12.3 0 0 1 3 1.4 13.3 13.3 0 0 0-9.8 0 12.3 12.3 0 0 1 3-1.4L10.9 4a16 16 0 0 0-3.8 1.2C4.7 8.8 4 12.3 4.3 15.8a15.6 15.6 0 0 0 4.7 2.4l.9-1.5a9.9 9.9 0 0 1-1.4-.7l.3-.2a11.4 11.4 0 0 0 6.4 0l.3.2a9.9 9.9 0 0 1-1.4.7l.9 1.5a15.6 15.6 0 0 0 4.7-2.4c.4-4.1-.7-7.5-2.8-10.6ZM9.5 13.8c-.9 0-1.6-.8-1.6-1.8s.7-1.8 1.6-1.8 1.6.8 1.6 1.8-.7 1.8-1.6 1.8Zm5 0c-.9 0-1.6-.8-1.6-1.8s.7-1.8 1.6-1.8 1.6.8 1.6 1.8-.7 1.8-1.6 1.8Z"
+                        />
+                      </svg>
+                      <span>Open</span>
+                    </button>
+                    <button
+                      v-else
+                      type="button"
+                      class="tm-context-link-card__open"
+                      :aria-label="`Open ${link.label}`"
+                      @click="openContextLink($event, link)"
+                    >
+                      <svg
+                        class="tm-context-link-card__open-icon"
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                        focusable="false"
+                      >
+                        <path
+                          d="M10 13a5 5 0 0 0 7.1 0l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1"
+                        />
+                        <path
+                          d="M14 11a5 5 0 0 0-7.1 0l-2 2A5 5 0 0 0 12 20.1l1.1-1.1"
+                        />
+                      </svg>
+                      <span>Open</span>
+                    </button>
+                  </div>
+                </article>
+              </template>
             </div>
           </section>
         </div>
@@ -8313,7 +8526,13 @@ function getApiErrorMessage(error: unknown, fallback: string) {
 }
 
 async function refreshChangeGithubMetadata(change: TestChange | null) {
-  if (!change?.githubPullRequest && !change?.githubIssue) {
+  if (!change) {
+    return;
+  }
+
+  const hasGithubContextLinks =
+    change.contextLinks.some((link) => link.githubPullRequest || link.githubIssue) ?? false;
+  if (!change.githubPullRequest && !change.githubIssue && !hasGithubContextLinks) {
     return;
   }
 
@@ -8885,6 +9104,7 @@ function openContextLinksModal() {
   discordHandoffLink.value = null;
   contextLinkDrafts.value = [];
   contextLinksOpen.value = true;
+  void refreshChangeGithubMetadata(activeChange.value);
 }
 
 function closeContextLinksModal() {
@@ -20115,6 +20335,138 @@ button.tm-version-badge {
   --context-tone: #78d9d0;
 }
 
+.tm-context-link-card--github-record.tm-github-linked-record {
+  --context-tone: var(--github-tone);
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.55rem 0.75rem;
+  align-items: center;
+  padding: 0.68rem 0.74rem;
+  border-color: color-mix(in srgb, var(--github-tone) 42%, rgba(240, 246, 252, 0.1));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--github-tone) 14%, transparent), transparent),
+    rgba(1, 4, 9, 0.3);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 0 18px color-mix(in srgb, var(--github-tone) 8%, transparent);
+}
+
+.tm-context-github-record__main {
+  min-width: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.tm-context-github-record__header,
+.tm-context-github-record__details,
+.tm-context-github-record__meta,
+.tm-context-github-record__metrics {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.tm-context-github-record__header {
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.tm-context-link-card--github-record .tm-github-linked-record__body {
+  min-width: 0;
+}
+
+.tm-context-link-card--github-record .tm-github-linked-record__body small {
+  margin-bottom: 0.14rem;
+  font-size: 0.64rem;
+}
+
+.tm-context-link-card--github-record .tm-github-linked-record__body a {
+  font-size: 0.94rem;
+}
+
+.tm-context-link-card--github-record .tm-github-linked-record__state {
+  flex: 0 0 auto;
+  padding: 0.2rem 0.46rem;
+  font-size: 0.62rem;
+}
+
+.tm-context-github-record__meta,
+.tm-context-github-record__summary,
+.tm-context-link-card__description {
+  margin: 0;
+  color: rgba(201, 209, 217, 0.78);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.tm-context-github-record__meta {
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.tm-context-github-record__meta span + span::before {
+  content: '·';
+  margin-right: 0.45rem;
+  color: rgba(201, 209, 217, 0.46);
+}
+
+.tm-context-link-card__description {
+  color: rgba(232, 221, 206, 0.84);
+}
+
+.tm-context-github-record__details {
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.tm-context-github-record__actions {
+  align-self: stretch;
+  display: grid;
+  align-content: space-between;
+  justify-items: end;
+  gap: 0.5rem;
+}
+
+.tm-context-github-record__metrics {
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.tm-context-github-record__metrics span {
+  min-height: 1.55rem;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  padding: 0.24rem 0.42rem;
+  border: 1px solid rgba(240, 246, 252, 0.1);
+  border-radius: 7px;
+  color: rgba(201, 209, 217, 0.8);
+  background: rgba(1, 4, 9, 0.3);
+  font-size: 0.64rem;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.tm-context-github-record__metrics strong {
+  color: #f0f6fc;
+  font-size: 0.78rem;
+}
+
+.tm-context-link-card__github-labels {
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.tm-context-link-card__github-labels span {
+  padding: 0.18rem 0.42rem;
+  font-size: 0.66rem;
+}
+
+.tm-context-github-record__open {
+  min-height: 1.78rem;
+  padding: 0.32rem 0.52rem;
+  font-size: 0.68rem;
+}
+
 .tm-context-link-card__icon {
   width: 2.35rem;
   height: 2.35rem;
@@ -24194,6 +24546,13 @@ button.tm-version-badge {
   }
 
   .tm-context-links-modal__actions {
+    justify-content: space-between;
+  }
+
+  .tm-context-github-record__actions {
+    width: 100%;
+    display: flex;
+    align-items: center;
     justify-content: space-between;
   }
 
