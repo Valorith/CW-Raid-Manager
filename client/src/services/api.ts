@@ -1594,10 +1594,15 @@ export interface AdminRaidDetail extends AdminRaidSummary {
 }
 
 export type InboundWebhookRetentionMode = 'indefinite' | 'days' | 'maxCount';
-export type InboundWebhookActionType = 'DISCORD_RELAY' | 'CRASH_REVIEW' | 'CLAWDBOT_RELAY';
+export type InboundWebhookActionType =
+  | 'DISCORD_RELAY'
+  | 'CRASH_REVIEW'
+  | 'CLAWDBOT_RELAY'
+  | 'CUSTOM_WEBHOOK';
 export type InboundWebhookIntakeType = 'GENERIC' | 'EQEMU_SERVER_CRASH_REPORT';
 export type InboundWebhookMessageStatus = 'RECEIVED' | 'PENDING_MERGE' | 'PROCESSED' | 'FAILED';
 export type InboundWebhookActionRunStatus = 'SUCCESS' | 'FAILED' | 'SKIPPED' | 'PENDING_REVIEW';
+export type OutboundWebhookEndpointService = 'CUSTOM' | 'DEVIN';
 
 export interface InboundWebhookRetentionPolicy {
   mode: InboundWebhookRetentionMode;
@@ -1610,6 +1615,7 @@ export interface InboundWebhookActionConfig {
   devDiscordWebhookUrl?: string;
   discordMode?: 'RAW' | 'WRAP';
   discordTemplate?: string;
+  customWebhookUrl?: string;
   crashModel?: string;
   crashMaxInputChars?: number;
   crashMaxOutputTokens?: number;
@@ -1646,6 +1652,28 @@ export interface InboundWebhook {
   updatedAt: string;
   lastReceivedAt?: string | null;
   actions?: InboundWebhookAction[];
+}
+
+export interface OutboundWebhookEndpoint {
+  id: string;
+  label: string;
+  description?: string | null;
+  service: OutboundWebhookEndpointService;
+  url: string;
+  webhookSecretHeaderName: string;
+  hasWebhookSecret: boolean;
+  isEnabled: boolean;
+  autoSendCrashTelemetry: boolean;
+  createdById: string;
+  createdAt: string;
+  updatedAt: string;
+  lastSentAt?: string | null;
+}
+
+export interface DevinCrashWebhookSendResult {
+  endpointId: string;
+  endpointLabel: string;
+  sentAt: string;
 }
 
 export interface InboundWebhookActionRun {
@@ -5246,6 +5274,11 @@ export const api = {
     return Array.isArray(response.data.webhooks) ? response.data.webhooks : [];
   },
 
+  async fetchOutboundWebhookEndpoints(): Promise<OutboundWebhookEndpoint[]> {
+    const response = await axios.get('/api/admin/webhook-outbound-endpoints');
+    return Array.isArray(response.data.endpoints) ? response.data.endpoints : [];
+  },
+
   async getWebhookProcessingStatus(): Promise<{
     pendingWebhookIds: string[];
     hasPendingProcessing: boolean;
@@ -5323,6 +5356,45 @@ export const api = {
 
   async deleteInboundWebhook(webhookId: string) {
     await axios.delete(`/api/admin/webhooks/${webhookId}`);
+  },
+
+  async createOutboundWebhookEndpoint(payload: {
+    label: string;
+    description?: string | null;
+    service?: OutboundWebhookEndpointService;
+    url: string;
+    webhookSecret?: string | null;
+    webhookSecretHeaderName?: string | null;
+    isEnabled?: boolean;
+    autoSendCrashTelemetry?: boolean;
+  }): Promise<OutboundWebhookEndpoint> {
+    const response = await axios.post('/api/admin/webhook-outbound-endpoints', payload);
+    return response.data.endpoint;
+  },
+
+  async updateOutboundWebhookEndpoint(
+    endpointId: string,
+    payload: {
+      label?: string;
+      description?: string | null;
+      service?: OutboundWebhookEndpointService;
+      url?: string;
+      webhookSecret?: string | null;
+      webhookSecretHeaderName?: string | null;
+      clearWebhookSecret?: boolean;
+      isEnabled?: boolean;
+      autoSendCrashTelemetry?: boolean;
+    }
+  ): Promise<OutboundWebhookEndpoint> {
+    const response = await axios.put(
+      `/api/admin/webhook-outbound-endpoints/${endpointId}`,
+      payload
+    );
+    return response.data.endpoint;
+  },
+
+  async deleteOutboundWebhookEndpoint(endpointId: string) {
+    await axios.delete(`/api/admin/webhook-outbound-endpoints/${endpointId}`);
   },
 
   async createInboundWebhookAction(
@@ -5435,6 +5507,11 @@ export const api = {
   async sendWebhookDiscordSummary(messageId: string): Promise<InboundWebhookMessage> {
     const response = await axios.post(`/api/admin/webhook-inbox/${messageId}/send-discord-summary`);
     return response.data.message;
+  },
+
+  async sendWebhookCrashToDevin(messageId: string): Promise<DevinCrashWebhookSendResult> {
+    const response = await axios.post(`/api/admin/webhook-inbox/${messageId}/fix-with-devin`);
+    return response.data.result;
   },
 
   // ==================== Webhook Inbox Email-like Features ====================

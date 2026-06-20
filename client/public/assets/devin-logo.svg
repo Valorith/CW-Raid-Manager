@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Devin">
+  <g fill="none" fill-rule="evenodd">
+    <path fill="#3969CA" d="M18.2 10.2 27.8 15.7v11.1l-9.6 5.6-9.6-5.6V15.7z"/>
+    <path fill="#3969CA" d="M8.6 26.9 18.2 21.3l9.6 5.6V38l-9.6 5.6L8.6 38z"/>
+    <path fill="#0294DE" d="M8.6 43.6 18.2 38l9.6 5.6v11.1l-9.6 5.6-9.6-5.6z"/>
+    <path fill="#0294DE" d="M27.8 43.6 37.4 38l9.6 5.6v11.1l-9.6 5.6-9.6-5.6z"/>
+    <path fill="#21C19A" d="M27.8 26.9 37.4 21.3l9.6 5.6V38l-9.6 5.6-9.6-5.6z"/>
+    <path fill="#21C19A" d="M47 26.9 56.6 21.3l9.6 5.6V38l-9.6 5.6L47 38z" transform="translate(-10)"/>
+    <path
+      fill="#F8FAFC"
+      fill-opacity=".92"
+      d="M23.3 26.8c2.5-1.4 4.9-1.4 7.3 0l5.4 3.1c1.2.7 2.4.7 3.6 0l2.6-1.5 3.2 5.6-2.5 1.5c-3.4 2-6.8 2-10.2 0l-5.4-3.1c-1.2-.7-2.4-.7-3.6 0l-2.6 1.5-3.2-5.6z"
+      opacity=".18"
+    />
+  </g>
+</svg>

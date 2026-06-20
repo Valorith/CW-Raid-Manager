@@ -14,8 +14,8 @@
 
     <div v-if="activeTab !== 'crashes'" class="webhook-stats">
       <div class="stat-card">
-        <span class="stat-card__label">Total Webhooks</span>
-        <strong class="stat-card__value">{{ webhooks.length }}</strong>
+        <span class="stat-card__label">Total Endpoints</span>
+        <strong class="stat-card__value">{{ totalEndpointCount }}</strong>
       </div>
       <div class="stat-card stat-card--accent">
         <span class="stat-card__label">Inbox Messages</span>
@@ -75,10 +75,17 @@
             <header class="endpoint-panel__header">
               <div>
                 <h3>Create Webhook</h3>
-                <p class="muted small">Generate a new endpoint with retention controls.</p>
+                <p class="muted small">Register an inbound URL or outbound webhook target.</p>
               </div>
             </header>
             <div class="form-grid form-grid--single">
+              <label class="form-field">
+                <span>Direction</span>
+                <select v-model="createForm.direction" class="select">
+                  <option value="inbound">Inbound Webhook</option>
+                  <option value="outbound">Outbound Webhook</option>
+                </select>
+              </label>
               <label class="form-field">
                 <span>Label</span>
                 <input
@@ -97,19 +104,76 @@
                   placeholder="Optional notes"
                 />
               </label>
-              <label class="form-field">
+              <label v-if="createForm.direction === 'inbound'" class="form-field">
                 <span>Endpoint Type</span>
                 <select v-model="createForm.intakeType" class="select">
                   <option :value="GENERIC_INTAKE_TYPE">Generic Webhook</option>
                   <option :value="SERVER_CRASH_INTAKE_TYPE">EQEmu Server Crash Report</option>
                 </select>
               </label>
+              <label v-if="createForm.direction === 'outbound'" class="form-field">
+                <span>Outbound Service</span>
+                <select v-model="createForm.outboundService" class="select">
+                  <option :value="DEVIN_OUTBOUND_SERVICE">Devin</option>
+                  <option :value="CUSTOM_OUTBOUND_SERVICE">Custom</option>
+                </select>
+              </label>
+              <label v-if="createForm.direction === 'outbound'" class="form-field">
+                <span>Webhook POST URL</span>
+                <input
+                  v-model="createForm.outboundUrl"
+                  class="input"
+                  maxlength="1024"
+                  placeholder="https://example.com/webhook"
+                />
+              </label>
+              <label
+                v-if="
+                  createForm.direction === 'outbound' &&
+                  createForm.outboundService === DEVIN_OUTBOUND_SERVICE
+                "
+                class="form-field"
+              >
+                <span>Secret Header</span>
+                <input
+                  v-model="createForm.webhookSecretHeaderName"
+                  class="input"
+                  maxlength="120"
+                  :placeholder="DEFAULT_WEBHOOK_SECRET_HEADER_NAME"
+                />
+              </label>
+              <label
+                v-if="
+                  createForm.direction === 'outbound' &&
+                  createForm.outboundService === DEVIN_OUTBOUND_SERVICE
+                "
+                class="form-field"
+              >
+                <span>Webhook Secret</span>
+                <input
+                  v-model="createForm.webhookSecret"
+                  class="input"
+                  maxlength="4096"
+                  placeholder="Secret expected by the Devin webhook"
+                  type="password"
+                />
+              </label>
+              <label
+                v-if="
+                  createForm.direction === 'outbound' &&
+                  createForm.outboundService === DEVIN_OUTBOUND_SERVICE
+                "
+                class="form-field form-field--inline endpoint-toggle-field endpoint-field-wide"
+              >
+                <span>Auto-send crash telemetry</span>
+                <input v-model="createForm.autoSendCrashTelemetry" type="checkbox" />
+              </label>
               <div class="endpoint-control-row">
                 <label class="form-field form-field--inline">
                   <span>Enabled</span>
                   <input v-model="createForm.isEnabled" type="checkbox" />
                 </label>
-                <label class="form-field">
+                <label v-if="createForm.direction === 'inbound'" class="form-field">
                   <span>Retention Mode</span>
                   <select v-model="createForm.retentionMode" class="select">
                     <option value="indefinite">Indefinite</option>
@@ -118,11 +182,17 @@
                   </select>
                 </label>
               </div>
-              <label v-if="createForm.retentionMode === 'days'" class="form-field">
+              <label
+                v-if="createForm.direction === 'inbound' && createForm.retentionMode === 'days'"
+                class="form-field"
+              >
                 <span>Days to Keep</span>
                 <input v-model.number="createForm.retentionDays" type="number" min="1" class="input" />
               </label>
-              <label v-if="createForm.retentionMode === 'maxCount'" class="form-field">
+              <label
+                v-if="createForm.direction === 'inbound' && createForm.retentionMode === 'maxCount'"
+                class="form-field"
+              >
                 <span>Max Messages</span>
                 <input
                   v-model.number="createForm.retentionMaxCount"
@@ -135,10 +205,10 @@
             <button
               class="btn btn--accent btn--small"
               type="button"
-              :disabled="creatingWebhook || !createForm.label.trim()"
+              :disabled="creatingWebhook || !canCreateEndpoint"
               @click="createWebhook"
             >
-              {{ creatingWebhook ? 'Creating...' : 'Create Webhook' }}
+              {{ creatingWebhook ? 'Creating...' : 'Create Endpoint' }}
             </button>
           </section>
 
@@ -147,16 +217,36 @@
               v-for="hook in webhooks"
               :key="hook.id"
               type="button"
-              :class="['endpoint-item', { 'endpoint-item--active': hook.id === expandedWebhookId }]"
+              :class="[
+                'endpoint-item',
+                'endpoint-item--inbound',
+                {
+                  'endpoint-item--active':
+                    selectedEndpointKind === 'inbound' && hook.id === expandedWebhookId
+                }
+              ]"
               @click="toggleWebhook(hook.id)"
             >
-              <span class="endpoint-item__status">
+              <span class="endpoint-item__topline">
                 <span
-                  class="endpoint-status-dot"
-                  :class="hook.isEnabled ? 'endpoint-status-dot--on' : 'endpoint-status-dot--off'"
+                  class="endpoint-direction-icon endpoint-direction-icon--inbound"
+                  title="Inbound endpoint"
                   aria-hidden="true"
-                ></span>
-                {{ hook.isEnabled ? 'Enabled' : 'Disabled' }}
+                >
+                  <svg viewBox="0 0 24 24">
+                    <path d="M12 3v10" />
+                    <path d="m8 9 4 4 4-4" />
+                    <path d="M4 15v3a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-3" />
+                  </svg>
+                </span>
+                <span class="endpoint-item__status">
+                  <span
+                    class="endpoint-status-dot"
+                    :class="hook.isEnabled ? 'endpoint-status-dot--on' : 'endpoint-status-dot--off'"
+                    aria-hidden="true"
+                  ></span>
+                  {{ hook.isEnabled ? 'Enabled' : 'Disabled' }}
+                </span>
               </span>
               <strong>{{ hook.label }}</strong>
               <span class="endpoint-item__description">
@@ -167,20 +257,277 @@
                 <span>{{ formatRelativeTime(hook.lastReceivedAt) }}</span>
               </span>
             </button>
+
+            <button
+              v-for="endpoint in outboundEndpoints"
+              :key="`outbound-${endpoint.id}`"
+              type="button"
+              :class="[
+                'endpoint-item',
+                'endpoint-item--outbound',
+                {
+                  'endpoint-item--active':
+                    selectedEndpointKind === 'outbound' &&
+                    endpoint.id === expandedOutboundEndpointId
+                }
+              ]"
+              @click="toggleOutboundEndpoint(endpoint.id)"
+            >
+              <span class="endpoint-item__topline">
+                <span
+                  class="endpoint-direction-icon endpoint-direction-icon--outbound"
+                  title="Outbound endpoint"
+                  aria-hidden="true"
+                >
+                  <svg viewBox="0 0 24 24">
+                    <path d="M5 19 19 5" />
+                    <path d="M10 5h9v9" />
+                    <path d="M5 7v12h12" />
+                  </svg>
+                </span>
+                <span class="endpoint-item__status">
+                  <span
+                    class="endpoint-status-dot"
+                    :class="
+                      endpoint.isEnabled ? 'endpoint-status-dot--on' : 'endpoint-status-dot--off'
+                    "
+                    aria-hidden="true"
+                  ></span>
+                  {{ endpoint.isEnabled ? 'Enabled' : 'Disabled' }}
+                </span>
+              </span>
+              <strong>{{ endpoint.label }}</strong>
+              <span class="endpoint-item__description">
+                {{ endpoint.description || getOutboundServiceLabel(endpoint.service) }}
+              </span>
+              <span class="endpoint-item__meta">
+                <span>{{ getOutboundEndpointModeLabel(endpoint) }}</span>
+                <span>{{ formatRelativeTime(endpoint.lastSentAt) }}</span>
+              </span>
+            </button>
           </div>
 
-          <div v-if="webhooks.length === 0" class="endpoint-empty-note">
-            <span class="muted">No webhooks registered yet.</span>
+          <div v-if="totalEndpointCount === 0" class="endpoint-empty-note">
+            <span class="muted">No webhook endpoints registered yet.</span>
           </div>
         </aside>
 
         <main class="endpoint-main">
-          <section v-if="!selectedWebhook" class="endpoint-empty-state">
+          <template v-if="selectedOutboundEndpoint">
+            <header class="endpoint-hero endpoint-hero--outbound">
+              <div class="endpoint-hero__identity">
+                <span class="endpoint-kicker">Outbound Endpoint</span>
+                <div class="endpoint-hero__title-row">
+                  <h2>{{ selectedOutboundEndpoint.label }}</h2>
+                </div>
+                <p class="muted">{{ selectedOutboundEndpoint.description || 'No description' }}</p>
+              </div>
+              <div class="endpoint-hero__actions">
+                <span
+                  class="endpoint-state"
+                  :class="
+                    selectedOutboundEndpoint.isEnabled
+                      ? 'endpoint-state--enabled'
+                      : 'endpoint-state--disabled'
+                  "
+                >
+                  {{ selectedOutboundEndpoint.isEnabled ? 'Enabled' : 'Disabled' }}
+                </span>
+                <button
+                  class="btn btn--outline btn--small"
+                  type="button"
+                  @click="copyOutboundUrl(selectedOutboundEndpoint)"
+                >
+                  Copy URL
+                </button>
+                <button
+                  class="btn btn--danger btn--small"
+                  type="button"
+                  @click="deleteOutboundEndpoint(selectedOutboundEndpoint)"
+                >
+                  Delete
+                </button>
+              </div>
+            </header>
+
+            <div class="endpoint-summary-strip endpoint-summary-strip--outbound">
+              <div>
+                <span class="label">Endpoint ID</span>
+                <strong>{{ selectedOutboundEndpoint.id }}</strong>
+              </div>
+              <div>
+                <span class="label">Service</span>
+                <strong>{{ getOutboundServiceLabel(selectedOutboundEndpoint.service) }}</strong>
+              </div>
+              <div>
+                <span class="label">Last Sent</span>
+                <strong>{{ formatDate(selectedOutboundEndpoint.lastSentAt) }}</strong>
+              </div>
+              <div>
+                <span class="label">Direction</span>
+                <strong>Outbound</strong>
+              </div>
+              <div>
+                <span class="label">Auto-send</span>
+                <strong>{{ selectedOutboundEndpoint.autoSendCrashTelemetry ? 'On' : 'Off' }}</strong>
+              </div>
+              <div v-if="selectedOutboundEndpoint.service === DEVIN_OUTBOUND_SERVICE">
+                <span class="label">Secret</span>
+                <strong>{{ selectedOutboundEndpoint.hasWebhookSecret ? 'Configured' : 'Missing' }}</strong>
+              </div>
+            </div>
+
+            <div class="endpoint-layout endpoint-layout--details">
+              <section class="endpoint-panel endpoint-panel--overview">
+                <header class="endpoint-panel__header">
+                  <div>
+                    <h3>Outbound Target</h3>
+                    <p class="muted small">Webhook target used for sending crash handoffs.</p>
+                  </div>
+                  <button
+                    class="btn btn--outline btn--small"
+                    type="button"
+                    :disabled="savingWebhookId === selectedOutboundEndpoint.id"
+                    @click="saveOutboundEndpoint(selectedOutboundEndpoint)"
+                  >
+                    {{
+                      savingWebhookId === selectedOutboundEndpoint.id ? 'Saving...' : 'Save Changes'
+                    }}
+                  </button>
+                </header>
+
+                <div class="endpoint-form-grid">
+                  <label class="form-field form-field--inline endpoint-toggle-field">
+                    <span>Enabled</span>
+                    <input
+                      v-model="outboundEndpointDrafts[selectedOutboundEndpoint.id].isEnabled"
+                      type="checkbox"
+                    />
+                  </label>
+                  <label class="form-field">
+                    <span>Label</span>
+                    <input
+                      v-model="outboundEndpointDrafts[selectedOutboundEndpoint.id].label"
+                      class="input"
+                      maxlength="120"
+                    />
+                  </label>
+                  <label class="form-field">
+                    <span>Description</span>
+                    <input
+                      v-model="outboundEndpointDrafts[selectedOutboundEndpoint.id].description"
+                      class="input"
+                      maxlength="500"
+                    />
+                  </label>
+                  <label class="form-field">
+                    <span>Outbound Service</span>
+                    <select
+                      v-model="outboundEndpointDrafts[selectedOutboundEndpoint.id].service"
+                      class="select"
+                    >
+                      <option :value="DEVIN_OUTBOUND_SERVICE">Devin</option>
+                      <option :value="CUSTOM_OUTBOUND_SERVICE">Custom</option>
+                    </select>
+                  </label>
+                  <label class="form-field endpoint-field-wide">
+                    <span>Webhook POST URL</span>
+                    <input
+                      v-model="outboundEndpointDrafts[selectedOutboundEndpoint.id].url"
+                      class="input"
+                      maxlength="1024"
+                      placeholder="https://example.com/webhook"
+                    />
+                  </label>
+                  <label
+                    v-if="
+                      outboundEndpointDrafts[selectedOutboundEndpoint.id].service ===
+                      DEVIN_OUTBOUND_SERVICE
+                    "
+                    class="form-field"
+                  >
+                    <span>Secret Header</span>
+                    <input
+                      v-model="
+                        outboundEndpointDrafts[selectedOutboundEndpoint.id]
+                          .webhookSecretHeaderName
+                      "
+                      class="input"
+                      maxlength="120"
+                      :placeholder="DEFAULT_WEBHOOK_SECRET_HEADER_NAME"
+                    />
+                  </label>
+                  <label
+                    v-if="
+                      outboundEndpointDrafts[selectedOutboundEndpoint.id].service ===
+                      DEVIN_OUTBOUND_SERVICE
+                    "
+                    class="form-field"
+                  >
+                    <span>Webhook Secret</span>
+                    <input
+                      v-model="
+                        outboundEndpointDrafts[selectedOutboundEndpoint.id].webhookSecret
+                      "
+                      class="input"
+                      maxlength="4096"
+                      :placeholder="
+                        selectedOutboundEndpoint.hasWebhookSecret
+                          ? 'Leave blank to keep saved secret'
+                          : 'Secret expected by the Devin webhook'
+                      "
+                      type="password"
+                    />
+                    <small class="form-hint">
+                      {{
+                        selectedOutboundEndpoint.hasWebhookSecret
+                          ? 'A secret is saved. Enter a new value to replace it.'
+                          : 'No secret is saved for this endpoint.'
+                      }}
+                    </small>
+                  </label>
+                  <label
+                    v-if="
+                      outboundEndpointDrafts[selectedOutboundEndpoint.id].service ===
+                        DEVIN_OUTBOUND_SERVICE &&
+                      selectedOutboundEndpoint.hasWebhookSecret
+                    "
+                    class="form-field form-field--inline endpoint-toggle-field endpoint-field-wide"
+                  >
+                    <span>Clear saved secret</span>
+                    <input
+                      v-model="
+                        outboundEndpointDrafts[selectedOutboundEndpoint.id].clearWebhookSecret
+                      "
+                      type="checkbox"
+                    />
+                  </label>
+                  <label
+                    v-if="
+                      outboundEndpointDrafts[selectedOutboundEndpoint.id].service ===
+                      DEVIN_OUTBOUND_SERVICE
+                    "
+                    class="form-field form-field--inline endpoint-toggle-field endpoint-field-wide"
+                  >
+                    <span>Auto-send crash telemetry</span>
+                    <input
+                      v-model="
+                        outboundEndpointDrafts[selectedOutboundEndpoint.id]
+                          .autoSendCrashTelemetry
+                      "
+                      type="checkbox"
+                    />
+                  </label>
+                </div>
+              </section>
+            </div>
+          </template>
+
+          <section v-else-if="!selectedWebhook" class="endpoint-empty-state">
             <span class="endpoint-empty-state__icon" aria-hidden="true">↳</span>
             <h2>Select an endpoint</h2>
             <p class="muted">
-              Choose a webhook from the list to edit details, copy its URL, run tests, and manage
-              processing actions.
+              Choose a webhook from the list to edit inbound processing or outbound delivery.
             </p>
           </section>
 
@@ -761,6 +1108,14 @@
                         placeholder="https://discord.com/api/webhooks/... (used when Dev Mode is on)"
                       />
                     </label>
+                    <label v-if="action.type === 'CUSTOM_WEBHOOK'" class="form-field">
+                      <span>Webhook POST URL</span>
+                      <input
+                        v-model="action.config.customWebhookUrl"
+                        class="input"
+                        placeholder="https://example.com/webhook"
+                      />
+                    </label>
                     <label v-if="action.type === 'DISCORD_RELAY'" class="form-field">
                       <span>Relay Mode</span>
                       <select v-model="action.config.discordMode" class="select">
@@ -859,7 +1214,7 @@
                     <button
                       class="btn btn--outline btn--small"
                       type="button"
-                      :disabled="savingActionId === action.id"
+                      :disabled="savingActionId === action.id || !isActionEditValid(action)"
                       @click="saveAction(selectedWebhook, action)"
                     >
                       {{ savingActionId === action.id ? 'Saving...' : 'Save Action' }}
@@ -891,6 +1246,7 @@
                     <span>Action Type</span>
                     <select v-model="actionDrafts[selectedWebhook.id].type" class="select">
                       <option value="DISCORD_RELAY">Discord Relay</option>
+                      <option value="CUSTOM_WEBHOOK">Custom Webhook</option>
                       <option value="CRASH_REVIEW">Crash Review</option>
                     </select>
                   </label>
@@ -926,6 +1282,17 @@
                       v-model="actionDrafts[selectedWebhook.id].devDiscordWebhookUrl"
                       class="input"
                       placeholder="https://discord.com/api/webhooks/... (used when Dev Mode is on)"
+                    />
+                  </label>
+                  <label
+                    v-if="actionDrafts[selectedWebhook.id].type === 'CUSTOM_WEBHOOK'"
+                    class="form-field"
+                  >
+                    <span>Webhook POST URL</span>
+                    <input
+                      v-model="actionDrafts[selectedWebhook.id].customWebhookUrl"
+                      class="input"
+                      placeholder="https://example.com/webhook"
                     />
                   </label>
                   <label
@@ -1052,7 +1419,7 @@
                   type="button"
                   :disabled="
                     creatingActionId === selectedWebhook.id ||
-                    !actionDrafts[selectedWebhook.id].name.trim()
+                    !isActionDraftValid(actionDrafts[selectedWebhook.id])
                   "
                   @click="createAction(selectedWebhook)"
                 >
@@ -2377,6 +2744,30 @@
               </div>
             </div>
 
+            <div v-else-if="getCrashRunStatus(selectedMessage) === 'FAILED'" class="llm-empty">
+              <div class="llm-failed-state">
+                <strong>AI review failed</strong>
+                <p>{{ getCrashRunError(selectedMessage) || 'The review provider returned an error.' }}</p>
+              </div>
+              <button
+                class="btn btn--accent"
+                type="button"
+                @click="retryCrashReview(selectedMessage, 'gemini', manualReviewUseOracle)"
+                :disabled="isCrashReviewPending(selectedMessage)"
+              >
+                <span class="ai-icon" aria-hidden="true">✦</span> Retry AI Review
+              </button>
+              <button
+                class="btn btn--openai"
+                type="button"
+                @click="retryCrashReview(selectedMessage, 'openai', manualReviewUseOracle)"
+                :disabled="isCrashReviewPending(selectedMessage)"
+              >
+                <img class="openai-logo" src="/assets/openai-logo-light.svg" alt="" aria-hidden="true" />
+                Run Escalated Review
+              </button>
+            </div>
+
             <div v-else class="llm-empty">
               <p class="muted">No AI review has been run yet.</p>
               <button
@@ -2434,6 +2825,20 @@
                 />
               </svg>
               Resolve
+            </button>
+            <button
+              v-if="isCrashReportMessage(selectedMessage)"
+              class="btn btn--devin"
+              type="button"
+              :disabled="
+                !getFixWithDevinState(selectedMessage).canSend ||
+                isSendingDevinFix(selectedMessage.id)
+              "
+              :title="getFixWithDevinState(selectedMessage).title"
+              @click="fixWithDevin(selectedMessage)"
+            >
+              <img class="devin-logo" :src="DEVIN_LOGO_SRC" alt="" aria-hidden="true" />
+              {{ isSendingDevinFix(selectedMessage.id) ? 'Sending...' : 'Fix with Devin' }}
             </button>
             <button class="btn btn--outline" type="button" @click="toggleArchive(selectedMessage)">
               <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -3661,10 +4066,13 @@ import {
   api,
   type InboundWebhook,
   type InboundWebhookAction,
+  type InboundWebhookActionConfig,
   type InboundWebhookIntakeType,
   type InboundWebhookMessage,
   type InboundWebhookMessageStatus,
   type InboundWebhookRetentionPolicy,
+  type OutboundWebhookEndpoint,
+  type OutboundWebhookEndpointService,
   type AdminUserSummary,
   type TestChange,
   type WebhookMessageLabel,
@@ -3687,10 +4095,13 @@ const pendingMessageId = ref<string | null>(null);
 const { addToast } = useToastBus();
 
 const webhooks = ref<InboundWebhook[]>([]);
+const outboundEndpoints = ref<OutboundWebhookEndpoint[]>([]);
 const inboxMessages = ref<InboundWebhookMessage[]>([]);
 const inboxTotal = ref(0);
 const inboxLoading = ref(false);
 const expandedWebhookId = ref<string | null>(null);
+const expandedOutboundEndpointId = ref<string | null>(null);
+const selectedEndpointKind = ref<'inbound' | 'outbound'>('inbound');
 const nowTs = ref(Date.now());
 let nowTimer: ReturnType<typeof setInterval> | null = null;
 const adminUsers = ref<AdminUserSummary[]>([]);
@@ -3702,12 +4113,17 @@ const crashModelOptions = [
   'gemini-1.5-flash',
   'gemini-1.5-flash-8b'
 ];
+const DEFAULT_DISCORD_TEMPLATE = 'Webhook payload:\n\n```json\n{{json}}\n```';
 const discordTemplatePlaceholders = ['{{json}}', '{{raw}}'];
 const crashTemplatePlaceholders = ['{{crashReport}}'];
 const ORACLE_LOGO_SRC = '/assets/eqemu-oracle-logo.webp';
+const DEVIN_LOGO_SRC = '/assets/devin-logo.svg';
+const DEFAULT_WEBHOOK_SECRET_HEADER_NAME = 'X-Webhook-Secret';
 const LABEL_MANAGER_PAGE_SIZE = 6;
 const GENERIC_INTAKE_TYPE: InboundWebhookIntakeType = 'GENERIC';
 const SERVER_CRASH_INTAKE_TYPE: InboundWebhookIntakeType = 'EQEMU_SERVER_CRASH_REPORT';
+const DEVIN_OUTBOUND_SERVICE: OutboundWebhookEndpointService = 'DEVIN';
+const CUSTOM_OUTBOUND_SERVICE: OutboundWebhookEndpointService = 'CUSTOM';
 
 const creatingWebhook = ref(false);
 const savingWebhookId = ref<string | null>(null);
@@ -3721,6 +4137,7 @@ const endpointNameModalWebhookId = ref<string | null>(null);
 const endpointNameDraft = ref('');
 const retryingCrashId = ref<string | null>(null);
 const sendingDiscordSummaryIds = ref<Set<string>>(new Set());
+const sendingDevinMessageIds = ref<Set<string>>(new Set());
 const resolvingMessageIds = ref<Set<string>>(new Set());
 const activeMessageActionMenuId = ref<string | null>(null);
 const showPromptModal = ref(false);
@@ -3822,16 +4239,32 @@ const inspectorTooltip = reactive({
 const inspectorReportRef = ref<HTMLElement | null>(null);
 
 const createForm = reactive({
+  direction: 'inbound' as 'inbound' | 'outbound',
   label: '',
   description: '',
   isEnabled: true,
   intakeType: GENERIC_INTAKE_TYPE as InboundWebhookIntakeType,
+  outboundService: DEVIN_OUTBOUND_SERVICE as OutboundWebhookEndpointService,
+  outboundUrl: '',
+  webhookSecret: '',
+  webhookSecretHeaderName: DEFAULT_WEBHOOK_SECRET_HEADER_NAME,
+  autoSendCrashTelemetry: false,
   retentionMode: 'indefinite',
   retentionDays: 30,
   retentionMaxCount: 5000
 });
+const canCreateEndpoint = computed(() => {
+  if (!createForm.label.trim()) {
+    return false;
+  }
+  if (createForm.direction === 'outbound') {
+    return Boolean(createForm.outboundUrl.trim() && isValidHttpUrl(createForm.outboundUrl));
+  }
+  return true;
+});
 
 const webhookDrafts = reactive<Record<string, any>>({});
+const outboundEndpointDrafts = reactive<Record<string, any>>({});
 const actionDrafts = reactive<Record<string, any>>({});
 const testDrafts = reactive<Record<string, any>>({});
 
@@ -3987,7 +4420,27 @@ const uniqueSelectedCrashCount = computed(
   () => new Set(crashReports.value.map((report) => report.fingerprint)).size
 );
 const selectedWebhook = computed(
-  () => webhooks.value.find((hook) => hook.id === expandedWebhookId.value) ?? null
+  () =>
+    selectedEndpointKind.value === 'inbound'
+      ? webhooks.value.find((hook) => hook.id === expandedWebhookId.value) ?? null
+      : null
+);
+const selectedOutboundEndpoint = computed(
+  () =>
+    selectedEndpointKind.value === 'outbound'
+      ? outboundEndpoints.value.find((endpoint) => endpoint.id === expandedOutboundEndpointId.value) ??
+        null
+      : null
+);
+const totalEndpointCount = computed(() => webhooks.value.length + outboundEndpoints.value.length);
+const enabledDevinEndpoint = computed(
+  () =>
+    outboundEndpoints.value.find(
+      (endpoint) =>
+        endpoint.service === DEVIN_OUTBOUND_SERVICE &&
+        endpoint.isEnabled &&
+        isValidHttpUrl(endpoint.url)
+    ) ?? null
 );
 const endpointNameModalWebhook = computed(
   () => webhooks.value.find((hook) => hook.id === endpointNameModalWebhookId.value) ?? null
@@ -4020,7 +4473,11 @@ interface PipelineStageStatus {
 }
 
 function isSupportedWebhookAction(action?: InboundWebhookAction | null): boolean {
-  return action?.type === 'DISCORD_RELAY' || action?.type === 'CRASH_REVIEW';
+  return (
+    action?.type === 'DISCORD_RELAY' ||
+    action?.type === 'CUSTOM_WEBHOOK' ||
+    action?.type === 'CRASH_REVIEW'
+  );
 }
 
 function isServerCrashWebhook(webhook?: Pick<InboundWebhook, 'intakeType'> | null): boolean {
@@ -4030,6 +4487,28 @@ function isServerCrashWebhook(webhook?: Pick<InboundWebhook, 'intakeType'> | nul
 function getEndpointTypeLabel(type?: InboundWebhookIntakeType | null): string {
   return type === SERVER_CRASH_INTAKE_TYPE ? 'EQEmu Crash' : 'Generic';
 }
+
+function getOutboundServiceLabel(service?: OutboundWebhookEndpointService | null): string {
+  switch (service) {
+    case 'DEVIN':
+      return 'Devin';
+    case 'CUSTOM':
+      return 'Custom';
+    default:
+      return 'Outbound';
+  }
+}
+
+function getOutboundEndpointModeLabel(endpoint: OutboundWebhookEndpoint): string {
+  if (endpoint.service === DEVIN_OUTBOUND_SERVICE && !endpoint.hasWebhookSecret) {
+    return 'Devin secret missing';
+  }
+  if (endpoint.service === DEVIN_OUTBOUND_SERVICE && endpoint.autoSendCrashTelemetry) {
+    return 'Devin auto-send';
+  }
+  return getOutboundServiceLabel(endpoint.service);
+}
+
 const isAutoMergeActive = computed(() => {
   // Auto-Merge is a global setting - check if any webhook has it enabled
   return webhooks.value.some((w) => w.autoMerge);
@@ -4806,6 +5285,21 @@ function buildDraft(webhook: InboundWebhook) {
   };
 }
 
+function buildOutboundEndpointDraft(endpoint: OutboundWebhookEndpoint) {
+  return {
+    label: endpoint.label,
+    description: endpoint.description || '',
+    service: endpoint.service,
+    url: endpoint.url,
+    webhookSecret: '',
+    webhookSecretHeaderName:
+      endpoint.webhookSecretHeaderName || DEFAULT_WEBHOOK_SECRET_HEADER_NAME,
+    clearWebhookSecret: false,
+    isEnabled: endpoint.isEnabled,
+    autoSendCrashTelemetry: endpoint.autoSendCrashTelemetry
+  };
+}
+
 function buildActionDraft() {
   return {
     type: 'DISCORD_RELAY',
@@ -4814,7 +5308,8 @@ function buildActionDraft() {
     discordWebhookUrl: '',
     devDiscordWebhookUrl: '',
     discordMode: 'WRAP',
-    discordTemplate: 'Webhook payload:\n\n```json\n{{json}}\n```',
+    discordTemplate: DEFAULT_DISCORD_TEMPLATE,
+    customWebhookUrl: '',
     crashModel: 'gemini-2.5-flash-lite',
     crashMaxInputChars: 250000,
     crashMaxOutputTokens: 4096,
@@ -4822,6 +5317,112 @@ function buildActionDraft() {
     crashPromptTemplate: '',
     useEqemuOracleContext: true
   };
+}
+
+function normalizeClientActionConfig(
+  config?: InboundWebhookActionConfig | null
+): InboundWebhookActionConfig {
+  return {
+    discordWebhookUrl: config?.discordWebhookUrl ?? '',
+    devDiscordWebhookUrl: config?.devDiscordWebhookUrl ?? '',
+    discordMode: config?.discordMode ?? 'WRAP',
+    discordTemplate: config?.discordTemplate ?? DEFAULT_DISCORD_TEMPLATE,
+    customWebhookUrl: config?.customWebhookUrl ?? '',
+    crashModel: config?.crashModel ?? 'gemini-2.5-flash-lite',
+    crashMaxInputChars: config?.crashMaxInputChars ?? 250000,
+    crashMaxOutputTokens: config?.crashMaxOutputTokens ?? 4096,
+    crashTemperature: config?.crashTemperature ?? 0.2,
+    crashPromptTemplate: config?.crashPromptTemplate ?? '',
+    useEqemuOracleContext: config?.useEqemuOracleContext ?? true
+  };
+}
+
+function buildActionConfigFromDraft(draft: any): InboundWebhookActionConfig {
+  if (draft.type === 'DISCORD_RELAY') {
+    return {
+      discordWebhookUrl: draft.discordWebhookUrl?.trim() || undefined,
+      devDiscordWebhookUrl: draft.devDiscordWebhookUrl?.trim() || undefined,
+      discordMode: draft.discordMode,
+      discordTemplate:
+        draft.discordMode === 'RAW' ? undefined : draft.discordTemplate?.trim() || undefined
+    };
+  }
+
+  if (draft.type === 'CUSTOM_WEBHOOK') {
+    return {
+      customWebhookUrl: draft.customWebhookUrl?.trim() || undefined
+    };
+  }
+
+  if (draft.type === 'CRASH_REVIEW') {
+    return {
+      crashModel: draft.crashModel?.trim() || undefined,
+      crashMaxInputChars: draft.crashMaxInputChars,
+      crashMaxOutputTokens: draft.crashMaxOutputTokens,
+      crashTemperature: draft.crashTemperature,
+      crashPromptTemplate: draft.crashPromptTemplate?.trim() || undefined,
+      useEqemuOracleContext: draft.useEqemuOracleContext
+    };
+  }
+
+  return {};
+}
+
+function buildActionConfigFromAction(action: InboundWebhookAction): InboundWebhookActionConfig {
+  if (action.type === 'DISCORD_RELAY') {
+    return {
+      discordWebhookUrl: action.config.discordWebhookUrl?.trim() || undefined,
+      devDiscordWebhookUrl: action.config.devDiscordWebhookUrl?.trim() || undefined,
+      discordMode: action.config.discordMode ?? 'WRAP',
+      discordTemplate:
+        action.config.discordMode === 'RAW'
+          ? undefined
+          : action.config.discordTemplate?.trim() || undefined
+    };
+  }
+
+  if (action.type === 'CUSTOM_WEBHOOK') {
+    return {
+      customWebhookUrl: action.config.customWebhookUrl?.trim() || undefined
+    };
+  }
+
+  if (action.type === 'CRASH_REVIEW') {
+    return {
+      crashModel: action.config.crashModel?.trim() || undefined,
+      crashMaxInputChars: action.config.crashMaxInputChars,
+      crashMaxOutputTokens: action.config.crashMaxOutputTokens,
+      crashTemperature: action.config.crashTemperature,
+      crashPromptTemplate: action.config.crashPromptTemplate?.trim() || undefined,
+      useEqemuOracleContext: action.config.useEqemuOracleContext
+    };
+  }
+
+  return {};
+}
+
+function isActionDraftValid(draft: any): boolean {
+  if (!draft?.name?.trim()) {
+    return false;
+  }
+
+  if (draft.type === 'CUSTOM_WEBHOOK') {
+    return Boolean(draft.customWebhookUrl?.trim());
+  }
+
+  return true;
+}
+
+function isActionEditValid(action: InboundWebhookAction): boolean {
+  if (!action.name.trim()) {
+    return false;
+  }
+
+  if (action.type === 'CUSTOM_WEBHOOK') {
+    return Boolean(action.config.customWebhookUrl?.trim());
+  }
+
+  return true;
 }
 
 function buildServerCrashTestPayload() {
@@ -4863,43 +5464,89 @@ function buildTestDraft(webhook?: InboundWebhook | null) {
 }
 
 async function loadWebhooks() {
-  const data = await api.fetchInboundWebhooks();
-  webhooks.value = data.map((webhook) => ({
+  const [inboundData, outboundData] = await Promise.all([
+    api.fetchInboundWebhooks(),
+    api.fetchOutboundWebhookEndpoints()
+  ]);
+  webhooks.value = inboundData.map((webhook) => ({
     ...webhook,
     intakeType: webhook.intakeType ?? GENERIC_INTAKE_TYPE,
     actions: (webhook.actions ?? [])
       .filter(isSupportedWebhookAction)
       .map((action) => ({
         ...action,
-        config: {
-          discordWebhookUrl: action.config?.discordWebhookUrl,
-          devDiscordWebhookUrl: action.config?.devDiscordWebhookUrl,
-          discordMode: action.config?.discordMode ?? 'WRAP',
-          discordTemplate:
-            action.config?.discordTemplate ?? 'Webhook payload:\n\n```json\n{{json}}\n```',
-          crashModel: action.config?.crashModel ?? 'gemini-2.5-flash-lite',
-          crashMaxInputChars: action.config?.crashMaxInputChars ?? 250000,
-          crashMaxOutputTokens: action.config?.crashMaxOutputTokens ?? 4096,
-          crashTemperature: action.config?.crashTemperature ?? 0.2,
-          crashPromptTemplate: action.config?.crashPromptTemplate ?? '',
-          useEqemuOracleContext: action.config?.useEqemuOracleContext ?? true
-        }
+        config: normalizeClientActionConfig(action.config)
       }))
   }));
+  outboundEndpoints.value = outboundData;
   for (const webhook of webhooks.value) {
     webhookDrafts[webhook.id] = buildDraft(webhook);
     actionDrafts[webhook.id] = buildActionDraft();
     testDrafts[webhook.id] = buildTestDraft(webhook);
   }
-  if (!webhooks.value.some((webhook) => webhook.id === expandedWebhookId.value)) {
-    expandedWebhookId.value = webhooks.value[0]?.id ?? null;
+  for (const endpoint of outboundEndpoints.value) {
+    outboundEndpointDrafts[endpoint.id] = buildOutboundEndpointDraft(endpoint);
   }
+  ensureSelectedEndpointExists();
 }
 
 function toggleWebhook(webhookId: string) {
-  expandedWebhookId.value = expandedWebhookId.value === webhookId ? null : webhookId;
+  if (selectedEndpointKind.value === 'inbound' && expandedWebhookId.value === webhookId) {
+    expandedWebhookId.value = null;
+  } else {
+    selectedEndpointKind.value = 'inbound';
+    expandedWebhookId.value = webhookId;
+    expandedOutboundEndpointId.value = null;
+  }
   activeEndpointSection.value = null;
   showTestPanel.value = false;
+}
+
+function toggleOutboundEndpoint(endpointId: string) {
+  if (selectedEndpointKind.value === 'outbound' && expandedOutboundEndpointId.value === endpointId) {
+    expandedOutboundEndpointId.value = null;
+  } else {
+    selectedEndpointKind.value = 'outbound';
+    expandedOutboundEndpointId.value = endpointId;
+    expandedWebhookId.value = null;
+  }
+  activeEndpointSection.value = null;
+  showTestPanel.value = false;
+}
+
+function ensureSelectedEndpointExists() {
+  if (
+    selectedEndpointKind.value === 'inbound' &&
+    expandedWebhookId.value &&
+    webhooks.value.some((webhook) => webhook.id === expandedWebhookId.value)
+  ) {
+    return;
+  }
+  if (
+    selectedEndpointKind.value === 'outbound' &&
+    expandedOutboundEndpointId.value &&
+    outboundEndpoints.value.some((endpoint) => endpoint.id === expandedOutboundEndpointId.value)
+  ) {
+    return;
+  }
+
+  if (webhooks.value.length > 0) {
+    selectedEndpointKind.value = 'inbound';
+    expandedWebhookId.value = webhooks.value[0].id;
+    expandedOutboundEndpointId.value = null;
+    return;
+  }
+
+  if (outboundEndpoints.value.length > 0) {
+    selectedEndpointKind.value = 'outbound';
+    expandedOutboundEndpointId.value = outboundEndpoints.value[0].id;
+    expandedWebhookId.value = null;
+    return;
+  }
+
+  selectedEndpointKind.value = 'inbound';
+  expandedWebhookId.value = null;
+  expandedOutboundEndpointId.value = null;
 }
 
 async function loadInbox() {
@@ -5418,8 +6065,43 @@ async function toggleWebhookProcessing() {
 }
 
 async function createWebhook() {
+  if (!canCreateEndpoint.value) {
+    return;
+  }
+
   creatingWebhook.value = true;
   try {
+    if (createForm.direction === 'outbound') {
+      const endpoint = await api.createOutboundWebhookEndpoint({
+        label: createForm.label.trim(),
+        description: createForm.description.trim() || null,
+        service: createForm.outboundService,
+        url: createForm.outboundUrl.trim(),
+        webhookSecret:
+          createForm.outboundService === DEVIN_OUTBOUND_SERVICE
+            ? createForm.webhookSecret.trim() || null
+            : null,
+        webhookSecretHeaderName:
+          createForm.outboundService === DEVIN_OUTBOUND_SERVICE
+            ? createForm.webhookSecretHeaderName.trim() || DEFAULT_WEBHOOK_SECRET_HEADER_NAME
+            : null,
+        isEnabled: createForm.isEnabled,
+        autoSendCrashTelemetry:
+          createForm.outboundService === DEVIN_OUTBOUND_SERVICE
+            ? createForm.autoSendCrashTelemetry
+            : false
+      });
+      outboundEndpoints.value = [endpoint, ...outboundEndpoints.value];
+      outboundEndpointDrafts[endpoint.id] = buildOutboundEndpointDraft(endpoint);
+      selectedEndpointKind.value = 'outbound';
+      expandedOutboundEndpointId.value = endpoint.id;
+      expandedWebhookId.value = null;
+      activeEndpointSection.value = null;
+      resetCreateForm();
+      showCreateWebhook.value = false;
+      return;
+    }
+
     const webhook = await api.createInboundWebhook({
       label: createForm.label.trim(),
       description: createForm.description.trim() || null,
@@ -5431,15 +6113,31 @@ async function createWebhook() {
     webhookDrafts[webhook.id] = buildDraft(webhook);
     actionDrafts[webhook.id] = buildActionDraft();
     testDrafts[webhook.id] = buildTestDraft(webhook);
+    selectedEndpointKind.value = 'inbound';
     expandedWebhookId.value = webhook.id;
+    expandedOutboundEndpointId.value = null;
     activeEndpointSection.value = null;
-    createForm.label = '';
-    createForm.description = '';
-    createForm.intakeType = GENERIC_INTAKE_TYPE;
+    resetCreateForm();
     showCreateWebhook.value = false;
   } finally {
     creatingWebhook.value = false;
   }
+}
+
+function resetCreateForm() {
+  createForm.direction = 'inbound';
+  createForm.label = '';
+  createForm.description = '';
+  createForm.isEnabled = true;
+  createForm.intakeType = GENERIC_INTAKE_TYPE;
+  createForm.outboundService = DEVIN_OUTBOUND_SERVICE;
+  createForm.outboundUrl = '';
+  createForm.webhookSecret = '';
+  createForm.webhookSecretHeaderName = DEFAULT_WEBHOOK_SECRET_HEADER_NAME;
+  createForm.autoSendCrashTelemetry = false;
+  createForm.retentionMode = 'indefinite';
+  createForm.retentionDays = 30;
+  createForm.retentionMaxCount = 5000;
 }
 
 function openEndpointNameModal(webhook: InboundWebhook) {
@@ -5517,8 +6215,59 @@ async function deleteWebhook(webhook: InboundWebhook) {
   delete webhookDrafts[webhook.id];
   delete actionDrafts[webhook.id];
   if (expandedWebhookId.value === webhook.id) {
-    expandedWebhookId.value = webhooks.value[0]?.id ?? null;
     activeEndpointSection.value = null;
+    ensureSelectedEndpointExists();
+  }
+}
+
+async function saveOutboundEndpoint(endpoint: OutboundWebhookEndpoint) {
+  savingWebhookId.value = endpoint.id;
+  try {
+    const draft = outboundEndpointDrafts[endpoint.id];
+    const nextSecret =
+      typeof draft.webhookSecret === 'string' && draft.webhookSecret.trim()
+        ? draft.webhookSecret.trim()
+        : undefined;
+    const updated = await api.updateOutboundWebhookEndpoint(endpoint.id, {
+      label: draft.label,
+      description: draft.description || null,
+      service: draft.service,
+      url: draft.url,
+      webhookSecret: nextSecret,
+      webhookSecretHeaderName:
+        draft.service === DEVIN_OUTBOUND_SERVICE
+          ? draft.webhookSecretHeaderName?.trim() || DEFAULT_WEBHOOK_SECRET_HEADER_NAME
+          : undefined,
+      clearWebhookSecret: !nextSecret && Boolean(draft.clearWebhookSecret),
+      isEnabled: draft.isEnabled,
+      autoSendCrashTelemetry:
+        draft.service === DEVIN_OUTBOUND_SERVICE ? draft.autoSendCrashTelemetry : false
+    });
+    const index = outboundEndpoints.value.findIndex((item) => item.id === endpoint.id);
+    if (index >= 0) {
+      outboundEndpoints.value[index] = updated;
+      outboundEndpointDrafts[updated.id] = buildOutboundEndpointDraft(updated);
+    }
+  } catch (error) {
+    addToast({
+      title: 'Outbound Endpoint Failed',
+      message: getActionErrorMessage(error, 'Unable to save outbound endpoint.'),
+      variant: 'error'
+    });
+  } finally {
+    savingWebhookId.value = null;
+  }
+}
+
+async function deleteOutboundEndpoint(endpoint: OutboundWebhookEndpoint) {
+  const confirmed = window.confirm(`Delete outbound endpoint "${endpoint.label}"?`);
+  if (!confirmed) return;
+  await api.deleteOutboundWebhookEndpoint(endpoint.id);
+  outboundEndpoints.value = outboundEndpoints.value.filter((item) => item.id !== endpoint.id);
+  delete outboundEndpointDrafts[endpoint.id];
+  if (expandedOutboundEndpointId.value === endpoint.id) {
+    activeEndpointSection.value = null;
+    ensureSelectedEndpointExists();
   }
 }
 
@@ -5530,43 +6279,13 @@ async function createAction(webhook: InboundWebhook) {
       type: draft.type,
       name: draft.name.trim(),
       isEnabled: draft.isEnabled,
-      config:
-        draft.type === 'DISCORD_RELAY'
-          ? {
-              discordWebhookUrl: draft.discordWebhookUrl.trim() || undefined,
-              devDiscordWebhookUrl: draft.devDiscordWebhookUrl?.trim() || undefined,
-              discordMode: draft.discordMode,
-              discordTemplate:
-                draft.discordMode === 'RAW' ? undefined : draft.discordTemplate?.trim() || undefined
-            }
-          : draft.type === 'CRASH_REVIEW'
-              ? {
-                  crashModel: draft.crashModel?.trim() || undefined,
-                  crashMaxInputChars: draft.crashMaxInputChars,
-                  crashMaxOutputTokens: draft.crashMaxOutputTokens,
-                  crashTemperature: draft.crashTemperature,
-                  crashPromptTemplate: draft.crashPromptTemplate?.trim() || undefined,
-                  useEqemuOracleContext: draft.useEqemuOracleContext
-                }
-              : {}
+      config: buildActionConfigFromDraft(draft)
     });
     webhook.actions = [
       ...(webhook.actions ?? []),
       {
         ...action,
-        config: {
-          discordWebhookUrl: action.config?.discordWebhookUrl,
-          devDiscordWebhookUrl: action.config?.devDiscordWebhookUrl,
-          discordMode: action.config?.discordMode ?? 'WRAP',
-          discordTemplate:
-            action.config?.discordTemplate ?? 'Webhook payload:\n\n```json\n{{json}}\n```',
-          crashModel: action.config?.crashModel ?? 'gemini-2.5-flash-lite',
-          crashMaxInputChars: action.config?.crashMaxInputChars ?? 250000,
-          crashMaxOutputTokens: action.config?.crashMaxOutputTokens ?? 4096,
-          crashTemperature: action.config?.crashTemperature ?? 0.2,
-          crashPromptTemplate: action.config?.crashPromptTemplate ?? '',
-          useEqemuOracleContext: action.config?.useEqemuOracleContext ?? true
-        }
+        config: normalizeClientActionConfig(action.config)
       }
     ];
     actionDrafts[webhook.id] = buildActionDraft();
@@ -5581,45 +6300,13 @@ async function saveAction(webhook: InboundWebhook, action: InboundWebhookAction)
     const updated = await api.updateInboundWebhookAction(webhook.id, action.id, {
       name: action.name,
       isEnabled: action.isEnabled,
-      config:
-        action.type === 'DISCORD_RELAY'
-          ? {
-              discordWebhookUrl: action.config.discordWebhookUrl,
-              devDiscordWebhookUrl: action.config.devDiscordWebhookUrl,
-              discordMode: action.config.discordMode ?? 'WRAP',
-              discordTemplate:
-                action.config.discordMode === 'RAW'
-                  ? undefined
-                  : action.config.discordTemplate?.trim() || undefined
-            }
-          : action.type === 'CRASH_REVIEW'
-              ? {
-                  crashModel: action.config.crashModel?.trim() || undefined,
-                  crashMaxInputChars: action.config.crashMaxInputChars,
-                  crashMaxOutputTokens: action.config.crashMaxOutputTokens,
-                  crashTemperature: action.config.crashTemperature,
-                  crashPromptTemplate: action.config.crashPromptTemplate?.trim() || undefined,
-                  useEqemuOracleContext: action.config.useEqemuOracleContext
-                }
-              : {}
+      config: buildActionConfigFromAction(action)
     });
     webhook.actions = (webhook.actions ?? []).map((item) =>
       item.id === action.id
         ? {
             ...updated,
-            config: {
-              discordWebhookUrl: updated.config?.discordWebhookUrl,
-              devDiscordWebhookUrl: updated.config?.devDiscordWebhookUrl,
-              discordMode: updated.config?.discordMode ?? 'WRAP',
-              discordTemplate:
-                updated.config?.discordTemplate ?? 'Webhook payload:\n\n```json\n{{json}}\n```',
-              crashModel: updated.config?.crashModel ?? 'gemini-2.5-flash-lite',
-              crashMaxInputChars: updated.config?.crashMaxInputChars ?? 250000,
-              crashMaxOutputTokens: updated.config?.crashMaxOutputTokens ?? 4096,
-              crashTemperature: updated.config?.crashTemperature ?? 0.2,
-              crashPromptTemplate: updated.config?.crashPromptTemplate ?? '',
-              useEqemuOracleContext: updated.config?.useEqemuOracleContext ?? true
-            }
+            config: normalizeClientActionConfig(updated.config)
           }
         : item
     );
@@ -5643,6 +6330,22 @@ function copyUrl(webhook: InboundWebhook) {
       message: 'Could not copy the webhook URL to clipboard.'
     });
   });
+}
+
+function copyOutboundUrl(endpoint: OutboundWebhookEndpoint) {
+  void writeClipboardText(endpoint.url)
+    .then(() => {
+      addToast({
+        title: 'Outbound URL Copied',
+        message: `Copied ${endpoint.label}.`
+      });
+    })
+    .catch(() => {
+      addToast({
+        title: 'Copy Failed',
+        message: 'Could not copy the outbound webhook URL to clipboard.'
+      });
+    });
 }
 
 function copyInboxMessageLink(message: InboundWebhookMessage) {
@@ -5991,6 +6694,8 @@ function getActionLabel(type?: string | null): string {
       return 'AI Review';
     case 'DISCORD_RELAY':
       return 'Discord';
+    case 'CUSTOM_WEBHOOK':
+      return 'Custom Webhook';
     default:
       return 'Action';
   }
@@ -6168,6 +6873,34 @@ function getCrashRunStatus(message: InboundWebhookMessage) {
   return getCrashRun(message)?.status ?? 'N/A';
 }
 
+function formatCrashRunError(error: string | null | undefined) {
+  if (!error) return '';
+  try {
+    const parsed = JSON.parse(error) as unknown;
+    if (parsed && typeof parsed === 'object') {
+      const record = parsed as Record<string, unknown>;
+      const nestedError = record.error;
+      if (nestedError && typeof nestedError === 'object') {
+        const message = (nestedError as Record<string, unknown>).message;
+        if (typeof message === 'string' && message.trim()) {
+          return message;
+        }
+      }
+      const message = record.message;
+      if (typeof message === 'string' && message.trim()) {
+        return message;
+      }
+    }
+  } catch {
+    // Fall through to the raw provider error.
+  }
+  return error;
+}
+
+function getCrashRunError(message: InboundWebhookMessage) {
+  return formatCrashRunError(getCrashRun(message)?.error);
+}
+
 function getCrashRunModel(message: InboundWebhookMessage) {
   const run = getCrashRun(message);
   const telemetry =
@@ -6299,8 +7032,52 @@ function getResolveSendState(message: InboundWebhookMessage): {
   return { canSend: true, title: 'Mark resolved, archive, and notify Discord.' };
 }
 
+function getFixWithDevinState(message: InboundWebhookMessage): {
+  canSend: boolean;
+  title: string;
+} {
+  if (!isCrashReportMessage(message)) {
+    return { canSend: false, title: 'Only crash reports can be sent to Devin.' };
+  }
+
+  if (!getCrashReportText(message).trim()) {
+    return { canSend: false, title: 'A stored crash report is required.' };
+  }
+
+  if (!enabledDevinEndpoint.value) {
+    return { canSend: false, title: 'Configure an enabled Devin outbound endpoint first.' };
+  }
+
+  if (!enabledDevinEndpoint.value.hasWebhookSecret) {
+    return { canSend: false, title: 'Add the Devin webhook secret to the outbound endpoint first.' };
+  }
+
+  if (isSendingDevinFix(message.id)) {
+    return { canSend: false, title: 'Sending crash report to Devin...' };
+  }
+
+  return { canSend: true, title: `Send crash report to ${enabledDevinEndpoint.value.label}.` };
+}
+
+function isCrashReportMessage(message: InboundWebhookMessage) {
+  if (isServerCrashWebhook(message.webhook)) {
+    return true;
+  }
+
+  const text = getCrashReportText(message);
+  if (looksLikeScriptErrorText(text)) {
+    return true;
+  }
+
+  return /(?:\bException:|\bSymInit:|\bOS-Version:|\bzone\.exe\b|\bworld\.exe\b)/i.test(text);
+}
+
 function isSendingDiscordSummary(messageId: string) {
   return sendingDiscordSummaryIds.value.has(messageId);
+}
+
+function isSendingDevinFix(messageId: string) {
+  return sendingDevinMessageIds.value.has(messageId);
 }
 
 function isResolvingMessage(messageId: string) {
@@ -7464,21 +8241,35 @@ async function retryCrashReview(
 
   // Find the crash review action from the webhook to use for the optimistic run
   const crashAction = message.webhook?.actions?.find((a) => a.type === 'CRASH_REVIEW');
+  const nowIso = new Date().toISOString();
+  const optimisticAction =
+    crashAction ??
+    ({
+      id: 'manual-crash-review',
+      webhookId: message.webhookId,
+      type: 'CRASH_REVIEW' as const,
+      name: 'Crash Review',
+      isEnabled: true,
+      config: {},
+      sortOrder: 0,
+      createdAt: nowIso,
+      updatedAt: nowIso
+    });
 
   // Optimistically add a pending run with current timestamp so the timer resets immediately
   const optimisticRun = {
     id: `optimistic-${Date.now()}`,
     messageId: message.id,
-    actionId: crashAction?.id || '',
+    actionId: optimisticAction.id,
     status: 'PENDING_REVIEW' as const,
-    createdAt: new Date().toISOString(),
+    createdAt: nowIso,
     result: {
       note:
         provider === 'openai'
           ? `OpenAI escalation review in progress${useEqemuOracleContext ? ' with Oracle context' : ''}.`
           : `Crash review retry in progress${useEqemuOracleContext ? ' with Oracle context' : ''}.`
     },
-    action: crashAction
+    action: optimisticAction
   };
 
   // Update selectedMessage immediately
@@ -7502,11 +8293,43 @@ async function retryCrashReview(
 
   try {
     const updated = await api.retryCrashReview(message.id, { provider, useEqemuOracleContext });
-    selectedMessage.value = updated;
-    const index = inboxMessages.value.findIndex((item) => item.id === updated.id);
-    if (index >= 0) {
-      inboxMessages.value[index] = { ...inboxMessages.value[index], ...updated };
+    updateInboxMessage(updated);
+    const updatedRun = getCrashRun(updated);
+    if (updatedRun?.status === 'SUCCESS') {
+      addToast({
+        title: provider === 'openai' ? 'Escalated review complete' : 'AI review complete',
+        message: 'The crash review was updated.'
+      });
+    } else if (updatedRun?.status === 'FAILED') {
+      addToast({
+        title: 'AI review failed',
+        message: formatCrashRunError(updatedRun.error) || 'The review provider returned an error.'
+      });
+    } else {
+      addToast({
+        title: 'AI review queued',
+        message: 'The crash review is still running.'
+      });
     }
+  } catch (error) {
+    const messageText = getActionErrorMessage(error, 'Failed to run AI review.');
+    try {
+      const refreshed = await api.fetchInboundWebhookMessage(message.id);
+      updateInboxMessage(refreshed);
+    } catch {
+      const removeOptimisticRun = (item: InboundWebhookMessage) => ({
+        ...item,
+        actionRuns: (item.actionRuns ?? []).filter((run) => run.id !== optimisticRun.id)
+      });
+      if (selectedMessage.value?.id === message.id) {
+        selectedMessage.value = removeOptimisticRun(selectedMessage.value);
+      }
+      const index = inboxMessages.value.findIndex((item) => item.id === message.id);
+      if (index >= 0) {
+        inboxMessages.value[index] = removeOptimisticRun(inboxMessages.value[index]);
+      }
+    }
+    addToast({ title: 'AI review failed', message: messageText });
   } finally {
     retryingCrashId.value = null;
   }
@@ -7547,9 +8370,57 @@ async function sendDiscordSummary(message: InboundWebhookMessage) {
   }
 }
 
+async function fixWithDevin(message: InboundWebhookMessage) {
+  closeMessageActionMenu();
+  const sendState = getFixWithDevinState(message);
+  if (!sendState.canSend || isSendingDevinFix(message.id)) {
+    return;
+  }
+
+  const target = enabledDevinEndpoint.value;
+  const confirmed = window.confirm(
+    `Send this crash report to ${target?.label || 'the configured Devin endpoint'}?`
+  );
+  if (!confirmed) {
+    return;
+  }
+
+  sendingDevinMessageIds.value.add(message.id);
+  sendingDevinMessageIds.value = new Set(sendingDevinMessageIds.value);
+
+  try {
+    const result = await api.sendWebhookCrashToDevin(message.id);
+    const endpoint = outboundEndpoints.value.find((item) => item.id === result.endpointId);
+    if (endpoint) {
+      endpoint.lastSentAt = result.sentAt;
+      outboundEndpointDrafts[endpoint.id] = buildOutboundEndpointDraft(endpoint);
+    }
+    addToast({
+      title: 'Sent to Devin',
+      message: `Crash report sent to ${result.endpointLabel}.`,
+      variant: 'success'
+    });
+  } catch (error) {
+    addToast({
+      title: 'Devin Handoff Failed',
+      message: getActionErrorMessage(error, 'Failed to send crash report to Devin.'),
+      variant: 'error'
+    });
+  } finally {
+    sendingDevinMessageIds.value.delete(message.id);
+    sendingDevinMessageIds.value = new Set(sendingDevinMessageIds.value);
+  }
+}
+
 function getActionErrorMessage(error: unknown, fallback: string): string {
-  const apiError = (error as { response?: { data?: { error?: string } } })?.response?.data?.error;
-  if (typeof apiError === 'string' && apiError.trim()) {
+  const data = (error as { response?: { data?: { error?: string; message?: string } } })
+    ?.response?.data;
+  const apiMessage = data?.message;
+  if (typeof apiMessage === 'string' && apiMessage.trim()) {
+    return apiMessage;
+  }
+  const apiError = data?.error;
+  if (typeof apiError === 'string' && apiError.trim() && apiError !== 'Bad Request') {
     return apiError;
   }
   if (error instanceof Error && error.message) {
@@ -8806,6 +9677,28 @@ function escapeHtml(text: string): string {
     0 0 0 1px rgba(14, 165, 233, 0.1);
 }
 
+.btn--devin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-color: rgba(45, 212, 191, 0.42);
+  background:
+    linear-gradient(135deg, rgba(57, 105, 202, 0.92), rgba(33, 193, 154, 0.82)),
+    rgba(15, 23, 42, 0.92);
+  color: #f8fafc;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 14px 28px rgba(2, 6, 23, 0.28);
+}
+
+.btn--devin:hover:not(:disabled) {
+  border-color: rgba(125, 211, 252, 0.75);
+  background:
+    linear-gradient(135deg, rgba(57, 105, 202, 1), rgba(33, 193, 154, 0.94)),
+    rgba(15, 23, 42, 0.98);
+}
+
 .openai-logo {
   display: block;
   width: 1rem;
@@ -8813,6 +9706,15 @@ function escapeHtml(text: string): string {
   flex: 0 0 auto;
   object-fit: contain;
   filter: drop-shadow(0 0 6px rgba(125, 211, 252, 0.22));
+}
+
+.devin-logo {
+  display: block;
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  object-fit: contain;
+  filter: drop-shadow(0 0 6px rgba(45, 212, 191, 0.32));
 }
 
 .oracle-logo {
@@ -9100,6 +10002,52 @@ function escapeHtml(text: string): string {
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
 }
 
+.endpoint-item--outbound.endpoint-item--active {
+  border-color: rgba(45, 212, 191, 0.72);
+  box-shadow: 0 0 0 2px rgba(45, 212, 191, 0.2);
+}
+
+.endpoint-item__topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+}
+
+.endpoint-direction-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.85rem;
+  height: 1.85rem;
+  flex: 0 0 auto;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 0.55rem;
+  background: rgba(15, 23, 42, 0.56);
+}
+
+.endpoint-direction-icon svg {
+  width: 1.05rem;
+  height: 1.05rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.endpoint-direction-icon--inbound {
+  color: #93c5fd;
+  border-color: rgba(59, 130, 246, 0.28);
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.endpoint-direction-icon--outbound {
+  color: #5eead4;
+  border-color: rgba(45, 212, 191, 0.3);
+  background: rgba(20, 184, 166, 0.1);
+}
+
 .endpoint-item__title {
   display: flex;
   justify-content: space-between;
@@ -9284,6 +10232,15 @@ function escapeHtml(text: string): string {
   background: #38bdf8;
 }
 
+.endpoint-item--outbound.endpoint-item--active {
+  border-color: rgba(45, 212, 191, 0.52);
+  box-shadow: 0 0 0 1px rgba(45, 212, 191, 0.14);
+}
+
+.endpoint-item--outbound.endpoint-item--active::before {
+  background: #2dd4bf;
+}
+
 .endpoint-item__status,
 .endpoint-item__meta,
 .endpoint-action-type,
@@ -9461,6 +10418,10 @@ function escapeHtml(text: string): string {
   border-radius: 0.65rem;
   background: rgba(15, 23, 42, 0.48);
   overflow: hidden;
+}
+
+.endpoint-summary-strip--outbound {
+  grid-template-columns: minmax(14rem, 1.5fr) repeat(4, minmax(7rem, 1fr));
 }
 
 .endpoint-summary-strip > div {
@@ -11830,6 +12791,33 @@ input[type='checkbox']:checked::after {
   gap: 1rem;
   padding: 2rem 1rem;
   flex: 1;
+}
+
+.llm-failed-state {
+  width: min(100%, 28rem);
+  padding: 0.8rem 0.95rem;
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  border-radius: 0.65rem;
+  background: rgba(127, 29, 29, 0.18);
+  color: rgba(254, 226, 226, 0.95);
+  text-align: left;
+}
+
+.llm-failed-state strong {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: #fecaca;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.llm-failed-state p {
+  margin: 0;
+  color: rgba(254, 226, 226, 0.88);
+  font-size: 0.85rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .spinner--large {

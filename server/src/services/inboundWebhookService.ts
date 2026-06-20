@@ -113,12 +113,23 @@ export async function setWebhookProcessingEnabled(enabled: boolean): Promise<voi
 // Pending auto-merge group info
 interface PendingMergeGroup {
   groupKey: string;           // Crash file identifier or 'default'
+  familyKey: string | null;
+  fileGroupKey: string | null;
+  mergeKind: CrashMergeIdentityKind;
   webhookId: string;
   messageIds: string[];
   firstMessageAt: Date;
   expiresAt: Date;
   timer: NodeJS.Timeout | null;  // null when processing
   status: 'pending' | 'processing';
+}
+
+type CrashMergeIdentityKind = 'file' | 'zone' | 'quest' | 'unknown' | 'mixed';
+
+interface CrashMergeIdentity {
+  groupKey: string | null;
+  familyKey: string | null;
+  kind: CrashMergeIdentityKind;
 }
 
 type RepeatReportMetadata = {
@@ -168,6 +179,7 @@ export interface InboundWebhookActionConfig {
   devDiscordWebhookUrl?: string;
   discordMode?: 'RAW' | 'WRAP';
   discordTemplate?: string;
+  customWebhookUrl?: string;
   crashModel?: string;
   crashMaxInputChars?: number;
   crashMaxOutputTokens?: number;
@@ -721,9 +733,20 @@ export async function retryCrashReviewForMessage(
     throw new Error('Webhook not found.');
   }
 
-  const crashAction = webhook.actions.find((action) => action.type === 'CRASH_REVIEW');
+  let crashAction = webhook.actions.find((action) => action.type === 'CRASH_REVIEW');
   if (!crashAction) {
-    throw new Error('Crash review action not configured.');
+    const nextSortOrder =
+      webhook.actions.reduce((max, action) => Math.max(max, action.sortOrder), -1) + 1;
+    crashAction = await prisma.inboundWebhookAction.create({
+      data: {
+        webhookId: webhook.id,
+        type: 'CRASH_REVIEW',
+        name: 'Crash Review',
+        isEnabled: true,
+        config: {},
+        sortOrder: nextSortOrder
+      }
+    });
   }
 
   const crashConfig = normalizeActionConfig(crashAction.config);
@@ -1245,6 +1268,19 @@ function getResolvedIssueDescription(
   return 'Webhook inbox item marked resolved.';
 }
 
+function scheduleAutoDevinCrashTelemetryHandoff(messageId: string) {
+  void import('./outboundWebhookEndpointService.js')
+    .then(({ tryAutoSendCrashTelemetryToDevin }) =>
+      tryAutoSendCrashTelemetryToDevin(messageId)
+    )
+    .catch((error) => {
+      console.error(
+        `[InboundWebhookService] Failed to schedule auto Devin crash handoff for ${messageId}:`,
+        error
+      );
+    });
+}
+
 export async function receiveInboundWebhookMessage(input: InboundWebhookMessageInput) {
   debugLog(`[WEBHOOK RECEIVE] ========== NEW MESSAGE RECEIVED ==========`);
   debugLog(`[WEBHOOK RECEIVE] webhookId: ${input.webhookId}`);
@@ -1333,6 +1369,9 @@ export async function receiveInboundWebhookMessage(input: InboundWebhookMessageI
 
   if (!processingEnabled) {
     debugLog(`[WEBHOOK RECEIVE] Processing DISABLED - stored message ${message.id} without running actions`);
+    if (isServerCrashEndpoint) {
+      scheduleAutoDevinCrashTelemetryHandoff(message.id);
+    }
     debugLog(`[WEBHOOK RECEIVE] ========== MESSAGE RECEIVE COMPLETE ==========`);
     return message;
   }
@@ -1347,6 +1386,7 @@ export async function receiveInboundWebhookMessage(input: InboundWebhookMessageI
       webhook.devMode,
       { forceCrashReview: true }
     );
+    scheduleAutoDevinCrashTelemetryHandoff(message.id);
     debugLog(`[WEBHOOK RECEIVE] ========== MESSAGE RECEIVE COMPLETE ==========`);
     return message;
   }
@@ -1363,9 +1403,17 @@ export async function receiveInboundWebhookMessage(input: InboundWebhookMessageI
 
   // Add message to pending merge group with fixed timer from first message
   const mergeWindow = webhook.mergeWindowSeconds ?? 60;
-  const groupKey = extractCrashFileIdentifier(input.payload, input.rawBody ?? null) || 'default';
+  const mergeIdentity = extractCrashMergeIdentity(input.payload, input.rawBody ?? null);
+  const groupKey = mergeIdentity.groupKey || 'default';
   debugLog(`[WEBHOOK RECEIVE] Message created: ${message.id}, adding to group "${groupKey}" (merge window: ${mergeWindow}s)`);
-  addMessageToPendingGroup(webhook.id, message.id, groupKey, mergeWindow);
+  addMessageToPendingGroup(
+    webhook.id,
+    message.id,
+    groupKey,
+    mergeWindow,
+    mergeIdentity.familyKey,
+    mergeIdentity.kind
+  );
 
   debugLog(`[WEBHOOK RECEIVE] ========== MESSAGE RECEIVE COMPLETE ==========`);
   return message;
@@ -1438,8 +1486,16 @@ export async function createInboundWebhookMessageForAdmin(options: {
 
     // Add message to pending merge group with fixed timer from first message
     const mergeWindow = webhook.mergeWindowSeconds ?? 60;
-    const groupKey = extractCrashFileIdentifier(options.payload, null) || 'default';
-    addMessageToPendingGroup(webhook.id, message.id, groupKey, mergeWindow);
+    const mergeIdentity = extractCrashMergeIdentity(options.payload, null);
+    const groupKey = mergeIdentity.groupKey || 'default';
+    addMessageToPendingGroup(
+      webhook.id,
+      message.id,
+      groupKey,
+      mergeWindow,
+      mergeIdentity.familyKey,
+      mergeIdentity.kind
+    );
   } else {
     await prisma.inboundWebhookMessage.update({
       where: { id: message.id },
@@ -1492,6 +1548,24 @@ async function runInboundWebhookActions(
         await queueCrashReportMessengerNotifications(messageId, webhookLabel ?? 'Webhook', payloadForActions).catch((error) => {
           console.error('Failed to queue crash report messenger notifications:', error);
         });
+        await prisma.inboundWebhookActionRun.create({
+          data: {
+            messageId,
+            actionId: action.id,
+            status: 'SUCCESS',
+            durationMs: Date.now() - startedAt
+          }
+        });
+        summary.push({ actionId: action.id, status: 'SUCCESS' });
+        continue;
+      }
+
+      if (action.type === 'CUSTOM_WEBHOOK') {
+        const config = normalizeActionConfig(action.config);
+        if (!config.customWebhookUrl) {
+          throw new Error('Custom webhook POST URL is missing.');
+        }
+        await sendCustomWebhookRelay(config.customWebhookUrl, payloadForActions);
         await prisma.inboundWebhookActionRun.create({
           data: {
             messageId,
@@ -2788,6 +2862,7 @@ function normalizeActionConfig(config: unknown): InboundWebhookActionConfig {
     devDiscordWebhookUrl: typeof raw.devDiscordWebhookUrl === 'string' ? raw.devDiscordWebhookUrl : undefined,
     discordMode: raw.discordMode === 'RAW' ? 'RAW' : 'WRAP',
     discordTemplate: typeof raw.discordTemplate === 'string' ? raw.discordTemplate : undefined,
+    customWebhookUrl: typeof raw.customWebhookUrl === 'string' ? raw.customWebhookUrl : undefined,
     crashModel: typeof raw.crashModel === 'string' ? raw.crashModel : undefined,
     crashMaxInputChars: typeof raw.crashMaxInputChars === 'number' ? raw.crashMaxInputChars : undefined,
     crashMaxOutputTokens:
@@ -2827,6 +2902,19 @@ async function sendDiscordRelay(
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(`Discord responded with ${response.status}: ${errorText}`);
+  }
+}
+
+async function sendCustomWebhookRelay(url: string, payload: unknown) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Custom webhook responded with ${response.status}: ${errorText}`);
   }
 }
 
@@ -4283,22 +4371,40 @@ function addMessageToPendingGroup(
   webhookId: string,
   messageId: string,
   groupKey: string,
-  mergeWindowSeconds: number
+  mergeWindowSeconds: number,
+  familyKey: string | null = null,
+  mergeKind: CrashMergeIdentityKind = 'unknown'
 ) {
   const now = new Date();
   let targetGroupKey = groupKey;
   let compositeKey = `${webhookId}:${groupKey}`;
+  let matchedByFamily = false;
+  const incomingFileGroupKey = getCrashFileGroupKey(groupKey, mergeKind);
+
+  const familyGroup = findCompatibleCrashFamilyGroup(webhookId, familyKey, mergeKind, incomingFileGroupKey);
+  if (familyGroup && familyGroup.groupKey !== groupKey) {
+    targetGroupKey = familyGroup.groupKey;
+    compositeKey = `${webhookId}:${targetGroupKey}`;
+    matchedByFamily = true;
+    familyGroup.mergeKind = mergeCrashIdentityKinds(familyGroup.mergeKind, mergeKind);
+    if (!familyGroup.fileGroupKey && incomingFileGroupKey) {
+      familyGroup.fileGroupKey = incomingFileGroupKey;
+    }
+    debugLog(
+      `[Webhook ${webhookId}] Message ${messageId} group "${groupKey}" joined compatible crash family "${familyKey}" in group "${targetGroupKey}"`
+    );
+  }
 
   // If this message has no identifier ('default'), try to find an existing group for this webhook
   // This handles the case where only some chunks contain the crash filename
-  if (groupKey === 'default') {
+  if (!matchedByFamily && groupKey === 'default') {
     const existingWebhookGroup = findExistingGroupForWebhook(webhookId);
     if (existingWebhookGroup) {
       targetGroupKey = existingWebhookGroup.groupKey;
       compositeKey = `${webhookId}:${targetGroupKey}`;
       debugLog(`[Webhook ${webhookId}] Message ${messageId} has no identifier, joining existing group "${targetGroupKey}"`);
     }
-  } else {
+  } else if (!matchedByFamily) {
     // This message HAS an identifier - check if there's a 'default' group we should merge into this one
     const defaultGroup = pendingMergeGroups.get(`${webhookId}:default`);
     if (defaultGroup) {
@@ -4317,6 +4423,16 @@ function addMessageToPendingGroup(
         // Add default group's messages to existing group
         existingGroup.messageIds.push(...defaultGroup.messageIds);
         existingGroup.messageIds.push(messageId);
+        if (!existingGroup.familyKey && (familyKey || defaultGroup.familyKey)) {
+          existingGroup.familyKey = familyKey ?? defaultGroup.familyKey;
+        }
+        if (!existingGroup.fileGroupKey && (incomingFileGroupKey || defaultGroup.fileGroupKey)) {
+          existingGroup.fileGroupKey = incomingFileGroupKey ?? defaultGroup.fileGroupKey;
+        }
+        existingGroup.mergeKind = mergeCrashIdentityKinds(
+          mergeCrashIdentityKinds(existingGroup.mergeKind, defaultGroup.mergeKind),
+          mergeKind
+        );
         debugLog(`[Webhook ${webhookId}] Merged into existing group "${groupKey}" (${existingGroup.messageIds.length} messages)`);
         return;
       } else {
@@ -4331,6 +4447,9 @@ function addMessageToPendingGroup(
 
         const group: PendingMergeGroup = {
           groupKey,
+          familyKey: familyKey ?? defaultGroup.familyKey ?? null,
+          fileGroupKey: incomingFileGroupKey ?? defaultGroup.fileGroupKey ?? null,
+          mergeKind: mergeCrashIdentityKinds(defaultGroup.mergeKind, mergeKind),
           webhookId,
           messageIds: [...defaultGroup.messageIds, messageId],
           firstMessageAt: defaultGroup.firstMessageAt,
@@ -4351,6 +4470,13 @@ function addMessageToPendingGroup(
   if (existingGroup) {
     // Add message to existing group - timer stays fixed from first message
     existingGroup.messageIds.push(messageId);
+    if (!existingGroup.familyKey && familyKey) {
+      existingGroup.familyKey = familyKey;
+    }
+    if (!existingGroup.fileGroupKey && incomingFileGroupKey) {
+      existingGroup.fileGroupKey = incomingFileGroupKey;
+    }
+    existingGroup.mergeKind = mergeCrashIdentityKinds(existingGroup.mergeKind, mergeKind);
     debugLog(`[Webhook ${webhookId}] Added message ${messageId} to existing group "${targetGroupKey}" (${existingGroup.messageIds.length} messages, expires at ${existingGroup.expiresAt.toISOString()})`);
   } else {
     // Create new group with fixed timer
@@ -4363,6 +4489,9 @@ function addMessageToPendingGroup(
 
     const group: PendingMergeGroup = {
       groupKey: targetGroupKey,
+      familyKey,
+      fileGroupKey: incomingFileGroupKey,
+      mergeKind,
       webhookId,
       messageIds: [messageId],
       firstMessageAt: now,
@@ -4374,6 +4503,89 @@ function addMessageToPendingGroup(
     pendingMergeGroups.set(compositeKey, group);
     debugLog(`[Webhook ${webhookId}] Created NEW group "${targetGroupKey}" with message ${messageId}, expires at ${expiresAt.toISOString()} (in ${mergeWindowSeconds}s)`);
   }
+}
+
+function mergeCrashIdentityKinds(
+  left: CrashMergeIdentityKind,
+  right: CrashMergeIdentityKind
+): CrashMergeIdentityKind {
+  if (left === right) {
+    return left;
+  }
+  if (left === 'unknown') {
+    return right;
+  }
+  if (right === 'unknown') {
+    return left;
+  }
+  if (
+    (left === 'file' && right === 'zone') ||
+    (left === 'zone' && right === 'file') ||
+    left === 'mixed' ||
+    right === 'mixed'
+  ) {
+    return 'mixed';
+  }
+  return left;
+}
+
+function getCrashFileGroupKey(groupKey: string, kind: CrashMergeIdentityKind): string | null {
+  return kind === 'file' ? groupKey : null;
+}
+
+function isCompatibleCrashFamilyGroup(
+  group: PendingMergeGroup,
+  incomingKind: CrashMergeIdentityKind,
+  incomingFileGroupKey: string | null
+): boolean {
+  if (incomingKind === 'file') {
+    if (group.fileGroupKey && group.fileGroupKey !== incomingFileGroupKey) {
+      return false;
+    }
+    return group.mergeKind === 'zone' || group.mergeKind === 'mixed';
+  }
+
+  if (incomingKind === 'zone') {
+    return group.mergeKind === 'file' || group.mergeKind === 'mixed';
+  }
+
+  if (incomingKind === 'mixed') {
+    return group.mergeKind === 'file' || group.mergeKind === 'zone' || group.mergeKind === 'mixed';
+  }
+
+  return false;
+}
+
+function findCompatibleCrashFamilyGroup(
+  webhookId: string,
+  familyKey: string | null,
+  incomingKind: CrashMergeIdentityKind,
+  incomingFileGroupKey: string | null
+): PendingMergeGroup | null {
+  if (!familyKey || (incomingKind !== 'file' && incomingKind !== 'zone' && incomingKind !== 'mixed')) {
+    return null;
+  }
+
+  const candidates: PendingMergeGroup[] = [];
+  for (const group of pendingMergeGroups.values()) {
+    if (
+      group.webhookId === webhookId &&
+      group.status === 'pending' &&
+      group.familyKey === familyKey &&
+      isCompatibleCrashFamilyGroup(group, incomingKind, incomingFileGroupKey)
+    ) {
+      candidates.push(group);
+    }
+  }
+
+  if (candidates.length > 1) {
+    debugLog(
+      `[Webhook ${webhookId}] Crash family "${familyKey}" matched ${candidates.length} pending groups; keeping incoming group separate`
+    );
+    return null;
+  }
+
+  return candidates[0] ?? null;
 }
 
 /**
@@ -4919,19 +5131,36 @@ export async function processDismissedMergeMessages(messageIds: string[]) {
  * Returns null if no identifier found.
  */
 function extractCrashFileIdentifier(payload: unknown, rawBody: string | null): string | null {
+  return extractCrashMergeIdentity(payload, rawBody).groupKey;
+}
+
+function extractCrashMergeIdentity(
+  payload: unknown,
+  rawBody: string | null
+): CrashMergeIdentity {
   const text = extractTextForSorting(payload, rawBody);
   const strippedText = stripLightMarkdown(text);
 
   // Pattern 1: "File [crash_xxx.log]" format
   const fileMatch = strippedText.match(/File\s*\[([^\]]+\.log)\]/i);
   if (fileMatch) {
-    return fileMatch[1];
+    const fileName = fileMatch[1];
+    return {
+      groupKey: fileName,
+      familyKey: buildCrashZoneFamilyKey(extractCrashLogZone(fileName)),
+      kind: 'file'
+    };
   }
 
   // Pattern 2: Direct crash log filename pattern
   const crashLogMatch = strippedText.match(/(crash_[a-zA-Z0-9_]+\.log)/i);
   if (crashLogMatch) {
-    return crashLogMatch[1];
+    const fileName = crashLogMatch[1];
+    return {
+      groupKey: fileName,
+      familyKey: buildCrashZoneFamilyKey(extractCrashLogZone(fileName)),
+      kind: 'file'
+    };
   }
 
   // Pattern 3: Script error identifier - use stable quest error content if present
@@ -4941,24 +5170,59 @@ function extractCrashFileIdentifier(payload: unknown, rawBody: string | null): s
   if (questScriptErrorMatch) {
     const [, zoneName, packageName, eventName, errorHead] = questScriptErrorMatch;
     const keySeed = canonicalizeReportText([zoneName, packageName, eventName, errorHead].join('|'));
-    return `quest_error_${createStableHash(keySeed).slice(0, 16)}`;
+    return {
+      groupKey: `quest_error_${createStableHash(keySeed).slice(0, 16)}`,
+      familyKey: null,
+      kind: 'quest'
+    };
   }
 
   const questErrorMatch = strippedText.match(/\[QuestErrors?\]\s*([^\n\r]+)/i);
   if (questErrorMatch) {
     const keySeed = canonicalizeReportText(questErrorMatch[1]);
-    return `quest_error_${createStableHash(keySeed).slice(0, 16)}`;
+    return {
+      groupKey: `quest_error_${createStableHash(keySeed).slice(0, 16)}`,
+      familyKey: null,
+      kind: 'quest'
+    };
   }
 
   // Pattern 4: Look for zone/server identifier in crash header
   const zoneMatch = strippedText.match(/\[Crash\]\s*Zone\s*\[([^\]]+)\]/i);
   if (zoneMatch) {
-    // Combine with timestamp approximation for uniqueness
-    const timeKey = Math.floor(Date.now() / 60000); // 1-minute buckets
-    return `crash_zone_${zoneMatch[1]}_${timeKey}`;
+    const familyKey = buildCrashZoneFamilyKey(zoneMatch[1]);
+    return {
+      groupKey: familyKey,
+      familyKey,
+      kind: 'zone'
+    };
   }
 
-  return null;
+  return { groupKey: null, familyKey: null, kind: 'unknown' };
+}
+
+function extractCrashLogZone(fileName: string): string | null {
+  const basename = fileName.split(/[\\/]/).pop() ?? fileName;
+  const match = basename.match(/^crash_(.+?)_version_/i);
+  return match ? normalizeCrashZoneToken(match[1]) : null;
+}
+
+function normalizeCrashZoneToken(value: string | null | undefined): string | null {
+  const normalized = stripLightMarkdown(value ?? '')
+    .replace(/[`'"]/g, '')
+    .replace(/\s+/g, '_')
+    .replace(/[^a-zA-Z0-9_-]/g, '')
+    .toLowerCase()
+    .trim();
+  return normalized || null;
+}
+
+function buildCrashZoneFamilyKey(zoneName: string | null | undefined): string | null {
+  const zone = normalizeCrashZoneToken(zoneName);
+  if (!zone) {
+    return null;
+  }
+  return `crash_zone_${zone}`;
 }
 
 /**
@@ -4973,10 +5237,42 @@ function groupMessagesByCrashFile(messages: Array<{
   receivedAt: Date;
   labelAssignments: Array<{ labelId: string; label: { id: string; name: string } }>;
 }>): Array<typeof messages> {
+  const identities = new Map<string, CrashMergeIdentity>();
+  const familyKinds = new Map<string, Set<CrashMergeIdentityKind>>();
+  const familyFileKeys = new Map<string, Set<string>>();
+  for (const message of messages) {
+    const identity = extractCrashMergeIdentity(message.payload, message.rawBody);
+    identities.set(message.id, identity);
+    if (identity.familyKey) {
+      const kinds = familyKinds.get(identity.familyKey) ?? new Set<CrashMergeIdentityKind>();
+      kinds.add(identity.kind);
+      familyKinds.set(identity.familyKey, kinds);
+
+      if (identity.kind === 'file' && identity.groupKey) {
+        const fileKeys = familyFileKeys.get(identity.familyKey) ?? new Set<string>();
+        fileKeys.add(identity.groupKey);
+        familyFileKeys.set(identity.familyKey, fileKeys);
+      }
+    }
+  }
+
   const groups = new Map<string, typeof messages>();
 
   for (const message of messages) {
-    let key = extractCrashFileIdentifier(message.payload, message.rawBody);
+    const identity = identities.get(message.id) ?? {
+      groupKey: null,
+      familyKey: null,
+      kind: 'unknown' as const
+    };
+    let key = identity.groupKey;
+
+    if (identity.familyKey) {
+      const kinds = familyKinds.get(identity.familyKey);
+      const fileKeys = familyFileKeys.get(identity.familyKey);
+      if (kinds?.has('file') && kinds.has('zone') && fileKeys?.size === 1) {
+        key = identity.familyKey;
+      }
+    }
 
     if (!key) {
       // No identifier found - use time-based grouping (messages within 30 seconds)

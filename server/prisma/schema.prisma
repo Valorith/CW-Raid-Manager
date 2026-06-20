@@ -47,6 +47,7 @@ model User {
   characterAssociations CharacterAssociation[] @relation("CharacterAssociationCreator")
   characterWatches     CharacterWatch[] @relation("CharacterWatchCreator")
   inboundWebhooks      InboundWebhook[] @relation("InboundWebhookCreator")
+  outboundWebhookEndpoints OutboundWebhookEndpoint[] @relation("OutboundWebhookEndpointCreator")
   inboundWebhookAssignments InboundWebhookMessage[] @relation("InboundWebhookAssignee")
   webhookMessageReadStatuses WebhookMessageReadStatus[] @relation("WebhookMessageReadStatus")
   webhookMessageStars WebhookMessageStar[] @relation("WebhookMessageStars")
@@ -790,6 +791,7 @@ enum InboundWebhookActionType {
   DISCORD_RELAY
   CRASH_REVIEW
   CLAWDBOT_RELAY
+  CUSTOM_WEBHOOK
 }
 
 enum InboundWebhookIntakeType {
@@ -809,6 +811,11 @@ enum InboundWebhookActionRunStatus {
   FAILED
   SKIPPED
   PENDING_REVIEW
+}
+
+enum OutboundWebhookEndpointService {
+  CUSTOM
+  DEVIN
 }
 
 model InboundWebhook {
@@ -833,6 +840,28 @@ model InboundWebhook {
   @@index([createdById])
   @@index([createdAt])
   @@index([intakeType])
+}
+
+model OutboundWebhookEndpoint {
+  id                      String                         @id @default(cuid())
+  label                   String                         @db.VarChar(120)
+  description             String?                        @db.VarChar(500)
+  service                 OutboundWebhookEndpointService @default(CUSTOM)
+  url                     String                         @db.VarChar(1024)
+  webhookSecret           String?                        @db.Text
+  webhookSecretHeaderName String                         @default("X-Webhook-Secret") @db.VarChar(120)
+  isEnabled               Boolean                        @default(true)
+  autoSendCrashTelemetry  Boolean                        @default(false)
+  createdById             String
+  createdAt               DateTime                       @default(now())
+  updatedAt               DateTime                       @updatedAt
+  lastSentAt              DateTime?
+  createdBy               User                           @relation("OutboundWebhookEndpointCreator", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([createdById])
+  @@index([service])
+  @@index([isEnabled])
+  @@index([service, isEnabled, autoSendCrashTelemetry], map: "OutboundWebhookEndpoint_auto_crash_idx")
 }
 
 model InboundWebhookAction {

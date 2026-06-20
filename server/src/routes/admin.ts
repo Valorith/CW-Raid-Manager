@@ -2,7 +2,8 @@ import {
   GuildRole,
   InboundWebhookActionType,
   InboundWebhookIntakeType,
-  InboundWebhookMessageStatus
+  InboundWebhookMessageStatus,
+  OutboundWebhookEndpointService
 } from '@prisma/client';
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -104,6 +105,13 @@ import {
   fetchLootMaster,
   getLootManagementSummary
 } from '../services/lootManagementService.js';
+import {
+  createOutboundWebhookEndpoint,
+  deleteOutboundWebhookEndpoint,
+  listOutboundWebhookEndpoints,
+  sendCrashReportToDevinEndpoint,
+  updateOutboundWebhookEndpoint
+} from '../services/outboundWebhookEndpointService.js';
 import {
   fetchPlayerEventLogs,
   fetchConnectionEventOverlaySnapshot,
@@ -1596,6 +1604,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
     devDiscordWebhookUrl: z.string().url().max(512).optional().nullable(),
     discordMode: z.enum(['RAW', 'WRAP']).optional().nullable(),
     discordTemplate: z.string().max(4000).optional().nullable(),
+    customWebhookUrl: z.string().url().max(512).optional().nullable(),
     crashModel: z.string().max(120).optional().nullable(),
     crashMaxInputChars: z.coerce.number().int().positive().optional().nullable(),
     crashMaxOutputTokens: z.coerce.number().int().positive().optional().nullable(),
@@ -1605,6 +1614,18 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
   });
   type ActionConfig = z.infer<typeof actionConfigSchema>;
 
+  const outboundEndpointBodySchema = z.object({
+    label: z.string().min(2).max(120),
+    description: z.string().max(500).optional().nullable(),
+    service: z.nativeEnum(OutboundWebhookEndpointService).optional(),
+    url: z.string().url().max(1024),
+    webhookSecret: z.string().max(4096).optional().nullable(),
+    webhookSecretHeaderName: z.string().max(120).optional().nullable(),
+    clearWebhookSecret: z.boolean().optional(),
+    isEnabled: z.boolean().optional(),
+    autoSendCrashTelemetry: z.boolean().optional()
+  });
+
   server.get(
     '/webhooks',
     {
@@ -1613,6 +1634,99 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
     async () => {
       const webhooks = await listInboundWebhooks();
       return { webhooks };
+    }
+  );
+
+  server.get(
+    '/webhook-outbound-endpoints',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async () => {
+      const endpoints = await listOutboundWebhookEndpoints();
+      return { endpoints };
+    }
+  );
+
+  server.post(
+    '/webhook-outbound-endpoints',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const parsed = outboundEndpointBodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid outbound endpoint payload.');
+      }
+
+      try {
+        const endpoint = await createOutboundWebhookEndpoint(
+          request.user.userId,
+          parsed.data
+        );
+        return reply.code(201).send({ endpoint });
+      } catch (error) {
+        request.log.error({ error }, 'Failed to create outbound webhook endpoint.');
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to create outbound endpoint.'
+        );
+      }
+    }
+  );
+
+  server.put(
+    '/webhook-outbound-endpoints/:endpointId',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({ endpointId: z.string() });
+      const { endpointId } = paramsSchema.parse(request.params);
+      const bodySchema = outboundEndpointBodySchema.partial().refine(
+        (value) => Object.keys(value).length > 0,
+        {
+          message: 'No fields provided for update.'
+        }
+      );
+      const parsed = bodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.badRequest(parsed.error.message);
+      }
+
+      try {
+        const endpoint = await updateOutboundWebhookEndpoint(endpointId, parsed.data);
+        return { endpoint };
+      } catch (error) {
+        request.log.error({ error }, 'Failed to update outbound webhook endpoint.');
+        if (error instanceof Error && error.message.includes('Record to update not found')) {
+          return reply.notFound('Outbound endpoint not found.');
+        }
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to update outbound endpoint.'
+        );
+      }
+    }
+  );
+
+  server.delete(
+    '/webhook-outbound-endpoints/:endpointId',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({ endpointId: z.string() });
+      const { endpointId } = paramsSchema.parse(request.params);
+
+      try {
+        await deleteOutboundWebhookEndpoint(endpointId);
+        return reply.code(204).send();
+      } catch (error) {
+        request.log.error({ error }, 'Failed to delete outbound webhook endpoint.');
+        if (error instanceof Error && error.message.includes('Record to delete does not exist')) {
+          return reply.notFound('Outbound endpoint not found.');
+        }
+        return reply.badRequest('Unable to delete outbound endpoint.');
+      }
     }
   );
 
@@ -1768,6 +1882,10 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
           typeof config.discordTemplate === 'string'
             ? config.discordTemplate.trim() || undefined
             : undefined,
+        customWebhookUrl:
+          typeof config.customWebhookUrl === 'string'
+            ? config.customWebhookUrl.trim() || undefined
+            : undefined,
         crashModel:
           typeof config.crashModel === 'string' ? config.crashModel.trim() || undefined : undefined,
         crashMaxInputChars:
@@ -1785,6 +1903,13 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
             ? config.useEqemuOracleContext
             : undefined
       };
+
+      if (
+        parsedData.type === InboundWebhookActionType.CUSTOM_WEBHOOK &&
+        !normalizedConfig.customWebhookUrl
+      ) {
+        return reply.badRequest('Custom webhook POST URL is required.');
+      }
 
       const action = await createInboundWebhookAction(webhookId, {
         type: parsedData.type,
@@ -1859,6 +1984,10 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
               typeof config.discordTemplate === 'string'
                 ? config.discordTemplate.trim() || undefined
                 : undefined,
+            customWebhookUrl:
+              typeof config.customWebhookUrl === 'string'
+                ? config.customWebhookUrl.trim() || undefined
+                : undefined,
             crashModel:
               typeof config.crashModel === 'string'
                 ? config.crashModel.trim() || undefined
@@ -1881,6 +2010,14 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
                 : undefined
           } satisfies InboundWebhookActionConfig)
         : undefined;
+
+      if (
+        action.type === InboundWebhookActionType.CUSTOM_WEBHOOK &&
+        config &&
+        !normalizedConfig?.customWebhookUrl
+      ) {
+        return reply.badRequest('Custom webhook POST URL is required.');
+      }
 
       const updated = await updateInboundWebhookAction(actionId, {
         ...parsedData,
@@ -2172,6 +2309,30 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
     }
   );
 
+  server.post(
+    '/webhook-inbox/:messageId/fix-with-devin',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({ messageId: z.string() });
+      const { messageId } = paramsSchema.parse(request.params);
+
+      try {
+        const result = await sendCrashReportToDevinEndpoint(messageId);
+        return reply.code(201).send({ result });
+      } catch (error) {
+        request.log.error({ error }, 'Failed to send crash report to Devin.');
+        if (error instanceof Error && error.message.includes('not found')) {
+          return reply.notFound(error.message);
+        }
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to send crash report to Devin.'
+        );
+      }
+    }
+  );
+
   server.delete(
     '/webhook-inbox/:messageId',
     {
@@ -2230,7 +2391,9 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
         if (error instanceof Error && error.message.includes('not found')) {
           return reply.notFound(error.message);
         }
-        return reply.badRequest('Unable to retry crash review.');
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to retry crash review.'
+        );
       }
     }
   );
