@@ -22,6 +22,11 @@ const config = {
   port: parsePositiveInt(process.env.DASHBOARD_PORT, 8788),
   baseUrl: requireEnv('DASHBOARD_BASE_URL').replace(/\/+$/, ''),
   basePath: normalizeBasePath(process.env.DASHBOARD_BASE_PATH || ''),
+  basePathAliases: parsePathList(process.env.DASHBOARD_BASE_PATH_ALIASES),
+  oauthBasePath: normalizeBasePath(
+    process.env.DASHBOARD_OAUTH_BASE_PATH || process.env.DASHBOARD_BASE_PATH || ''
+  ),
+  cookiePath: normalizeCookiePath(process.env.DASHBOARD_COOKIE_PATH || '/'),
   googleClientId: requireEnv('GOOGLE_CLIENT_ID'),
   googleClientSecret: requireEnv('GOOGLE_CLIENT_SECRET'),
   sessionSecret: requireEnv('DASHBOARD_SESSION_SECRET'),
@@ -46,7 +51,7 @@ if (config.allowedEmails.length === 0 && config.allowedDomains.length === 0) {
   throw new Error('DASHBOARD_ALLOWED_EMAILS or DASHBOARD_ALLOWED_DOMAINS is required.');
 }
 
-const redirectUri = `${config.baseUrl}${config.basePath}/auth/google/callback`;
+const redirectUri = `${config.baseUrl}${config.oauthBasePath}/auth/google/callback`;
 
 await mkdir(config.registryDir, { recursive: true });
 await mkdir(config.controlDir, { recursive: true });
@@ -605,36 +610,43 @@ function renderDashboardPage(session) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Nexus Codex Runners</title>
+  <title>Nexus Codex</title>
   <style>
     :root {
       color-scheme: dark;
-      --bg: #07111d;
-      --surface: #101927;
-      --surface-2: #152236;
-      --surface-3: #1b2a41;
-      --line: rgba(148, 163, 184, 0.24);
-      --text: #e7eef9;
-      --muted: #98a8bd;
-      --soft: #cbd5e1;
-      --green: #36d982;
-      --red: #fb7185;
-      --amber: #f6c453;
-      --cyan: #30d5c8;
-      --blue: #6aa8ff;
-      --shadow: rgba(0, 0, 0, 0.28);
+      --bg: #0a0d12;
+      --bg-2: #0d121a;
+      --panel: #121821;
+      --panel-2: #171f2a;
+      --panel-3: #1d2632;
+      --line: rgba(172, 187, 205, 0.18);
+      --line-strong: rgba(172, 187, 205, 0.34);
+      --text: #edf3fb;
+      --muted: #9ca9b8;
+      --soft: #c9d4e2;
+      --green: #35dd8b;
+      --red: #ff7185;
+      --amber: #f4c95d;
+      --teal: #2dd4bf;
+      --violet: #a78bfa;
+      --blue: #74a8ff;
+      --shadow: rgba(0, 0, 0, 0.38);
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       min-height: 100vh;
-      background: var(--bg);
+      background:
+        radial-gradient(circle at 18% 0%, rgba(45, 212, 191, 0.11), transparent 34%),
+        radial-gradient(circle at 86% 12%, rgba(167, 139, 250, 0.1), transparent 30%),
+        linear-gradient(180deg, var(--bg), var(--bg-2) 42%, #090b0f);
       color: var(--text);
       font: 14px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
     header {
       border-bottom: 1px solid var(--line);
-      background: rgba(7, 17, 29, 0.94);
+      background: rgba(10, 13, 18, 0.88);
+      backdrop-filter: blur(18px);
       position: sticky;
       top: 0;
       z-index: 5;
@@ -645,28 +657,31 @@ function renderDashboardPage(session) {
     button {
       min-height: 34px;
       border: 1px solid var(--line);
-      border-radius: 7px;
-      background: #17243a;
+      border-radius: 8px;
+      background: #17202b;
       color: var(--text);
       padding: 0 12px;
       font-weight: 800;
       cursor: pointer;
+      transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
     }
-    button:hover { border-color: rgba(106, 168, 255, 0.6); }
+    button:hover { border-color: rgba(45, 212, 191, 0.58); transform: translateY(-1px); }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
-    button.primary { background: #2463d8; border-color: #3478f6; }
+    button.primary { background: #136f63; border-color: rgba(45, 212, 191, 0.72); }
+    button.ghost { background: rgba(18, 24, 33, 0.58); color: var(--soft); }
     button.good { background: #147a46; border-color: #22c55e; }
-    button.warn { background: #7a4c0b; border-color: #f6c453; }
-    button.danger { background: #7f1d2d; border-color: #fb7185; }
+    button.warn { background: #735117; border-color: #f4c95d; }
+    button.danger { background: #742033; border-color: #ff7185; }
     input, textarea, select {
       width: 100%;
       border: 1px solid var(--line);
-      border-radius: 7px;
-      background: #0b1524;
+      border-radius: 8px;
+      background: #0c1118;
       color: var(--text);
       padding: 10px 11px;
       outline: none;
     }
+    input:focus, textarea:focus, select:focus { border-color: rgba(45, 212, 191, 0.7); }
     textarea { min-height: 132px; resize: vertical; }
     label { display: grid; gap: 6px; color: var(--soft); font-weight: 800; }
     a { color: var(--blue); text-decoration: none; }
@@ -686,7 +701,7 @@ function renderDashboardPage(session) {
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       font-size: 12px;
     }
-    .shell { width: min(1360px, calc(100vw - 32px)); margin: 0 auto; }
+    .shell { width: min(1280px, calc(100vw - 32px)); margin: 0 auto; }
     .topbar {
       min-height: 74px;
       display: flex;
@@ -694,24 +709,46 @@ function renderDashboardPage(session) {
       justify-content: space-between;
       gap: 18px;
     }
-    h1 { margin: 0; font-size: 22px; letter-spacing: 0; }
+    h1 { margin: 0; font-size: 23px; letter-spacing: 0; }
     h2 { margin: 0; font-size: 17px; letter-spacing: 0; }
     h3 { margin: 0; font-size: 15px; letter-spacing: 0; }
     .subtitle { color: var(--muted); margin-top: 3px; }
     .user { display: flex; align-items: center; gap: 12px; color: var(--muted); }
     .user img { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); }
-    main { padding: 24px 0 44px; }
-    .stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
-    .stat, .panel, .runner, .task-row {
-      background: var(--surface);
+    main { padding: 24px 0 48px; }
+    .command-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    .summary-strip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .summary-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 32px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 0 11px;
+      background: rgba(18, 24, 33, 0.68);
+      color: var(--soft);
+      font-weight: 800;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+    }
+    .summary-pill span { color: var(--muted); font-weight: 700; }
+    .panel, .runner-card, .history-row {
+      background: rgba(18, 24, 33, 0.92);
       border: 1px solid var(--line);
       border-radius: 8px;
       box-shadow: 0 12px 28px var(--shadow);
     }
-    .stat { padding: 15px; }
-    .stat strong { display: block; font-size: 25px; margin-bottom: 2px; }
-    .stat span { color: var(--muted); }
-    .layout { display: grid; grid-template-columns: minmax(320px, 0.72fr) minmax(440px, 1fr); gap: 14px; align-items: start; }
     .panel { overflow: hidden; }
     .panel-head {
       display: flex;
@@ -720,28 +757,68 @@ function renderDashboardPage(session) {
       gap: 12px;
       min-height: 52px;
       padding: 14px 16px;
-      background: var(--surface-2);
+      background: rgba(23, 31, 42, 0.88);
       border-bottom: 1px solid var(--line);
     }
     .panel-body { padding: 16px; display: grid; gap: 13px; }
     .row { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
     .muted { color: var(--muted); }
     .mini { font-size: 12px; color: var(--muted); }
+    .view-stack { display: grid; gap: 16px; }
     .form-grid { display: grid; grid-template-columns: 1fr 160px; gap: 10px; }
-    .runner-list { display: grid; gap: 12px; }
-    .runner { overflow: hidden; }
-    .runner-head {
+    .runner-list {
+      display: grid;
+      gap: 12px;
+    }
+    .runner-card {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) 170px 150px 130px;
+      gap: 14px;
+      align-items: center;
+      width: 100%;
+      text-align: left;
+      padding: 16px;
+      border-color: rgba(172, 187, 205, 0.2);
+      position: relative;
+      overflow: hidden;
+    }
+    .runner-card::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 3px;
+      background: var(--muted);
+      opacity: 0.65;
+    }
+    .runner-card.running::before, .runner-card.active::before { background: var(--green); }
+    .runner-card.paused::before { background: var(--amber); }
+    .runner-card.inactive::before { background: var(--red); }
+    .runner-card:hover {
+      border-color: rgba(45, 212, 191, 0.48);
+      background: rgba(23, 31, 42, 0.96);
+    }
+    .runner-primary { min-width: 0; display: grid; gap: 7px; }
+    .runner-name { font-weight: 950; font-size: 17px; overflow-wrap: anywhere; }
+    .runner-subline { color: var(--muted); display: flex; gap: 8px; flex-wrap: wrap; }
+    .runner-kpi { display: grid; gap: 3px; min-width: 0; }
+    .runner-kpi span { color: var(--muted); font-size: 12px; text-transform: uppercase; font-weight: 900; }
+    .runner-kpi strong { font-size: 15px; overflow-wrap: anywhere; }
+    .detail-shell {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      gap: 14px;
+      align-items: start;
+    }
+    .detail-head {
       display: flex;
       justify-content: space-between;
       gap: 14px;
-      padding: 15px;
-      background: var(--surface-2);
-      border-bottom: 1px solid var(--line);
+      align-items: flex-start;
+      margin-bottom: 14px;
     }
-    .runner-title { font-weight: 900; font-size: 16px; overflow-wrap: anywhere; }
-    .runner-meta { color: var(--muted); margin-top: 3px; }
-    .runner-body { padding: 15px; display: grid; gap: 13px; }
-    .runner-controls { display: flex; gap: 8px; flex-wrap: wrap; }
+    .detail-title { display: grid; gap: 5px; }
+    .detail-title h2 { font-size: 22px; }
+    .detail-controls { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
     .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
     .field { min-width: 0; }
     .field span { display: block; color: var(--muted); font-size: 12px; text-transform: uppercase; font-weight: 900; margin-bottom: 3px; }
@@ -762,36 +839,68 @@ function renderDashboardPage(session) {
     .badge.active, .badge.succeeded { color: #052e16; background: var(--green); border-color: transparent; }
     .badge.inactive, .badge.failed, .badge.canceled { color: #fff1f2; background: rgba(251, 113, 133, 0.18); border-color: rgba(251, 113, 133, 0.48); }
     .badge.paused, .badge.queued, .badge.claimed { color: #422006; background: var(--amber); border-color: transparent; }
-    .badge.running { color: #042f2e; background: var(--cyan); border-color: transparent; }
-    .badge.idle { color: #dbeafe; background: rgba(106, 168, 255, 0.16); border-color: rgba(106, 168, 255, 0.34); }
-    .job, .error, .logbox {
+    .badge.running { color: #042f2e; background: var(--teal); border-color: transparent; }
+    .badge.idle { color: #dbeafe; background: rgba(116, 168, 255, 0.16); border-color: rgba(116, 168, 255, 0.34); }
+    .status-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--muted);
+      box-shadow: 0 0 0 0 rgba(156, 169, 184, 0.35);
+    }
+    .status-dot.active, .status-dot.running {
+      background: var(--green);
+      animation: pulse-green 1.7s infinite;
+    }
+    .status-dot.paused {
+      background: var(--amber);
+      animation: pulse-amber 1.9s infinite;
+    }
+    .status-dot.inactive, .status-dot.failed, .status-dot.canceled { background: var(--red); }
+    .activity-bar {
+      height: 4px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: rgba(172, 187, 205, 0.12);
+    }
+    .activity-bar span {
+      display: block;
+      width: 38%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--teal), var(--green), var(--violet));
+      animation: scan 1.4s infinite ease-in-out;
+    }
+    .job, .error, .logbox, .empty {
       border: 1px solid var(--line);
       border-radius: 8px;
       padding: 12px;
       background: rgba(2, 6, 23, 0.28);
     }
     .error { border-color: rgba(251, 113, 133, 0.38); color: #fecdd3; white-space: pre-wrap; }
-    .logbox { min-height: 240px; max-height: 430px; overflow: auto; }
+    .logbox { min-height: 260px; max-height: 470px; overflow: auto; }
+    .history { display: grid; gap: 8px; }
+    .history-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 130px 120px 130px;
+      gap: 12px;
+      align-items: center;
+      padding: 12px;
+      box-shadow: none;
+      border-color: rgba(172, 187, 205, 0.16);
+    }
+    .history-main { min-width: 0; display: grid; gap: 4px; }
+    .history-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
     .toolbar {
       display: flex;
       justify-content: space-between;
       align-items: center;
       gap: 10px;
       color: var(--muted);
-      margin: 18px 0 12px;
+      margin-bottom: 12px;
     }
-    .tasks { display: grid; gap: 8px; }
-    .task-row {
-      display: grid;
-      grid-template-columns: minmax(0, 1.3fr) 150px 130px 170px;
-      gap: 12px;
-      align-items: center;
-      padding: 12px;
-      box-shadow: none;
-    }
-    .task-main { min-width: 0; display: grid; gap: 4px; }
-    .task-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
-    .empty { border: 1px dashed var(--line); border-radius: 8px; padding: 28px; text-align: center; color: var(--muted); }
+    .empty { border-style: dashed; padding: 28px; text-align: center; color: var(--muted); }
+    .hidden { display: none !important; }
     .modal {
       position: fixed;
       inset: 0;
@@ -814,19 +923,34 @@ function renderDashboardPage(session) {
       box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
     }
     .modal-body { overflow: auto; padding: 16px; display: grid; gap: 14px; }
+    @keyframes pulse-green {
+      0% { box-shadow: 0 0 0 0 rgba(53, 221, 139, 0.42); }
+      72% { box-shadow: 0 0 0 9px rgba(53, 221, 139, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(53, 221, 139, 0); }
+    }
+    @keyframes pulse-amber {
+      0% { box-shadow: 0 0 0 0 rgba(244, 201, 93, 0.38); }
+      72% { box-shadow: 0 0 0 9px rgba(244, 201, 93, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(244, 201, 93, 0); }
+    }
+    @keyframes scan {
+      0% { transform: translateX(-110%); }
+      55% { transform: translateX(95%); }
+      100% { transform: translateX(260%); }
+    }
     @media (max-width: 980px) {
-      .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .layout { grid-template-columns: 1fr; }
+      .runner-card { grid-template-columns: 1fr 1fr; }
+      .detail-shell { grid-template-columns: 1fr; }
       .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .task-row { grid-template-columns: 1fr; }
-      .task-actions { justify-content: flex-start; }
+      .history-row { grid-template-columns: 1fr; }
+      .history-actions { justify-content: flex-start; }
     }
     @media (max-width: 620px) {
-      .shell { width: min(100vw - 20px, 1360px); }
+      .shell { width: min(100vw - 20px, 1280px); }
       .topbar { align-items: flex-start; flex-direction: column; padding: 16px 0; }
-      .stats, .grid, .form-grid { grid-template-columns: 1fr; }
-      .runner-head { flex-direction: column; }
-      .toolbar { align-items: flex-start; flex-direction: column; }
+      .command-bar, .toolbar, .detail-head { align-items: flex-start; flex-direction: column; }
+      .runner-card, .grid, .form-grid { grid-template-columns: 1fr; }
+      .detail-controls { justify-content: flex-start; }
     }
   </style>
 </head>
@@ -834,8 +958,8 @@ function renderDashboardPage(session) {
   <header>
     <div class="shell topbar">
       <div>
-        <h1>Nexus Codex Runners</h1>
-        <div class="subtitle">Autonomous runner control, task queue, and service logs</div>
+        <h1>Nexus Codex</h1>
+        <div class="subtitle">Runner operations</div>
       </div>
       <div class="user">
         ${session.picture ? `<img src="${escapeHtml(session.picture)}" alt="">` : ''}
@@ -847,81 +971,112 @@ function renderDashboardPage(session) {
     </div>
   </header>
   <main class="shell">
-    <section class="stats" id="stats"></section>
-    <section class="layout">
-      <article class="panel">
-        <div class="panel-head">
-          <h2>New Task</h2>
-          <span class="mini">Creates a queued Nexus Codex job</span>
-        </div>
-        <form class="panel-body" id="task-form">
-          <label>Title
-            <input name="title" maxlength="160" placeholder="Short description">
-          </label>
-          <div class="form-grid">
-            <label>Repository
-              <input name="targetRepository" value="${escapeHtml(config.defaultRepository)}">
-            </label>
-            <label>Base branch
-              <input name="baseBranch" value="${escapeHtml(config.defaultBaseBranch)}">
-            </label>
-          </div>
-          <label>Prompt
-            <textarea name="prompt" required placeholder="Tell Codex exactly what to investigate, change, test, and open a PR for."></textarea>
-          </label>
-          <div class="row">
-            <button class="primary" type="submit">Create Task</button>
-            <span class="mini" id="create-status"></span>
-          </div>
-        </form>
-      </article>
-      <article class="panel">
-        <div class="panel-head">
-          <h2>Runner Service</h2>
-          <div class="row">
-            <button data-service-action="start">Start</button>
-            <button class="warn" data-service-action="restart">Restart</button>
-            <button class="danger" data-service-action="stop">Stop</button>
-          </div>
-        </div>
-        <div class="panel-body">
-          <div class="grid" id="service-grid"></div>
-          <div class="row">
-            <button data-log-refresh>Refresh Logs</button>
-            <span class="mini" id="log-status">Logs load on demand.</span>
-          </div>
-          <div class="logbox"><pre id="logs">Select Refresh Logs to load runner service logs.</pre></div>
-        </div>
-      </article>
-    </section>
-    <div class="toolbar">
-      <div id="generated">Loading runner control plane...</div>
+    <section class="command-bar">
+      <div class="summary-strip" id="summary-strip"></div>
       <div class="row">
-        <select id="status-filter" aria-label="Task status filter">
-          <option value="">All tasks</option>
-          <option value="QUEUED,CLAIMED,RUNNING">Active tasks</option>
-          <option value="FAILED">Failed</option>
-          <option value="CANCELED">Canceled</option>
-          <option value="SUCCEEDED">Succeeded</option>
-        </select>
-        <button data-refresh>Refresh</button>
-      </div>
-    </div>
-    <section class="panel">
-      <div class="panel-head">
-        <h2>Tasks</h2>
-        <span class="mini">Cancel, retry, inspect output, or open PRs</span>
-      </div>
-      <div class="panel-body">
-        <div class="tasks" id="tasks"></div>
+        <button class="ghost" data-refresh>Refresh</button>
+        <button class="ghost" data-open-create>New run</button>
       </div>
     </section>
-    <div class="toolbar">
-      <div>Runners</div>
-      <div class="mini">Auto refresh: 15s</div>
-    </div>
-    <section class="runner-list" id="runners"></section>
+    <section class="view-stack" id="landing-view">
+      <div class="toolbar">
+        <div>
+          <h2>Runners</h2>
+          <div class="mini" id="generated">Loading...</div>
+        </div>
+      </div>
+      <div class="runner-list" id="runners"></div>
+    </section>
+    <section class="view-stack hidden" id="detail-view">
+      <div class="detail-head">
+        <div class="detail-title">
+          <button class="ghost" data-back-to-runners>Back to runners</button>
+          <h2 id="detail-runner-title">Runner</h2>
+          <div class="runner-subline" id="detail-runner-meta"></div>
+        </div>
+        <div class="detail-controls" id="detail-controls"></div>
+      </div>
+      <div class="detail-shell">
+        <div class="view-stack">
+          <article class="panel">
+            <div class="panel-head">
+              <h2>Activity</h2>
+              <span class="mini" id="detail-updated">Loading...</span>
+            </div>
+            <div class="panel-body" id="detail-activity"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-head">
+              <h2>History</h2>
+              <div class="row">
+                <select id="detail-status-filter" aria-label="Runner history status">
+                  <option value="">All</option>
+                  <option value="QUEUED,CLAIMED,RUNNING">Active</option>
+                  <option value="FAILED">Failed</option>
+                  <option value="CANCELED">Canceled</option>
+                  <option value="SUCCEEDED">Succeeded</option>
+                </select>
+                <button class="ghost" data-refresh-history>Refresh</button>
+              </div>
+            </div>
+            <div class="panel-body">
+              <div class="history" id="history"></div>
+            </div>
+          </article>
+        </div>
+        <aside class="view-stack">
+          <article class="panel">
+            <div class="panel-head">
+              <h2>Controls</h2>
+              <span class="mini" id="service-state">Service</span>
+            </div>
+            <div class="panel-body">
+              <div class="grid" id="runner-metrics"></div>
+              <div class="row" id="service-controls"></div>
+            </div>
+          </article>
+          <article class="panel">
+            <div class="panel-head">
+              <h2>Logs</h2>
+              <button class="ghost" data-log-refresh>Refresh</button>
+            </div>
+            <div class="panel-body">
+              <span class="mini" id="log-status">Logs load on demand.</span>
+              <div class="logbox"><pre id="logs">Select Refresh to load runner service logs.</pre></div>
+            </div>
+          </article>
+        </aside>
+      </div>
+    </section>
   </main>
+  <div class="modal" id="create-modal" hidden>
+    <article class="modal-card">
+      <div class="panel-head">
+        <h2>New run</h2>
+        <button data-create-close>Close</button>
+      </div>
+      <form class="modal-body" id="task-form">
+        <label>Title
+          <input name="title" maxlength="160" placeholder="Short description">
+        </label>
+        <div class="form-grid">
+          <label>Repository
+            <input name="targetRepository" value="${escapeHtml(config.defaultRepository)}">
+          </label>
+          <label>Base branch
+            <input name="baseBranch" value="${escapeHtml(config.defaultBaseBranch)}">
+          </label>
+        </div>
+        <label>Prompt
+          <textarea name="prompt" required placeholder="Tell Codex what to investigate, change, test, and open a PR for."></textarea>
+        </label>
+        <div class="row">
+          <button class="primary" type="submit">Queue run</button>
+          <span class="mini" id="create-status"></span>
+        </div>
+      </form>
+    </article>
+  </div>
   <div class="modal" id="detail-modal" hidden>
     <article class="modal-card">
       <div class="panel-head">
@@ -937,19 +1092,33 @@ function renderDashboardPage(session) {
       tasks: '${escapeJsString(withBasePath('/api/tasks'))}',
       runners: '${escapeJsString(withBasePath('/api/runners'))}'
     };
+    const landingViewEl = document.getElementById('landing-view');
+    const detailViewEl = document.getElementById('detail-view');
     const runnersEl = document.getElementById('runners');
-    const statsEl = document.getElementById('stats');
+    const summaryStripEl = document.getElementById('summary-strip');
     const generatedEl = document.getElementById('generated');
-    const tasksEl = document.getElementById('tasks');
-    const serviceGridEl = document.getElementById('service-grid');
+    const detailRunnerTitleEl = document.getElementById('detail-runner-title');
+    const detailRunnerMetaEl = document.getElementById('detail-runner-meta');
+    const detailControlsEl = document.getElementById('detail-controls');
+    const detailActivityEl = document.getElementById('detail-activity');
+    const detailUpdatedEl = document.getElementById('detail-updated');
+    const detailStatusFilterEl = document.getElementById('detail-status-filter');
+    const runnerMetricsEl = document.getElementById('runner-metrics');
+    const serviceControlsEl = document.getElementById('service-controls');
+    const serviceStateEl = document.getElementById('service-state');
+    const historyEl = document.getElementById('history');
     const logsEl = document.getElementById('logs');
     const logStatusEl = document.getElementById('log-status');
+    const createModalEl = document.getElementById('create-modal');
     const createStatusEl = document.getElementById('create-status');
-    const statusFilterEl = document.getElementById('status-filter');
     const detailModalEl = document.getElementById('detail-modal');
     const detailBodyEl = document.getElementById('detail-body');
     const detailTitleEl = document.getElementById('detail-title');
     let latestRunners = [];
+    let latestTasks = [];
+    let latestService = {};
+    let selectedRunnerId = null;
+    let runnerHistory = [];
 
     function escapeHtml(value) {
       return String(value ?? '').replace(/[&<>"']/g, (char) => ({
@@ -985,6 +1154,13 @@ function renderDashboardPage(session) {
       return String(value || '').toLowerCase();
     }
 
+    function runnerStateClass(runner) {
+      if (!runner.active) return 'inactive';
+      if (runner.paused) return 'paused';
+      if (runner.status === 'processing' || runner.currentJob) return 'running';
+      return 'active';
+    }
+
     function renderBadge(label, className) {
       return '<span class="badge ' + escapeHtml(className || statusClass(label)) + '">' + escapeHtml(label || 'unknown') + '</span>';
     }
@@ -999,86 +1175,108 @@ function renderDashboardPage(session) {
 
     function renderRunner(runner) {
       const activeLabel = runner.paused ? 'Paused' : runner.active ? 'Active' : 'Inactive';
-      const badgeClass = runner.paused ? 'paused' : runner.active ? 'active' : 'inactive';
-      const job = runner.currentJob
-        ? '<div class="job">' +
-          '<strong>Current job</strong><div class="grid" style="margin-top:10px">' +
-          renderField('Job ID', runner.currentJob.id, true) +
-          renderField('Repository', runner.currentJob.targetRepository, true) +
-          renderField('Branch', runner.currentJob.branchName, true) +
-          renderField('Created', relativeTime(runner.currentJob.createdAt)) +
-          '</div></div>'
-        : '';
-      const error = runner.lastError ? '<div class="error">' + escapeHtml(runner.lastError) + '</div>' : '';
-      const control = runner.control || {};
-      const controlNote = control.reason
-        ? '<div class="mini">Control: ' + escapeHtml(control.reason) + (control.updatedBy ? ' by ' + escapeHtml(control.updatedBy) : '') + '</div>'
-        : '';
-      return '<article class="runner">' +
-        '<div class="runner-head">' +
-          '<div><div class="runner-title">' + escapeHtml(runner.runnerId) + '</div>' +
-          '<div class="runner-meta">' + escapeHtml(runner.hostname || 'unknown host') + ' · PID ' + escapeHtml(runner.pid || 'n/a') + '</div></div>' +
-          '<div>' + renderBadge(activeLabel, badgeClass) + '</div>' +
+      const stateClass = runnerStateClass(runner);
+      const current = runner.currentJob ? '<div class="mini">Running ' + escapeHtml(runner.currentJob.branchName || runner.currentJob.id) + '</div>' : '<div class="mini">No current run</div>';
+      return '<button class="runner-card ' + stateClass + '" data-runner-open="' + escapeHtml(runner.runnerId) + '">' +
+        '<div class="runner-primary">' +
+          '<div class="row"><span class="status-dot ' + stateClass + '"></span><span class="runner-name">' + escapeHtml(runner.runnerId) + '</span>' + renderBadge(activeLabel, stateClass) + '</div>' +
+          '<div class="runner-subline"><span>' + escapeHtml(runner.hostname || 'unknown host') + '</span><span>PID ' + escapeHtml(runner.pid || 'n/a') + '</span></div>' +
+          (stateClass === 'running' ? '<div class="activity-bar"><span></span></div>' : '') +
+          current +
         '</div>' +
-        '<div class="runner-body">' +
-          '<div class="runner-controls">' +
-            '<button data-runner-action="' + (runner.paused ? 'resume' : 'pause') + '" data-runner-id="' + escapeHtml(runner.runnerId) + '">' + (runner.paused ? 'Resume' : 'Pause') + '</button>' +
-            '<button class="warn" data-runner-action="restart" data-runner-id="' + escapeHtml(runner.runnerId) + '">Restart</button>' +
-            '<button data-runner-logs="' + escapeHtml(runner.runnerId) + '">View Logs</button>' +
-          '</div>' + controlNote +
-          '<div class="grid">' +
-            renderField('Status', runner.status) +
-            renderField('Last seen', relativeTime(runner.lastSeenAt)) +
-            renderField('Last poll', relativeTime(runner.lastPollAt)) +
-            renderField('Jobs processed', runner.jobsProcessed) +
-            renderField('Nexus', runner.nexusBaseUrl, true) +
-            renderField('Work root', runner.workRoot, true) +
-            renderField('Poll interval', runner.pollIntervalMs ? runner.pollIntervalMs + ' ms' : null) +
-            renderField('Cancel check', runner.cancelCheckIntervalMs ? runner.cancelCheckIntervalMs + ' ms' : null) +
-          '</div>' + job + error +
-        '</div>' +
-      '</article>';
+        '<div class="runner-kpi"><span>Status</span><strong>' + escapeHtml(runner.status || 'unknown') + '</strong></div>' +
+        '<div class="runner-kpi"><span>Last seen</span><strong>' + escapeHtml(relativeTime(runner.lastSeenAt)) + '</strong></div>' +
+        '<div class="runner-kpi"><span>Runs</span><strong>' + escapeHtml(runner.jobsProcessed || '0') + '</strong></div>' +
+      '</button>';
     }
 
-    function renderTask(task) {
+    function renderActivity(runner) {
+      const stateClass = runnerStateClass(runner);
+      const job = runner.currentJob
+        ? '<div class="job">' +
+          '<div class="row">' + renderBadge('Running', 'running') + '<code>' + escapeHtml(runner.currentJob.id) + '</code></div>' +
+          '<div class="grid" style="margin-top:12px">' +
+            renderField('Repository', runner.currentJob.targetRepository, true) +
+            renderField('Base', runner.currentJob.baseBranch, true) +
+            renderField('Branch', runner.currentJob.branchName, true) +
+            renderField('Created', relativeTime(runner.currentJob.createdAt)) +
+          '</div><div class="activity-bar" style="margin-top:12px"><span></span></div></div>'
+        : '<div class="empty">Idle</div>';
+      const error = runner.lastError ? '<div class="error">' + escapeHtml(runner.lastError) + '</div>' : '';
+      return '<div class="row">' +
+          '<span class="status-dot ' + stateClass + '"></span>' +
+          renderBadge(runner.paused ? 'Paused' : runner.active ? 'Active' : 'Inactive', stateClass) +
+          '<span class="muted">' + escapeHtml(runner.status || 'unknown') + '</span>' +
+        '</div>' +
+        '<div class="grid">' +
+          renderField('Last seen', relativeTime(runner.lastSeenAt)) +
+          renderField('Last poll', relativeTime(runner.lastPollAt)) +
+          renderField('Last claim', relativeTime(runner.lastClaimAt)) +
+          renderField('Completed', relativeTime(runner.lastJobCompletedAt)) +
+        '</div>' + job + error;
+    }
+
+    function renderHistoryTask(task) {
       const id = escapeHtml(task.id);
       const pr = task.prUrl ? '<a href="' + escapeHtml(task.prUrl) + '" target="_blank" rel="noreferrer">PR #' + escapeHtml(task.prNumber || '') + '</a>' : '<span class="muted">No PR</span>';
-      const runner = task.runnerId ? '<code>' + escapeHtml(task.runnerId) + '</code>' : '<span class="muted">unassigned</span>';
       const actions =
         '<button data-task-detail="' + id + '">Details</button>' +
         (taskCanCancel(task) ? '<button class="danger" data-task-cancel="' + id + '">Cancel</button>' : '') +
         (taskCanRetry(task) ? '<button class="warn" data-task-retry="' + id + '">Retry</button>' : '');
-      return '<div class="task-row">' +
-        '<div class="task-main">' +
+      return '<div class="history-row">' +
+        '<div class="history-main">' +
           '<div class="row">' + renderBadge(task.status, statusClass(task.status)) + '<code>' + id + '</code></div>' +
           '<div><strong>' + escapeHtml(task.targetRepository) + '</strong> <span class="muted">on</span> <code>' + escapeHtml(task.baseBranch) + '</code></div>' +
           '<div class="mini">' + escapeHtml(task.statusMessage || 'No status message') + '</div>' +
         '</div>' +
-        '<div>' + runner + '</div>' +
+        '<div>' + escapeHtml(relativeTime(task.createdAt)) + '</div>' +
         '<div>' + pr + '</div>' +
-        '<div class="task-actions">' + actions + '</div>' +
+        '<div class="history-actions">' + actions + '</div>' +
       '</div>';
     }
 
-    function renderStats(runners, tasks, service) {
+    function renderSummary(runners, tasks, service) {
       const activeRunners = runners.filter((runner) => runner.active && !runner.paused).length;
       const pausedRunners = runners.filter((runner) => runner.paused).length;
       const activeTasks = tasks.filter((task) => ['QUEUED', 'CLAIMED', 'RUNNING'].includes(task.status)).length;
       const failedTasks = tasks.filter((task) => task.status === 'FAILED').length;
-      statsEl.innerHTML =
-        '<div class="stat"><strong>' + activeRunners + '</strong><span>Active runners</span></div>' +
-        '<div class="stat"><strong>' + pausedRunners + '</strong><span>Paused runners</span></div>' +
-        '<div class="stat"><strong>' + activeTasks + '</strong><span>Open tasks</span></div>' +
-        '<div class="stat"><strong>' + failedTasks + '</strong><span>Failed tasks</span></div>' +
-        '<div class="stat"><strong>' + escapeHtml(service?.active || 'unknown') + '</strong><span>Service</span></div>';
+      summaryStripEl.innerHTML =
+        '<div class="summary-pill"><strong>' + activeRunners + '</strong><span>active</span></div>' +
+        '<div class="summary-pill"><strong>' + pausedRunners + '</strong><span>paused</span></div>' +
+        '<div class="summary-pill"><strong>' + activeTasks + '</strong><span>open runs</span></div>' +
+        '<div class="summary-pill"><strong>' + failedTasks + '</strong><span>failed</span></div>' +
+        '<div class="summary-pill"><span class="status-dot ' + escapeHtml(service?.active === 'active' ? 'active' : 'inactive') + '"></span><span>' + escapeHtml(service?.active || 'unknown') + '</span></div>';
     }
 
-    function renderService(service) {
-      serviceGridEl.innerHTML =
-        renderField('Service', service?.name || 'unknown', true) +
-        renderField('Active', service?.active || 'unknown') +
-        renderField('Enabled', service?.enabled || 'unknown') +
-        renderField('Host', window.location.host, true);
+    function renderSelectedRunner() {
+      const runner = latestRunners.find((item) => item.runnerId === selectedRunnerId);
+      if (!runner) return;
+      const stateClass = runnerStateClass(runner);
+      detailRunnerTitleEl.textContent = runner.runnerId;
+      detailRunnerMetaEl.innerHTML = '<span>' + escapeHtml(runner.hostname || 'unknown host') + '</span><span>PID ' + escapeHtml(runner.pid || 'n/a') + '</span><span>' + escapeHtml(runner.nexusBaseUrl || '') + '</span>';
+      detailControlsEl.innerHTML =
+        '<button data-runner-action="' + (runner.paused ? 'resume' : 'pause') + '" data-runner-id="' + escapeHtml(runner.runnerId) + '">' + (runner.paused ? 'Resume' : 'Pause') + '</button>' +
+        '<button class="warn" data-runner-action="restart" data-runner-id="' + escapeHtml(runner.runnerId) + '">Restart</button>' +
+        '<button class="ghost" data-open-create>New run</button>';
+      detailActivityEl.innerHTML = renderActivity(runner);
+      detailUpdatedEl.textContent = 'Updated ' + new Date().toLocaleTimeString();
+      runnerMetricsEl.innerHTML =
+        renderField('Status', runner.status) +
+        renderField('Last seen', relativeTime(runner.lastSeenAt)) +
+        renderField('Work root', runner.workRoot, true) +
+        renderField('Control file', runner.controlFile, true) +
+        renderField('Poll interval', runner.pollIntervalMs ? runner.pollIntervalMs + ' ms' : null) +
+        renderField('Cancel check', runner.cancelCheckIntervalMs ? runner.cancelCheckIntervalMs + ' ms' : null) +
+        renderField('Heartbeat', runner.heartbeatIntervalMs ? runner.heartbeatIntervalMs + ' ms' : null) +
+        renderField('Runs', runner.jobsProcessed);
+      serviceStateEl.innerHTML = renderBadge(latestService?.active || 'unknown', latestService?.active === 'active' ? 'active' : 'inactive');
+      serviceControlsEl.innerHTML =
+        '<button data-service-action="start">Start</button>' +
+        '<button class="warn" data-service-action="restart">Restart</button>' +
+        '<button class="danger" data-service-action="stop">Stop</button>';
+      historyEl.innerHTML = runnerHistory.length ? runnerHistory.map(renderHistoryTask).join('') : '<div class="empty">No run history for this runner yet.</div>';
+      detailViewEl.classList.remove('hidden');
+      landingViewEl.classList.add('hidden');
     }
 
     async function requestJson(url, options = {}) {
@@ -1105,24 +1303,55 @@ function renderDashboardPage(session) {
     async function refresh() {
       const params = new URLSearchParams();
       params.set('limit', '50');
-      if (statusFilterEl.value) params.set('status', statusFilterEl.value);
       try {
         const data = await requestJson(API.overview + '?' + params.toString());
         if (!data) return;
         latestRunners = data.runners || [];
-        renderStats(latestRunners, data.tasks || [], data.service || {});
-        renderService(data.service || {});
+        latestTasks = data.tasks || [];
+        latestService = data.service || {};
+        renderSummary(latestRunners, latestTasks, latestService);
         generatedEl.textContent = 'Updated ' + new Date(data.generatedAt).toLocaleString();
-        tasksEl.innerHTML = data.tasks?.length ? data.tasks.map(renderTask).join('') : '<div class="empty">No Codex tasks found.</div>';
         runnersEl.innerHTML = latestRunners.length ? latestRunners.map(renderRunner).join('') : '<div class="empty">No runner heartbeat files found yet.</div>';
+        if (selectedRunnerId) {
+          await loadRunnerHistory(selectedRunnerId, false);
+          renderSelectedRunner();
+        }
       } catch (error) {
-        generatedEl.textContent = 'Unable to refresh runner control plane';
-        tasksEl.innerHTML = '<div class="error">' + escapeHtml(error.message || error) + '</div>';
+        generatedEl.textContent = 'Unable to refresh';
+        runnersEl.innerHTML = '<div class="error">' + escapeHtml(error.message || error) + '</div>';
       }
     }
 
+    async function loadRunnerHistory(runnerId, render = true) {
+      const params = new URLSearchParams();
+      params.set('runnerId', runnerId);
+      params.set('limit', '200');
+      if (detailStatusFilterEl.value) params.set('status', detailStatusFilterEl.value);
+      const data = await requestJson(API.tasks + '?' + params.toString());
+      if (!data) return;
+      runnerHistory = data.tasks || [];
+      if (render) renderSelectedRunner();
+    }
+
+    async function openRunner(runnerId) {
+      selectedRunnerId = runnerId;
+      window.location.hash = 'runner=' + encodeURIComponent(runnerId);
+      logsEl.textContent = 'Select Refresh to load runner service logs.';
+      logStatusEl.textContent = 'Logs load on demand.';
+      await loadRunnerHistory(runnerId, false);
+      renderSelectedRunner();
+    }
+
+    function closeRunner() {
+      selectedRunnerId = null;
+      runnerHistory = [];
+      window.location.hash = '';
+      detailViewEl.classList.add('hidden');
+      landingViewEl.classList.remove('hidden');
+    }
+
     async function refreshLogs(runnerId = null) {
-      const runner = runnerId || latestRunners[0]?.runnerId || 'runner';
+      const runner = runnerId || selectedRunnerId || latestRunners[0]?.runnerId || 'runner';
       logStatusEl.textContent = 'Loading logs...';
       const data = await requestJson('${escapeJsString(withBasePath('/api/runners'))}/' + encodeURIComponent(runner) + '/logs?lines=240');
       if (!data) return;
@@ -1165,6 +1394,7 @@ function renderDashboardPage(session) {
         await requestJson(API.tasks, { method: 'POST', body: JSON.stringify(body) });
         form.elements.prompt.value = '';
         createStatusEl.textContent = 'Task queued.';
+        createModalEl.hidden = true;
         await refresh();
       } catch (error) {
         createStatusEl.textContent = error.message || String(error);
@@ -1177,16 +1407,25 @@ function renderDashboardPage(session) {
       try {
         if (button.hasAttribute('data-refresh')) {
           await refresh();
+        } else if (button.hasAttribute('data-open-create')) {
+          createStatusEl.textContent = '';
+          createModalEl.hidden = false;
+        } else if (button.hasAttribute('data-create-close')) {
+          createModalEl.hidden = true;
+        } else if (button.hasAttribute('data-back-to-runners')) {
+          closeRunner();
+        } else if (button.hasAttribute('data-refresh-history')) {
+          if (selectedRunnerId) await loadRunnerHistory(selectedRunnerId);
         } else if (button.hasAttribute('data-log-refresh')) {
           await refreshLogs();
         } else if (button.hasAttribute('data-modal-close')) {
           detailModalEl.hidden = true;
-        } else if (button.dataset.runnerLogs) {
-          await refreshLogs(button.dataset.runnerLogs);
+        } else if (button.dataset.runnerOpen) {
+          await openRunner(button.dataset.runnerOpen);
         } else if (button.dataset.serviceAction) {
           const action = button.dataset.serviceAction;
           if (!window.confirm(action + ' the runner service?')) return;
-          const runnerId = latestRunners[0]?.runnerId || 'vps-codex-runner';
+          const runnerId = selectedRunnerId || latestRunners[0]?.runnerId || 'vps-codex-runner';
           await requestJson('${escapeJsString(withBasePath('/api/runners'))}/' + encodeURIComponent(runnerId) + '/control', {
             method: 'POST',
             body: JSON.stringify({ action })
@@ -1223,12 +1462,20 @@ function renderDashboardPage(session) {
       }
     });
 
+    createModalEl.addEventListener('click', (event) => {
+      if (event.target === createModalEl) createModalEl.hidden = true;
+    });
     detailModalEl.addEventListener('click', (event) => {
       if (event.target === detailModalEl) detailModalEl.hidden = true;
     });
-    statusFilterEl.addEventListener('change', refresh);
+    detailStatusFilterEl.addEventListener('change', () => {
+      if (selectedRunnerId) loadRunnerHistory(selectedRunnerId);
+    });
 
-    refresh();
+    refresh().then(() => {
+      const hashMatch = window.location.hash.match(/^#runner=(.+)$/);
+      if (hashMatch) openRunner(decodeURIComponent(hashMatch[1]));
+    });
     setInterval(refresh, 15000);
   </script>
 </body>
@@ -1328,7 +1575,7 @@ function safeEqual(left, right) {
 function setCookie(response, name, value, options = {}) {
   const parts = [
     `${name}=${value}`,
-    `Path=${config.basePath || '/'}`,
+    `Path=${config.cookiePath}`,
     'SameSite=Lax',
     options.httpOnly === false ? null : 'HttpOnly',
     config.baseUrl.startsWith('https://') ? 'Secure' : null,
@@ -1341,7 +1588,7 @@ function clearCookie(response, name) {
   appendHeader(
     response,
     'Set-Cookie',
-    `${name}=; Path=${config.basePath || '/'}; SameSite=Lax; HttpOnly; Max-Age=0${
+    `${name}=; Path=${config.cookiePath}; SameSite=Lax; HttpOnly; Max-Age=0${
       config.baseUrl.startsWith('https://') ? '; Secure' : ''
     }`
   );
@@ -1505,16 +1752,25 @@ function withBasePath(path) {
 }
 
 function stripBasePath(pathname) {
-  if (!config.basePath) {
+  const matchedBasePath = getMatchedBasePath(pathname);
+  if (!matchedBasePath) {
     return pathname || '/';
   }
-  if (pathname === config.basePath) {
+  if (pathname === matchedBasePath) {
     return '/';
   }
-  if (pathname.startsWith(`${config.basePath}/`)) {
-    return pathname.slice(config.basePath.length) || '/';
+  return pathname.slice(matchedBasePath.length) || '/';
+}
+
+function getMatchedBasePath(pathname) {
+  const paths = [config.basePath, ...config.basePathAliases].filter(Boolean);
+  const sortedPaths = paths.sort((left, right) => right.length - left.length);
+  for (const path of sortedPaths) {
+    if (pathname === path || pathname.startsWith(`${path}/`)) {
+      return path;
+    }
   }
-  return pathname;
+  return config.basePath ? null : '';
 }
 
 function normalizeBasePath(value) {
@@ -1523,6 +1779,18 @@ function normalizeBasePath(value) {
     return '';
   }
   return `/${trimmed.replace(/^\/+|\/+$/g, '')}`;
+}
+
+function normalizeCookiePath(value) {
+  const normalized = normalizeBasePath(value);
+  return normalized || '/';
+}
+
+function parsePathList(value) {
+  return (value || '')
+    .split(',')
+    .map((entry) => normalizeBasePath(entry))
+    .filter(Boolean);
 }
 
 function loadEnv(path) {
