@@ -817,6 +817,7 @@ function renderDashboardPage(session) {
       margin-bottom: 14px;
     }
     .detail-title { display: grid; gap: 5px; }
+    .detail-title > button { justify-self: start; }
     .detail-title h2 { font-size: 22px; }
     .detail-controls { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
     .control-stack { display: grid; gap: 14px; }
@@ -1350,10 +1351,7 @@ function renderDashboardPage(session) {
       const stateClass = runnerStateClass(runner);
       detailRunnerTitleEl.textContent = runner.runnerId;
       detailRunnerMetaEl.innerHTML = '<span>' + escapeHtml(runner.hostname || 'unknown host') + '</span><span>PID ' + escapeHtml(runner.pid || 'n/a') + '</span><span>' + escapeHtml(runner.nexusBaseUrl || '') + '</span>';
-      detailControlsEl.innerHTML =
-        '<button data-runner-action="' + (runner.paused ? 'resume' : 'pause') + '" data-runner-id="' + escapeHtml(runner.runnerId) + '">' + (runner.paused ? 'Resume' : 'Pause') + '</button>' +
-        '<button class="warn" data-runner-action="restart" data-runner-id="' + escapeHtml(runner.runnerId) + '">Restart</button>' +
-        '<button class="ghost" data-open-create>New run</button>';
+      detailControlsEl.innerHTML = '';
       detailActivityEl.innerHTML = renderActivity(runner);
       detailUpdatedEl.textContent = 'Updated ' + new Date().toLocaleTimeString();
       serviceStateEl.innerHTML = renderBadge(latestService?.active || 'unknown', latestService?.active === 'active' ? 'active' : 'inactive');
