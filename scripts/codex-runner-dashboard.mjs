@@ -819,6 +819,94 @@ function renderDashboardPage(session) {
     .detail-title { display: grid; gap: 5px; }
     .detail-title h2 { font-size: 22px; }
     .detail-controls { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .control-stack { display: grid; gap: 14px; }
+    .control-summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border: 1px solid rgba(172, 187, 205, 0.18);
+      border-radius: 8px;
+      background: rgba(2, 6, 23, 0.2);
+      padding: 12px;
+    }
+    .control-summary-main {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .control-summary-main strong { display: block; font-size: 16px; }
+    .control-summary-main span:last-child {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 1px;
+    }
+    .control-section {
+      display: grid;
+      gap: 9px;
+      border-top: 1px solid rgba(172, 187, 205, 0.14);
+      padding-top: 12px;
+    }
+    .control-section:first-child { border-top: 0; padding-top: 0; }
+    .control-section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 950;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .control-actions {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .control-actions button { width: 100%; }
+    .metric-list { display: grid; gap: 7px; }
+    .metric-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 30px;
+    }
+    .metric-row span {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 850;
+    }
+    .metric-row strong {
+      color: var(--text);
+      font-size: 13px;
+      text-align: right;
+      white-space: nowrap;
+    }
+    .path-stack { display: grid; gap: 8px; }
+    .path-item { display: grid; gap: 5px; min-width: 0; }
+    .path-item span {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 850;
+    }
+    .path-value {
+      display: block;
+      width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #bfdbfe;
+      background: rgba(106, 168, 255, 0.1);
+      border: 1px solid rgba(106, 168, 255, 0.16);
+      border-radius: 7px;
+      padding: 7px 9px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+    }
     .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
     .field { min-width: 0; }
     .field span { display: block; color: var(--muted); font-size: 12px; text-transform: uppercase; font-weight: 900; margin-bottom: 3px; }
@@ -950,6 +1038,7 @@ function renderDashboardPage(session) {
       .topbar { align-items: flex-start; flex-direction: column; padding: 16px 0; }
       .command-bar, .toolbar, .detail-head { align-items: flex-start; flex-direction: column; }
       .runner-card, .grid, .form-grid { grid-template-columns: 1fr; }
+      .control-actions { grid-template-columns: 1fr; }
       .detail-controls { justify-content: flex-start; }
     }
   </style>
@@ -1031,8 +1120,7 @@ function renderDashboardPage(session) {
               <span class="mini" id="service-state">Service</span>
             </div>
             <div class="panel-body">
-              <div class="grid" id="runner-metrics"></div>
-              <div class="row" id="service-controls"></div>
+              <div class="control-stack" id="runner-metrics"></div>
             </div>
           </article>
           <article class="panel">
@@ -1104,7 +1192,6 @@ function renderDashboardPage(session) {
     const detailUpdatedEl = document.getElementById('detail-updated');
     const detailStatusFilterEl = document.getElementById('detail-status-filter');
     const runnerMetricsEl = document.getElementById('runner-metrics');
-    const serviceControlsEl = document.getElementById('service-controls');
     const serviceStateEl = document.getElementById('service-state');
     const historyEl = document.getElementById('history');
     const logsEl = document.getElementById('logs');
@@ -1148,6 +1235,15 @@ function renderDashboardPage(session) {
         ? '<code>' + escapeHtml(value || 'none') + '</code>'
         : '<div>' + escapeHtml(value || 'none') + '</div>';
       return '<div class="field"><span>' + escapeHtml(label) + '</span>' + body + '</div>';
+    }
+
+    function renderMetricRow(label, value) {
+      return '<div class="metric-row"><span>' + escapeHtml(label) + '</span><strong>' + escapeHtml(value || 'none') + '</strong></div>';
+    }
+
+    function renderPathItem(label, value) {
+      const safeValue = value || 'none';
+      return '<div class="path-item"><span>' + escapeHtml(label) + '</span><code class="path-value" title="' + escapeHtml(safeValue) + '">' + escapeHtml(safeValue) + '</code></div>';
     }
 
     function statusClass(value) {
@@ -1260,20 +1356,47 @@ function renderDashboardPage(session) {
         '<button class="ghost" data-open-create>New run</button>';
       detailActivityEl.innerHTML = renderActivity(runner);
       detailUpdatedEl.textContent = 'Updated ' + new Date().toLocaleTimeString();
-      runnerMetricsEl.innerHTML =
-        renderField('Status', runner.status) +
-        renderField('Last seen', relativeTime(runner.lastSeenAt)) +
-        renderField('Work root', runner.workRoot, true) +
-        renderField('Control file', runner.controlFile, true) +
-        renderField('Poll interval', runner.pollIntervalMs ? runner.pollIntervalMs + ' ms' : null) +
-        renderField('Cancel check', runner.cancelCheckIntervalMs ? runner.cancelCheckIntervalMs + ' ms' : null) +
-        renderField('Heartbeat', runner.heartbeatIntervalMs ? runner.heartbeatIntervalMs + ' ms' : null) +
-        renderField('Runs', runner.jobsProcessed);
       serviceStateEl.innerHTML = renderBadge(latestService?.active || 'unknown', latestService?.active === 'active' ? 'active' : 'inactive');
-      serviceControlsEl.innerHTML =
-        '<button data-service-action="start">Start</button>' +
-        '<button class="warn" data-service-action="restart">Restart</button>' +
-        '<button class="danger" data-service-action="stop">Stop</button>';
+      runnerMetricsEl.innerHTML =
+        '<section class="control-summary">' +
+          '<div class="control-summary-main">' +
+            '<span class="status-dot ' + stateClass + '"></span>' +
+            '<div><strong>' + escapeHtml(runner.status || 'unknown') + '</strong><span>Seen ' + escapeHtml(relativeTime(runner.lastSeenAt)) + '</span></div>' +
+          '</div>' +
+          renderBadge(runner.paused ? 'Paused' : runner.active ? 'Active' : 'Inactive', stateClass) +
+        '</section>' +
+        '<section class="control-section">' +
+          '<div class="control-section-title"><span>Service Actions</span></div>' +
+          '<div class="control-actions">' +
+            '<button data-service-action="start">Start</button>' +
+            '<button class="warn" data-service-action="restart">Restart</button>' +
+            '<button class="danger" data-service-action="stop">Stop</button>' +
+          '</div>' +
+        '</section>' +
+        '<section class="control-section">' +
+          '<div class="control-section-title"><span>Runner Actions</span></div>' +
+          '<div class="control-actions">' +
+            '<button data-runner-action="' + (runner.paused ? 'resume' : 'pause') + '" data-runner-id="' + escapeHtml(runner.runnerId) + '">' + (runner.paused ? 'Resume' : 'Pause') + '</button>' +
+            '<button class="warn" data-runner-action="restart" data-runner-id="' + escapeHtml(runner.runnerId) + '">Restart</button>' +
+            '<button class="ghost" data-open-create>New run</button>' +
+          '</div>' +
+        '</section>' +
+        '<section class="control-section">' +
+          '<div class="control-section-title"><span>Timing</span></div>' +
+          '<div class="metric-list">' +
+            renderMetricRow('Poll interval', runner.pollIntervalMs ? runner.pollIntervalMs + ' ms' : null) +
+            renderMetricRow('Cancel check', runner.cancelCheckIntervalMs ? runner.cancelCheckIntervalMs + ' ms' : null) +
+            renderMetricRow('Heartbeat', runner.heartbeatIntervalMs ? runner.heartbeatIntervalMs + ' ms' : null) +
+            renderMetricRow('Runs processed', runner.jobsProcessed || '0') +
+          '</div>' +
+        '</section>' +
+        '<section class="control-section">' +
+          '<div class="control-section-title"><span>Paths</span></div>' +
+          '<div class="path-stack">' +
+            renderPathItem('Work root', runner.workRoot) +
+            renderPathItem('Control file', runner.controlFile) +
+          '</div>' +
+        '</section>';
       historyEl.innerHTML = runnerHistory.length ? runnerHistory.map(renderHistoryTask).join('') : '<div class="empty">No run history for this runner yet.</div>';
       detailViewEl.classList.remove('hidden');
       landingViewEl.classList.add('hidden');
