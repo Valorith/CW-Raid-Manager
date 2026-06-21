@@ -1273,7 +1273,10 @@ function renderDashboardPage(session) {
     function renderRunner(runner) {
       const activeLabel = runner.paused ? 'Paused' : runner.active ? 'Active' : 'Inactive';
       const stateClass = runnerStateClass(runner);
-      const current = runner.currentJob ? '<div class="mini">Running ' + escapeHtml(runner.currentJob.branchName || runner.currentJob.id) + '</div>' : '<div class="mini">No current run</div>';
+      const current = runner.currentJob
+        ? '<div class="mini">Running ' + escapeHtml(runner.currentJob.branchName || runner.currentJob.id) + '</div>' +
+          (runner.currentJob.statusMessage ? '<div class="mini">' + escapeHtml(runner.currentJob.statusMessage) + '</div>' : '')
+        : '<div class="mini">No current run</div>';
       return '<button class="runner-card ' + stateClass + '" data-runner-open="' + escapeHtml(runner.runnerId) + '">' +
         '<div class="runner-primary">' +
           '<div class="row"><span class="status-dot ' + stateClass + '"></span><span class="runner-name">' + escapeHtml(runner.runnerId) + '</span>' + renderBadge(activeLabel, stateClass) + '</div>' +
@@ -1289,15 +1292,29 @@ function renderDashboardPage(session) {
 
     function renderActivity(runner) {
       const stateClass = runnerStateClass(runner);
+      const cloud = runner.currentJob?.codexCloud;
+      const cloudTask = cloud
+        ? '<div class="job">' +
+          '<div class="row">' + renderBadge('Codex Cloud', 'running') + '<span class="muted">' + escapeHtml(cloud.status || 'submitted') + '</span></div>' +
+          '<div class="grid" style="margin-top:12px">' +
+            renderField('Task', cloud.taskUrl || cloud.taskId, Boolean(cloud.taskUrl)) +
+            renderField('Environment', cloud.envId, true) +
+            renderField('Attempts', cloud.attempts || '1') +
+            renderField('Checked', relativeTime(cloud.lastCheckedAt || cloud.submittedAt)) +
+          '</div></div>'
+        : '';
       const job = runner.currentJob
         ? '<div class="job">' +
           '<div class="row">' + renderBadge('Running', 'running') + '<code>' + escapeHtml(runner.currentJob.id) + '</code></div>' +
+          (runner.currentJob.statusMessage ? '<div class="mini" style="margin-top:8px">' + escapeHtml(runner.currentJob.statusMessage) + '</div>' : '') +
           '<div class="grid" style="margin-top:12px">' +
             renderField('Repository', runner.currentJob.targetRepository, true) +
             renderField('Base', runner.currentJob.baseBranch, true) +
             renderField('Branch', runner.currentJob.branchName, true) +
+            renderField('Mode', runner.currentJob.executionMode || runner.executionMode || 'local') +
             renderField('Created', relativeTime(runner.currentJob.createdAt)) +
-          '</div><div class="activity-bar" style="margin-top:12px"><span></span></div></div>'
+          '</div><div class="activity-bar" style="margin-top:12px"><span></span></div></div>' +
+          cloudTask
         : '<div class="empty">Idle</div>';
       const error = runner.lastError ? '<div class="error">' + escapeHtml(runner.lastError) + '</div>' : '';
       return '<div class="row">' +
@@ -1382,6 +1399,8 @@ function renderDashboardPage(session) {
         '<section class="control-section">' +
           '<div class="control-section-title"><span>Timing</span></div>' +
           '<div class="metric-list">' +
+            renderMetricRow('Mode', runner.executionMode || 'local') +
+            renderMetricRow('Cloud ready', runner.codexCloudConfigured ? 'yes' : 'no') +
             renderMetricRow('Poll interval', runner.pollIntervalMs ? runner.pollIntervalMs + ' ms' : null) +
             renderMetricRow('Cancel check', runner.cancelCheckIntervalMs ? runner.cancelCheckIntervalMs + ' ms' : null) +
             renderMetricRow('Heartbeat', runner.heartbeatIntervalMs ? runner.heartbeatIntervalMs + ' ms' : null) +
