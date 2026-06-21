@@ -63,6 +63,8 @@ const config = {
   ),
   dashboardServiceName:
     process.env.CODEX_RUNNER_DASHBOARD_SERVICE_NAME || 'nexus-codex-runner-dashboard.service',
+  codexBin: process.env.CODEX_BIN || process.env.CODEX_CLI_BIN || join(process.cwd(), 'node_modules/.bin/codex'),
+  codexHome: resolve(process.env.CODEX_HOME || join(process.env.HOME || '/home/ubuntu', '.codex')),
   githubCliBin: process.env.GITHUB_CLI_BIN || process.env.GH_BIN || 'gh',
   githubHost: process.env.GITHUB_HOST || 'github.com',
   workRoot,
@@ -147,6 +149,12 @@ async function routeRequest(request, response) {
     return;
   }
 
+  if (path === '/api/preflight') {
+    requireMethod(request, 'GET');
+    await sendPreflight(response);
+    return;
+  }
+
   if (path === '/api/vps-health') {
     requireMethod(request, 'GET');
     await sendVpsHealth(response);
@@ -171,6 +179,12 @@ async function routeRequest(request, response) {
   if (path === '/api/pool/control') {
     requireMethod(request, 'POST');
     await handleRunnerPoolControl(response, await readJsonBody(request));
+    return;
+  }
+
+  if (path === '/api/pool/self-test') {
+    requireMethod(request, 'POST');
+    await sendRunnerPoolSelfTest(response);
     return;
   }
 
@@ -207,6 +221,12 @@ async function routeRequest(request, response) {
       return;
     }
     throw new HttpError(405, 'Method not allowed.');
+  }
+
+  if (path === '/api/tasks/smoke-test') {
+    requireMethod(request, 'POST');
+    await sendSmokeTestCreate(response, await readJsonBody(request));
+    return;
   }
 
   const taskDetailMatch = path.match(/^\/api\/tasks\/([^/]+)$/);
@@ -375,6 +395,392 @@ async function sendOverview(response, url) {
 
 async function sendVpsHealth(response) {
   sendJson(response, 200, await collectVpsHealth());
+}
+
+async function sendPreflight(response) {
+  sendJson(response, 200, await collectPreflight());
+}
+
+async function collectPreflight() {
+  const checkedAt = new Date().toISOString();
+  const [
+    runnersResult,
+    serviceResult,
+    poolServiceResult,
+    poolResult,
+    githubResult,
+    codexResult,
+    nexusResult,
+    disksResult
+  ] = await Promise.allSettled([
+    listRunners(),
+    getRunnerServiceStatus(),
+    getRunnerPoolServiceStatus(),
+    readRunnerPoolState(),
+    getGitHubCliStatus(),
+    getCodexCliStatus(),
+    checkNexusQueueApi(),
+    readDiskSummary(false)
+  ]);
+
+  const runners = settledValue(runnersResult, []);
+  const service = settledValue(serviceResult, null);
+  const poolService = settledValue(poolServiceResult, null);
+  const pool = settledValue(poolResult, null);
+  const github = settledValue(githubResult, null);
+  const codex = settledValue(codexResult, null);
+  const nexus = settledValue(nexusResult, null);
+  const disks = settledValue(disksResult, []);
+  const memoryTotal = totalmem();
+  const memoryUsed = Math.max(0, memoryTotal - freemem());
+  const memoryPercent = memoryTotal > 0 ? (memoryUsed / memoryTotal) * 100 : null;
+  const primaryDisk = Array.isArray(disks)
+    ? disks.find((disk) => disk.path === '/') || disks[0] || null
+    : null;
+  const activeRunners = Array.isArray(runners) ? runners.filter((runner) => runner.active).length : 0;
+  const cloudReady = Array.isArray(runners)
+    ? runners.some((runner) => runner.codexCloudConfigured)
+    : false;
+  const poolOk = pool ? pool.ok !== false : false;
+  const diskPercent = Number(primaryDisk?.usedPercent);
+
+  const checks = [
+    preflightCheck(
+      'nexus-api',
+      'Nexus queue API',
+      nexus?.ok ? 'ok' : 'fail',
+      nexus?.detail || 'Could not list runner jobs with the configured runner token.'
+    ),
+    preflightCheck(
+      'codex-cli',
+      'Codex CLI',
+      codex?.available ? 'ok' : 'fail',
+      codex?.statusText || 'Codex CLI could not be executed.',
+      {
+        version: codex?.version || null,
+        cli: codex?.cli || config.codexBin
+      }
+    ),
+    preflightCheck(
+      'codex-home',
+      'Codex auth home',
+      codex?.homeExists ? 'ok' : 'fail',
+      codex?.homeExists
+        ? `${config.codexHome} exists.`
+        : `${config.codexHome} was not found; Codex may need authentication.`
+    ),
+    preflightCheck(
+      'github-cli',
+      'GitHub CLI',
+      github?.authenticated ? 'ok' : 'fail',
+      github?.statusText || 'GitHub CLI auth status is unavailable.',
+      {
+        login: github?.login || null,
+        cli: github?.cli || config.githubCliBin
+      }
+    ),
+    preflightCheck(
+      'runner-service',
+      'Runner service',
+      service?.active === 'active' ? 'ok' : 'fail',
+      `${service?.name || config.runnerServiceName}: ${service?.active || 'unknown'}`
+    ),
+    preflightCheck(
+      'pool-service',
+      'Pool manager',
+      poolService?.active === 'active' ? 'ok' : 'warn',
+      `${poolService?.name || config.runnerPoolServiceName}: ${poolService?.active || 'unknown'}`
+    ),
+    preflightCheck(
+      'pool-state',
+      'Pool state',
+      poolOk ? 'ok' : 'warn',
+      pool
+        ? `${pool?.pool?.target ?? 0}/${pool?.config?.maxRunners ?? 0} target workers, ${pool?.queue?.queued ?? 0} queued.`
+        : 'Pool state file has not been written yet.'
+    ),
+    preflightCheck(
+      'runner-heartbeat',
+      'Runner heartbeat',
+      activeRunners > 0 ? 'ok' : 'warn',
+      `${activeRunners} active runner${activeRunners === 1 ? '' : 's'} reporting.`
+    ),
+    preflightCheck(
+      'codex-cloud',
+      'Codex Cloud mode',
+      cloudReady ? 'ok' : 'warn',
+      cloudReady
+        ? 'At least one runner reports Codex Cloud configuration.'
+        : 'No runner heartbeat currently reports Codex Cloud configuration.'
+    ),
+    preflightCheck(
+      'disk',
+      'Disk capacity',
+      Number.isFinite(diskPercent) ? percentToPreflightStatus(diskPercent, 90, 75) : 'warn',
+      primaryDisk
+        ? `${formatServerPercent(primaryDisk.usedPercent)} used on ${primaryDisk.path}; ${formatServerBytes(primaryDisk.available)} available.`
+        : 'Disk usage could not be read.'
+    ),
+    preflightCheck(
+      'memory',
+      'Memory headroom',
+      Number.isFinite(memoryPercent) ? percentToPreflightStatus(memoryPercent, 92, 80) : 'warn',
+      `${formatServerPercent(memoryPercent)} used; ${formatServerBytes(memoryTotal - memoryUsed)} available.`
+    )
+  ];
+
+  return {
+    generatedAt: checkedAt,
+    ok: checks.every((check) => check.status === 'ok'),
+    checks,
+    defaults: {
+      repository: config.defaultRepository,
+      baseBranch: config.defaultBaseBranch
+    },
+    smokeTest: {
+      title: 'Nexus runner smoke test',
+      repository: config.defaultRepository,
+      baseBranch: config.defaultBaseBranch,
+      createsPullRequest: true
+    },
+    runnerSummary: {
+      total: Array.isArray(runners) ? runners.length : 0,
+      active: activeRunners,
+      cloudReady
+    },
+    poolSummary: {
+      target: pool?.pool?.target ?? 0,
+      active: pool?.pool?.active ?? 0,
+      max: pool?.config?.maxRunners ?? 0,
+      queued: pool?.queue?.queued ?? 0
+    }
+  };
+}
+
+async function getCodexCliStatus() {
+  const checkedAt = new Date().toISOString();
+  const pathLooksExplicit = config.codexBin.includes('/') || config.codexBin.startsWith('.');
+  try {
+    const version = await runExecFile(config.codexBin, ['--version'], {
+      allowNonZero: true,
+      maxBuffer: 100_000,
+      timeoutMs: 8_000
+    });
+    const text = `${version.stdout}\n${version.stderr}`.trim();
+    const available = version.code === 0 && Boolean(text);
+    return {
+      cli: config.codexBin,
+      available,
+      version: available ? text.split(/\r?\n/)[0] : null,
+      home: config.codexHome,
+      homeExists: existsSync(config.codexHome),
+      checkedAt,
+      statusText: available
+        ? text.split(/\r?\n/)[0]
+        : text || `Codex CLI exited with ${version.code || 'an error'}.`,
+      pathExists: pathLooksExplicit ? existsSync(config.codexBin) : null
+    };
+  } catch (error) {
+    return {
+      cli: config.codexBin,
+      available: false,
+      version: null,
+      home: config.codexHome,
+      homeExists: existsSync(config.codexHome),
+      checkedAt,
+      statusText: error instanceof Error ? error.message : String(error),
+      pathExists: pathLooksExplicit ? existsSync(config.codexBin) : null
+    };
+  }
+}
+
+async function checkNexusQueueApi() {
+  const startedAt = Date.now();
+  try {
+    const response = await nexusGet('/jobs?limit=1');
+    const ok = Array.isArray(response.jobs);
+    return {
+      ok,
+      durationMs: Date.now() - startedAt,
+      detail: ok
+        ? `Authenticated job list succeeded in ${Date.now() - startedAt} ms.`
+        : 'Nexus response did not include a jobs array.'
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      durationMs: Date.now() - startedAt,
+      detail: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+async function sendSmokeTestCreate(response, body) {
+  const timestamp = new Date().toISOString();
+  const targetRepository =
+    typeof body.targetRepository === 'string' && body.targetRepository.trim()
+      ? body.targetRepository.trim()
+      : config.defaultRepository;
+  const baseBranch =
+    typeof body.baseBranch === 'string' && body.baseBranch.trim()
+      ? body.baseBranch.trim()
+      : config.defaultBaseBranch;
+  const title = `Nexus runner smoke test ${timestamp}`;
+  const prompt = [
+    'This is a safe Nexus runner smoke test for the VPS Codex and GitHub handoff.',
+    '',
+    'Make exactly one harmless repository change:',
+    '- Create or update `.nexus/runner-smoke-test.md`.',
+    `- Include this timestamp: ${timestamp}.`,
+    '- State that the file was generated by the Nexus runner smoke test.',
+    '',
+    'Do not change application logic, configuration, secrets, database migrations, generated files, or dependencies.',
+    'Run only lightweight validation that is safe for this repository, such as checking git status and any clearly cheap formatting/type checks you can justify.',
+    'Leave the final file change in the working tree. The VPS runner will commit, push the runner branch, and open the pull request.'
+  ].join('\n');
+
+  sendJson(
+    response,
+    200,
+    await nexusPost('/jobs', {
+      title,
+      targetRepository,
+      baseBranch,
+      prompt
+    })
+  );
+}
+
+async function sendRunnerPoolSelfTest(response) {
+  const runnerId = `${config.runnerPoolPrefix}-self-test`;
+  const unit = instantiateTemplateService(config.runnerTemplateServiceName, runnerId);
+  const [templateResult, instanceResult, sudoResult, poolState, poolService] =
+    await Promise.all([
+      runExecFile('systemctl', ['cat', config.runnerTemplateServiceName], {
+        allowNonZero: true,
+        maxBuffer: 500_000,
+        timeoutMs: 10_000
+      }),
+      runExecFile('systemctl', ['show', unit, '--property=LoadState,UnitFileState,FragmentPath,SubState'], {
+        allowNonZero: true,
+        maxBuffer: 200_000,
+        timeoutMs: 10_000
+      }),
+      runExecFile('sudo', ['-n', 'true'], {
+        allowNonZero: true,
+        maxBuffer: 20_000,
+        timeoutMs: 8_000
+      }),
+      readRunnerPoolState(),
+      getRunnerPoolServiceStatus()
+    ]);
+
+  const instanceOutput = instanceResult.stdout || instanceResult.stderr || '';
+  const templateLoaded = templateResult.code === 0;
+  const instanceLoadState = instanceOutput.match(/^LoadState=(.+)$/m)?.[1] || 'unknown';
+  const sudoReady = sudoResult.code === 0;
+  const checks = [
+    preflightCheck(
+      'template',
+      'Template unit',
+      templateLoaded ? 'ok' : 'fail',
+      templateLoaded
+        ? `${config.runnerTemplateServiceName} is readable by systemd.`
+        : (templateResult.stderr || templateResult.stdout || 'Template unit could not be read.').trim()
+    ),
+    preflightCheck(
+      'instance',
+      'Instance render',
+      instanceLoadState === 'loaded' ? 'ok' : 'fail',
+      `${unit}: LoadState=${instanceLoadState}`
+    ),
+    preflightCheck(
+      'sudo',
+      'Control permission',
+      sudoReady ? 'ok' : 'fail',
+      sudoReady ? 'Passwordless sudo is available for dashboard controls.' : 'sudo -n true failed.'
+    ),
+    preflightCheck(
+      'pool-manager',
+      'Pool manager',
+      poolService?.active === 'active' ? 'ok' : 'warn',
+      `${poolService?.name || config.runnerPoolServiceName}: ${poolService?.active || 'unknown'}`
+    ),
+    preflightCheck(
+      'pool-state',
+      'Pool state file',
+      poolState ? (poolState.ok === false ? 'warn' : 'ok') : 'warn',
+      poolState
+        ? `${poolState?.pool?.target ?? 0}/${poolState?.config?.maxRunners ?? 0} desired workers.`
+        : 'No pool state file exists yet.'
+    )
+  ];
+
+  sendJson(response, 200, {
+    generatedAt: new Date().toISOString(),
+    ok: checks.every((check) => check.status === 'ok'),
+    dryRun: true,
+    runnerId,
+    unit,
+    checks,
+    systemd: {
+      templateOutput: truncateOutput(templateResult.stdout || templateResult.stderr || ''),
+      instanceOutput: truncateOutput(instanceOutput)
+    }
+  });
+}
+
+function preflightCheck(id, label, status, detail, meta = {}) {
+  return {
+    id,
+    label,
+    status,
+    detail,
+    ...meta
+  };
+}
+
+function settledValue(result, fallback) {
+  return result.status === 'fulfilled' ? result.value : fallback;
+}
+
+function percentToPreflightStatus(percent, failAt, warnAt) {
+  if (percent >= failAt) {
+    return 'fail';
+  }
+  if (percent >= warnAt) {
+    return 'warn';
+  }
+  return 'ok';
+}
+
+function formatServerBytes(value) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes < 0) {
+    return 'unknown';
+  }
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let current = bytes;
+  let index = 0;
+  while (current >= 1024 && index < units.length - 1) {
+    current /= 1024;
+    index += 1;
+  }
+  const precision = current >= 10 || index === 0 ? 0 : 1;
+  return `${current.toFixed(precision)} ${units[index]}`;
+}
+
+function formatServerPercent(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? `${Math.round(number)}%` : 'unknown';
+}
+
+function truncateOutput(value, maxLength = 12_000) {
+  const text = String(value || '').trim();
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return `${text.slice(0, maxLength)}\n... truncated by dashboard ...`;
 }
 
 async function collectVpsHealth() {
@@ -1217,6 +1623,147 @@ function renderDashboardPage(session) {
       gap: 8px;
       min-width: max-content;
     }
+    .preflight-panel {
+      display: grid;
+      gap: 0;
+      margin: 0 0 16px;
+      border: 1px solid rgba(172, 187, 205, 0.18);
+      border-radius: 8px;
+      background:
+        linear-gradient(135deg, rgba(23, 31, 42, 0.94), rgba(12, 18, 28, 0.9)),
+        rgba(18, 24, 33, 0.92);
+      overflow: hidden;
+      box-shadow: 0 14px 30px rgba(0, 0, 0, 0.28);
+    }
+    .preflight-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 14px 16px;
+      border-bottom: 1px solid rgba(172, 187, 205, 0.14);
+    }
+    .preflight-title {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      min-width: 0;
+    }
+    .preflight-ring {
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      border: 1px solid rgba(53, 221, 139, 0.28);
+      background: rgba(53, 221, 139, 0.08);
+      color: var(--green);
+    }
+    .preflight-ring.warn {
+      border-color: rgba(244, 201, 93, 0.38);
+      background: rgba(244, 201, 93, 0.09);
+      color: var(--amber);
+    }
+    .preflight-ring.fail {
+      border-color: rgba(255, 113, 133, 0.42);
+      background: rgba(255, 113, 133, 0.1);
+      color: var(--red);
+    }
+    .preflight-title h2 { font-size: 16px; }
+    .preflight-title span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 2px;
+      overflow-wrap: anywhere;
+    }
+    .preflight-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .preflight-actions button {
+      min-height: 32px;
+      padding: 0 10px;
+      background: rgba(18, 24, 33, 0.5);
+    }
+    .preflight-body {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(260px, 0.36fr);
+      gap: 0;
+    }
+    .preflight-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 1px;
+      background: rgba(172, 187, 205, 0.1);
+    }
+    .preflight-check {
+      min-width: 0;
+      display: grid;
+      gap: 6px;
+      padding: 12px;
+      background: rgba(12, 18, 28, 0.82);
+    }
+    .preflight-check strong {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text);
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+    .preflight-check small {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+    .preflight-dot {
+      flex: 0 0 auto;
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--muted);
+    }
+    .preflight-check.ok .preflight-dot { background: var(--green); box-shadow: 0 0 0 4px rgba(53, 221, 139, 0.08); }
+    .preflight-check.warn .preflight-dot { background: var(--amber); box-shadow: 0 0 0 4px rgba(244, 201, 93, 0.08); }
+    .preflight-check.fail .preflight-dot { background: var(--red); box-shadow: 0 0 0 4px rgba(255, 113, 133, 0.08); }
+    .preflight-aside {
+      display: grid;
+      align-content: start;
+      gap: 10px;
+      padding: 12px;
+      border-left: 1px solid rgba(172, 187, 205, 0.14);
+      background: rgba(2, 6, 23, 0.18);
+    }
+    .preflight-note {
+      display: grid;
+      gap: 5px;
+      padding: 10px;
+      border: 1px solid rgba(172, 187, 205, 0.14);
+      border-radius: 8px;
+      background: rgba(2, 6, 23, 0.26);
+    }
+    .preflight-note span {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 950;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .preflight-note strong {
+      color: var(--text);
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+    .preflight-note small {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
     .ops-overview {
       min-width: 0;
       display: grid;
@@ -1822,6 +2369,72 @@ function renderDashboardPage(session) {
     }
     .history-main { min-width: 0; display: grid; gap: 4px; }
     .history-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+    .task-link-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .task-link-card {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+      border: 1px solid rgba(172, 187, 205, 0.16);
+      border-radius: 8px;
+      background: rgba(2, 6, 23, 0.24);
+      padding: 11px;
+    }
+    .task-link-card span {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 950;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .task-link-card strong, .task-link-card a {
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 850;
+      overflow-wrap: anywhere;
+    }
+    .task-timeline {
+      display: grid;
+      gap: 0;
+      border: 1px solid rgba(172, 187, 205, 0.16);
+      border-radius: 8px;
+      background: rgba(2, 6, 23, 0.22);
+      overflow: hidden;
+    }
+    .timeline-step {
+      position: relative;
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: start;
+      padding: 11px 12px;
+    }
+    .timeline-step + .timeline-step { border-top: 1px solid rgba(172, 187, 205, 0.11); }
+    .timeline-dot {
+      width: 10px;
+      height: 10px;
+      margin-top: 4px;
+      border-radius: 50%;
+      background: rgba(172, 187, 205, 0.42);
+    }
+    .timeline-step.done .timeline-dot { background: var(--green); box-shadow: 0 0 0 4px rgba(53, 221, 139, 0.08); }
+    .timeline-step.current .timeline-dot { background: var(--amber); box-shadow: 0 0 0 4px rgba(244, 201, 93, 0.1); animation: pulse-amber 1.9s infinite; }
+    .timeline-step.failed .timeline-dot { background: var(--red); box-shadow: 0 0 0 4px rgba(255, 113, 133, 0.08); }
+    .timeline-main {
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+    }
+    .timeline-main strong { color: var(--text); overflow-wrap: anywhere; }
+    .timeline-main small { color: var(--muted); overflow-wrap: anywhere; }
+    .timeline-time {
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
     .toolbar {
       display: flex;
       justify-content: space-between;
@@ -1874,6 +2487,8 @@ function renderDashboardPage(session) {
       .ops-toolbar { justify-content: flex-start; min-width: 0; flex-wrap: wrap; }
       .ops-overview { grid-template-columns: 1fr; }
       .ops-pane + .ops-pane { border-left: 0; border-top: 1px solid rgba(172, 187, 205, 0.14); }
+      .preflight-body { grid-template-columns: 1fr; }
+      .preflight-aside { border-left: 0; border-top: 1px solid rgba(172, 187, 205, 0.14); }
     }
     @media (max-width: 980px) {
       .runner-card { grid-template-columns: 1fr 1fr; }
@@ -1884,6 +2499,8 @@ function renderDashboardPage(session) {
         grid-template-columns: repeat(4, minmax(0, 1fr));
       }
       .detail-shell { grid-template-columns: 1fr; }
+      .preflight-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .task-link-grid { grid-template-columns: 1fr; }
       .health-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .health-layout, .health-section-grid { grid-template-columns: 1fr; }
       .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1899,6 +2516,9 @@ function renderDashboardPage(session) {
       .ops-stat + .ops-stat { border-left: 0; }
       .ops-stat:nth-child(even) { border-left: 1px solid rgba(172, 187, 205, 0.11); }
       .ops-stat:nth-child(n + 3) { border-top: 1px solid rgba(172, 187, 205, 0.11); }
+      .preflight-head { align-items: flex-start; flex-direction: column; }
+      .preflight-actions { justify-content: flex-start; }
+      .preflight-grid { grid-template-columns: 1fr; }
       .runner-card, .grid, .form-grid { grid-template-columns: 1fr; }
       .runner-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .health-grid { grid-template-columns: 1fr; }
@@ -1932,6 +2552,9 @@ function renderDashboardPage(session) {
         <button class="ghost" data-open-health>VPS Health</button>
         <button class="ghost" data-open-create>New run</button>
       </div>
+    </section>
+    <section class="preflight-panel" id="preflight-panel">
+      <div class="empty">Running preflight checks...</div>
     </section>
     <section class="view-stack" id="landing-view">
       <div class="toolbar">
@@ -2058,16 +2681,21 @@ function renderDashboardPage(session) {
   <script>
     const API = {
       overview: '${escapeJsString(withBasePath('/api/overview'))}',
+      preflight: '${escapeJsString(withBasePath('/api/preflight'))}',
       vpsHealth: '${escapeJsString(withBasePath('/api/vps-health'))}',
       tasks: '${escapeJsString(withBasePath('/api/tasks'))}',
+      smokeTest: '${escapeJsString(withBasePath('/api/tasks/smoke-test'))}',
       runners: '${escapeJsString(withBasePath('/api/runners'))}',
-      poolControl: '${escapeJsString(withBasePath('/api/pool/control'))}'
+      poolControl: '${escapeJsString(withBasePath('/api/pool/control'))}',
+      poolSelfTest: '${escapeJsString(withBasePath('/api/pool/self-test'))}'
     };
+    const NEXUS_BASE_URL = '${escapeJsString(config.nexusBaseUrl)}';
     const landingViewEl = document.getElementById('landing-view');
     const healthViewEl = document.getElementById('health-view');
     const detailViewEl = document.getElementById('detail-view');
     const runnersEl = document.getElementById('runners');
     const summaryStripEl = document.getElementById('summary-strip');
+    const preflightEl = document.getElementById('preflight-panel');
     const generatedEl = document.getElementById('generated');
     const healthMetaEl = document.getElementById('health-meta');
     const healthContentEl = document.getElementById('health-content');
@@ -2094,6 +2722,8 @@ function renderDashboardPage(session) {
     let latestPool = null;
     let latestIntegrations = {};
     let latestHealth = null;
+    let latestPreflight = null;
+    let latestPoolSelfTest = null;
     let currentView = 'landing';
     let selectedRunnerId = null;
     let runnerHistory = [];
@@ -2264,6 +2894,102 @@ function renderDashboardPage(session) {
         '</div>' +
         '<div class="mini">' + escapeHtml(detail || 'No details reported') + '</div>' +
       '</div>';
+    }
+
+    function getWorstPreflightStatus(checks) {
+      if (!Array.isArray(checks) || checks.length === 0) return 'warn';
+      if (checks.some((check) => check.status === 'fail')) return 'fail';
+      if (checks.some((check) => check.status === 'warn')) return 'warn';
+      return 'ok';
+    }
+
+    function preflightStatusLabel(status) {
+      if (status === 'ok') return 'Ready for end-to-end';
+      if (status === 'fail') return 'Blocked';
+      return 'Ready with cautions';
+    }
+
+    function renderPreflightCheck(check) {
+      const status = check?.status || 'warn';
+      return '<div class="preflight-check ' + escapeHtml(status) + '">' +
+        '<strong><span class="preflight-dot"></span>' + escapeHtml(check?.label || 'Check') + '</strong>' +
+        '<small>' + escapeHtml(check?.detail || 'No detail reported.') + '</small>' +
+      '</div>';
+    }
+
+    function renderPreflightNote(label, value, detail) {
+      return '<div class="preflight-note">' +
+        '<span>' + escapeHtml(label) + '</span>' +
+        '<strong>' + escapeHtml(value || 'unknown') + '</strong>' +
+        '<small>' + escapeHtml(detail || '') + '</small>' +
+      '</div>';
+    }
+
+    function renderPreflight() {
+      const preflight = latestPreflight;
+      if (!preflight) {
+        preflightEl.innerHTML = '<div class="empty">Running preflight checks...</div>';
+        return;
+      }
+      if (preflight.error) {
+        preflightEl.innerHTML =
+          '<div class="preflight-head">' +
+            '<div class="preflight-title"><div class="preflight-ring fail"><span class="status-dot inactive"></span></div><div><h2>Runner Preflight</h2><span>Unable to load readiness checks.</span></div></div>' +
+            '<div class="preflight-actions"><button class="ghost" data-preflight-refresh>Try again</button></div>' +
+          '</div>' +
+          '<div class="error">' + escapeHtml(preflight.error) + '</div>';
+        return;
+      }
+
+      const checks = Array.isArray(preflight.checks) ? preflight.checks : [];
+      const worstStatus = getWorstPreflightStatus(checks);
+      const failCount = checks.filter((check) => check.status === 'fail').length;
+      const warnCount = checks.filter((check) => check.status === 'warn').length;
+      const pool = preflight.poolSummary || {};
+      const smoke = preflight.smokeTest || {};
+      const selfTest = latestPoolSelfTest;
+      const selfTestStatus = selfTest ? getWorstPreflightStatus(selfTest.checks || []) : null;
+      const summary =
+        failCount > 0
+          ? failCount + ' failing check' + (failCount === 1 ? '' : 's')
+          : warnCount > 0
+            ? warnCount + ' caution' + (warnCount === 1 ? '' : 's')
+            : 'All required checks are green';
+
+      preflightEl.innerHTML =
+        '<div class="preflight-head">' +
+          '<div class="preflight-title">' +
+            '<div class="preflight-ring ' + escapeHtml(worstStatus) + '"><span class="status-dot ' + escapeHtml(worstStatus === 'ok' ? 'active' : worstStatus === 'fail' ? 'inactive' : 'paused') + '"></span></div>' +
+            '<div><h2>Runner Preflight</h2><span>' + escapeHtml(preflightStatusLabel(worstStatus) + ' · ' + summary + ' · updated ' + new Date(preflight.generatedAt).toLocaleTimeString()) + '</span></div>' +
+          '</div>' +
+          '<div class="preflight-actions">' +
+            '<button class="ghost" data-preflight-refresh>Refresh checks</button>' +
+            '<button class="ghost" data-pool-self-test>Pool self-test</button>' +
+            '<button class="primary" data-smoke-test>Smoke test</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="preflight-body">' +
+          '<div class="preflight-grid">' + (checks.length ? checks.map(renderPreflightCheck).join('') : '<div class="empty">No checks returned.</div>') + '</div>' +
+          '<aside class="preflight-aside">' +
+            renderPreflightNote(
+              'Smoke target',
+              (smoke.repository || '${escapeJsString(config.defaultRepository)}') + ':' + (smoke.baseBranch || '${escapeJsString(config.defaultBaseBranch)}'),
+              smoke.createsPullRequest ? 'Queues a harmless file-only run and opens a GitHub PR.' : 'No PR will be created.'
+            ) +
+            renderPreflightNote(
+              'Runner pool',
+              (pool.active ?? 0) + ' active / ' + (pool.max ?? 0) + ' max',
+              (pool.queued ?? 0) + ' queued · target ' + (pool.target ?? 0)
+            ) +
+            (selfTest
+              ? renderPreflightNote(
+                  'Last self-test',
+                  preflightStatusLabel(selfTestStatus),
+                  (selfTest.dryRun ? 'Dry run · ' : '') + (selfTest.unit || 'no unit reported')
+                )
+              : renderPreflightNote('Pool self-test', 'Not run yet', 'Validates template rendering and control permissions without starting a worker.')) +
+          '</aside>' +
+        '</div>';
     }
 
     function getRunnerPoolInstance(runnerId) {
@@ -2584,13 +3310,14 @@ function renderDashboardPage(session) {
     function renderHistoryTask(task) {
       const id = escapeHtml(task.id);
       const pr = task.prUrl ? '<a href="' + escapeHtml(task.prUrl) + '" target="_blank" rel="noreferrer">GitHub PR #' + escapeHtml(task.prNumber || '') + '</a>' : '<span class="muted">No PR</span>';
+      const source = task.messageId ? renderBadge('Webhook', 'idle') : renderBadge('Dashboard', 'idle');
       const actions =
         '<button data-task-detail="' + id + '">Details</button>' +
         (taskCanCancel(task) ? '<button class="danger" data-task-cancel="' + id + '">Cancel</button>' : '') +
         (taskCanRetry(task) ? '<button class="warn" data-task-retry="' + id + '">Retry</button>' : '');
       return '<div class="history-row">' +
         '<div class="history-main">' +
-          '<div class="row">' + renderBadge(task.status, statusClass(task.status)) + '<code>' + id + '</code></div>' +
+          '<div class="row">' + renderBadge(task.status, statusClass(task.status)) + source + '<code>' + id + '</code></div>' +
           '<div><strong>' + escapeHtml(task.targetRepository) + '</strong> <span class="muted">on</span> <code>' + escapeHtml(task.baseBranch) + '</code></div>' +
           '<div class="mini">' + escapeHtml(task.statusMessage || 'No status message') + '</div>' +
         '</div>' +
@@ -2598,6 +3325,112 @@ function renderDashboardPage(session) {
         '<div>' + pr + '</div>' +
         '<div class="history-actions">' + actions + '</div>' +
       '</div>';
+    }
+
+    function taskContextValue(task, key) {
+      return task && task.context && typeof task.context === 'object' ? task.context[key] : null;
+    }
+
+    function renderTaskLinkCard(label, title, detail, href) {
+      const titleHtml = href
+        ? '<a href="' + escapeHtml(href) + '" target="_blank" rel="noreferrer">' + escapeHtml(title || href) + '</a>'
+        : '<strong>' + escapeHtml(title || 'none') + '</strong>';
+      return '<div class="task-link-card">' +
+        '<span>' + escapeHtml(label) + '</span>' +
+        titleHtml +
+        '<small class="mini">' + escapeHtml(detail || '') + '</small>' +
+      '</div>';
+    }
+
+    function getNexusWebhookUrl(messageId) {
+      return NEXUS_BASE_URL + '/admin/webhooks?messageId=' + encodeURIComponent(messageId);
+    }
+
+    function renderTaskBacklinks(task) {
+      const codexCloud = task?.result?.codexCloud || {};
+      const sourceTitle = task.messageId
+        ? 'Webhook crash report'
+        : taskContextValue(task, 'source') === 'runner-dashboard'
+          ? 'Runner dashboard'
+          : 'Nexus job queue';
+      const sourceDetail = task.messageId
+        ? 'Message ' + task.messageId
+        : taskContextValue(task, 'title') || task.id;
+      const sourceHref = task.messageId ? getNexusWebhookUrl(task.messageId) : null;
+      return '<section class="task-link-grid">' +
+        renderTaskLinkCard('Nexus source', sourceTitle, sourceDetail, sourceHref) +
+        renderTaskLinkCard(
+          'Codex task',
+          codexCloud.taskUrl ? 'Open Codex Cloud task' : codexCloud.taskId || 'Not submitted yet',
+          codexCloud.status ? 'Status: ' + codexCloud.status : 'Appears after the runner submits cloud work.',
+          codexCloud.taskUrl
+        ) +
+        renderTaskLinkCard(
+          'GitHub PR',
+          task.prUrl ? 'Open pull request' : 'No PR yet',
+          task.prNumber ? 'PR #' + task.prNumber : 'The runner opens this after validation and push.',
+          task.prUrl
+        ) +
+      '</section>';
+    }
+
+    function renderTaskTimeline(task) {
+      const codexCloud = task?.result?.codexCloud || null;
+      const terminal = ['SUCCEEDED', 'FAILED', 'CANCELED'].includes(task.status);
+      const steps = [
+        {
+          label: 'Queued',
+          at: task.createdAt,
+          detail: 'Nexus accepted the job.'
+        },
+        {
+          label: 'Claimed',
+          at: task.claimedAt,
+          detail: task.runnerId ? 'Claimed by ' + task.runnerId + '.' : 'Waiting for a runner to claim it.'
+        },
+        {
+          label: 'Started',
+          at: task.startedAt,
+          detail: task.branchName ? 'Runner branch ' + task.branchName + '.' : 'Preparing the worktree.'
+        }
+      ];
+
+      if (codexCloud) {
+        steps.push({
+          label: 'Codex Cloud submitted',
+          at: codexCloud.submittedAt,
+          detail: codexCloud.taskUrl || codexCloud.taskId || 'Cloud task submitted.'
+        });
+        steps.push({
+          label: 'Cloud status checked',
+          at: codexCloud.lastCheckedAt,
+          detail: codexCloud.status ? 'Cloud status: ' + codexCloud.status + '.' : 'Polling Codex Cloud for completion.'
+        });
+      }
+
+      const statusText = String(task.status || 'PENDING');
+      steps.push({
+        label: terminal ? statusText.charAt(0) + statusText.slice(1).toLowerCase() : 'Finishing',
+        at: task.completedAt,
+        detail: task.prUrl
+          ? 'Pull request opened.'
+          : task.error || task.statusMessage || 'Waiting for the runner to finish and publish.'
+      });
+
+      const firstPending = steps.findIndex((step) => !step.at);
+      return '<section class="task-timeline">' +
+        steps.map((step, index) => {
+          const isDone = Boolean(step.at);
+          const isCurrent = !terminal && index === firstPending;
+          const isFailed = terminal && task.status !== 'SUCCEEDED' && index === steps.length - 1;
+          const className = isFailed ? 'failed' : isDone ? 'done' : isCurrent ? 'current' : '';
+          return '<div class="timeline-step ' + escapeHtml(className) + '">' +
+            '<span class="timeline-dot"></span>' +
+            '<div class="timeline-main"><strong>' + escapeHtml(step.label) + '</strong><small>' + escapeHtml(step.detail || '') + '</small></div>' +
+            '<span class="timeline-time">' + escapeHtml(step.at ? relativeTime(step.at) : isCurrent ? 'now' : 'pending') + '</span>' +
+          '</div>';
+        }).join('') +
+      '</section>';
     }
 
     function renderSummary(runners, tasks, service, integrations, pool, poolService) {
@@ -2775,7 +3608,12 @@ function renderDashboardPage(session) {
       const params = new URLSearchParams();
       params.set('limit', '50');
       try {
-        const data = await requestJson(API.overview + '?' + params.toString());
+        const [data, preflight] = await Promise.all([
+          requestJson(API.overview + '?' + params.toString()),
+          requestJson(API.preflight).catch((error) => ({
+            error: error.message || String(error)
+          }))
+        ]);
         if (!data) return;
         latestRunners = data.runners || [];
         latestTasks = data.tasks || [];
@@ -2783,7 +3621,9 @@ function renderDashboardPage(session) {
         latestPoolService = data.poolService || {};
         latestPool = data.pool || null;
         latestIntegrations = data.integrations || {};
+        latestPreflight = preflight;
         renderSummary(latestRunners, latestTasks, latestService, latestIntegrations, latestPool, latestPoolService);
+        renderPreflight();
         generatedEl.textContent = 'Updated ' + new Date(data.generatedAt).toLocaleString();
         runnersEl.innerHTML = latestRunners.length ? latestRunners.map(renderRunner).join('') : '<div class="empty">No runner heartbeat files found yet.</div>';
         if (selectedRunnerId) {
@@ -2795,6 +3635,8 @@ function renderDashboardPage(session) {
         }
       } catch (error) {
         generatedEl.textContent = 'Unable to refresh';
+        latestPreflight = { error: error.message || String(error) };
+        renderPreflight();
         runnersEl.innerHTML = '<div class="error">' + escapeHtml(error.message || error) + '</div>';
       }
     }
@@ -2866,13 +3708,17 @@ function renderDashboardPage(session) {
       if (!data) return;
       const task = data.job;
       detailBodyEl.innerHTML =
+        renderTaskBacklinks(task) +
+        renderTaskTimeline(task) +
         '<div class="grid">' +
           renderField('Status', task.status) +
           renderField('Repository', task.targetRepository, true) +
+          renderField('Base branch', task.baseBranch, true) +
           renderField('Branch', task.branchName, true) +
           renderField('Runner', task.runnerId, true) +
+          renderField('Created', relativeTime(task.createdAt)) +
+          renderField('Updated', relativeTime(task.updatedAt)) +
         '</div>' +
-        (task.prUrl ? '<div><a href="' + escapeHtml(task.prUrl) + '" target="_blank" rel="noreferrer">Open pull request</a></div>' : '') +
         '<section class="job"><h3>Status</h3><pre>' + escapeHtml(task.statusMessage || 'No status message') + '</pre></section>' +
         (task.error ? '<section class="error"><h3>Error</h3><pre>' + escapeHtml(task.error) + '</pre></section>' : '') +
         '<section class="job"><h3>Prompt</h3><pre>' + escapeHtml(task.prompt || '') + '</pre></section>' +
@@ -2910,6 +3756,27 @@ function renderDashboardPage(session) {
         }
         if (button.hasAttribute('data-refresh')) {
           await refresh();
+        } else if (button.hasAttribute('data-preflight-refresh')) {
+          latestPreflight = await requestJson(API.preflight);
+          renderPreflight();
+        } else if (button.hasAttribute('data-pool-self-test')) {
+          if (!window.confirm('Run a dry-run pool self-test? This validates the systemd template and control permissions without starting a worker.')) return;
+          latestPoolSelfTest = await requestJson(API.poolSelfTest, {
+            method: 'POST',
+            body: JSON.stringify({})
+          });
+          latestPreflight = await requestJson(API.preflight);
+          renderPreflight();
+        } else if (button.hasAttribute('data-smoke-test')) {
+          const smoke = latestPreflight?.smokeTest || {};
+          const target = (smoke.repository || '${escapeJsString(config.defaultRepository)}') + ':' + (smoke.baseBranch || '${escapeJsString(config.defaultBaseBranch)}');
+          if (!window.confirm('Queue a safe smoke-test run against ' + target + '? This creates or updates only .nexus/runner-smoke-test.md and opens a GitHub PR.')) return;
+          const data = await requestJson(API.smokeTest, {
+            method: 'POST',
+            body: JSON.stringify({})
+          });
+          await refresh();
+          if (data?.job?.id) await showTaskDetail(data.job.id);
         } else if (button.hasAttribute('data-open-create')) {
           createStatusEl.textContent = '';
           createModalEl.hidden = false;

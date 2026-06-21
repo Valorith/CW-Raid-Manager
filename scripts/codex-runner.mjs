@@ -81,6 +81,8 @@ const runnerState = {
   controlFile: config.controlFile,
   control: null
 };
+let heartbeatWriteChain = Promise.resolve();
+let heartbeatWriteSequence = 0;
 
 process.on('SIGINT', () => {
   shuttingDown = true;
@@ -1034,16 +1036,28 @@ async function readRunnerControl() {
   }
 }
 
-async function writeHeartbeat() {
+function writeHeartbeat() {
+  const write = heartbeatWriteChain.catch(() => undefined).then(writeHeartbeatNow);
+  heartbeatWriteChain = write.catch(() => undefined);
+  return write;
+}
+
+async function writeHeartbeatNow() {
   const now = new Date().toISOString();
   const body = {
     ...runnerState,
     lastSeenAt: now
   };
   runnerState.lastSeenAt = now;
-  const tempFile = `${heartbeatFile}.${process.pid}.tmp`;
-  await writeFile(tempFile, `${JSON.stringify(body, null, 2)}\n`, 'utf8');
-  await rename(tempFile, heartbeatFile);
+  const sequence = (heartbeatWriteSequence += 1);
+  const tempFile = `${heartbeatFile}.${process.pid}.${Date.now()}.${sequence}.tmp`;
+  try {
+    await writeFile(tempFile, `${JSON.stringify(body, null, 2)}\n`, 'utf8');
+    await rename(tempFile, heartbeatFile);
+  } catch (error) {
+    await rm(tempFile, { force: true }).catch(() => undefined);
+    throw error;
+  }
 }
 
 function summarizeJob(job) {
