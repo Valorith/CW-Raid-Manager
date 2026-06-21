@@ -39,6 +39,18 @@ const config = {
   defaultRepository: process.env.CODEX_RUNNER_REPOSITORY || 'Valorith/Server',
   defaultBaseBranch: process.env.CODEX_RUNNER_BASE_BRANCH || 'master',
   runnerServiceName: process.env.CODEX_RUNNER_SERVICE_NAME || 'nexus-codex-runner.service',
+  runnerTemplateServiceName:
+    process.env.CODEX_RUNNER_TEMPLATE_SERVICE_NAME ||
+    process.env.CODEX_RUNNER_POOL_TEMPLATE_SERVICE ||
+    'nexus-codex-runner@.service',
+  runnerPoolServiceName:
+    process.env.CODEX_RUNNER_POOL_MANAGER_SERVICE_NAME ||
+    process.env.CODEX_RUNNER_POOL_SERVICE_NAME ||
+    'nexus-codex-runner-pool-manager.service',
+  runnerPoolPrefix: process.env.CODEX_RUNNER_POOL_PREFIX || 'vps-codex-runner-pool',
+  runnerPoolStateFile: resolve(
+    process.env.CODEX_RUNNER_POOL_STATE_FILE || join(workRoot, 'runner-pool.json')
+  ),
   githubCliBin: process.env.GITHUB_CLI_BIN || process.env.GH_BIN || 'gh',
   githubHost: process.env.GITHUB_HOST || 'github.com',
   workRoot,
@@ -130,9 +142,17 @@ async function routeRequest(request, response) {
       generatedAt: new Date().toISOString(),
       staleAfterMs: config.staleAfterMs,
       service: await getRunnerServiceStatus(),
+      poolService: await getRunnerPoolServiceStatus(),
+      pool: await readRunnerPoolState(),
       user: serializeSessionUser(session),
       runners
     });
+    return;
+  }
+
+  if (path === '/api/pool/control') {
+    requireMethod(request, 'POST');
+    await handleRunnerPoolControl(response, await readJsonBody(request));
     return;
   }
 
@@ -146,12 +166,14 @@ async function routeRequest(request, response) {
   const runnerLogsMatch = path.match(/^\/api\/runners\/([^/]+)\/logs$/);
   if (runnerLogsMatch) {
     requireMethod(request, 'GET');
+    const runnerId = decodeURIComponent(runnerLogsMatch[1]);
     const lines = parsePositiveInt(url.searchParams.get('lines') || '', config.logLines);
-    const logs = await readRunnerLogs(Math.min(lines, 1_000));
+    const serviceName = await getServiceNameForRunner(runnerId);
+    const logs = await readRunnerLogs(Math.min(lines, 1_000), serviceName);
     sendJson(response, 200, {
       generatedAt: new Date().toISOString(),
-      runnerId: decodeURIComponent(runnerLogsMatch[1]),
-      serviceName: config.runnerServiceName,
+      runnerId,
+      serviceName,
       logs
     });
     return;
@@ -306,10 +328,12 @@ async function handleGoogleCallback(request, response, url) {
 }
 
 async function sendOverview(response, url) {
-  const [runners, tasks, service, github] = await Promise.all([
+  const [runners, tasks, service, poolService, pool, github] = await Promise.all([
     listRunners(),
     listTasks(url.searchParams),
     getRunnerServiceStatus(),
+    getRunnerPoolServiceStatus(),
+    readRunnerPoolState(),
     getGitHubCliStatus()
   ]);
 
@@ -317,6 +341,8 @@ async function sendOverview(response, url) {
     generatedAt: new Date().toISOString(),
     staleAfterMs: config.staleAfterMs,
     service,
+    poolService,
+    pool,
     defaults: {
       repository: config.defaultRepository,
       baseBranch: config.defaultBaseBranch
@@ -373,18 +399,35 @@ async function handleRunnerControl(response, encodedRunnerId, session, body) {
   }
 
   if (['start', 'stop', 'restart'].includes(action)) {
-    const result = await runServiceAction(action);
+    const serviceName = await getServiceNameForRunner(runnerId);
+    const result = await runServiceAction(action, serviceName);
     sendJson(response, 200, {
       ok: true,
       runnerId,
       action,
-      service: await getRunnerServiceStatus(),
+      service: await getServiceStatus(serviceName),
       output: result.stdout || result.stderr || ''
     });
     return;
   }
 
   throw new HttpError(400, 'Unsupported runner control action.');
+}
+
+async function handleRunnerPoolControl(response, body) {
+  const action = typeof body.action === 'string' ? body.action.trim().toLowerCase() : '';
+  if (!['start', 'stop', 'restart'].includes(action)) {
+    throw new HttpError(400, 'Unsupported runner pool control action.');
+  }
+
+  const result = await runServiceAction(action, config.runnerPoolServiceName);
+  sendJson(response, 200, {
+    ok: true,
+    action,
+    poolService: await getRunnerPoolServiceStatus(),
+    pool: await readRunnerPoolState(),
+    output: result.stdout || result.stderr || ''
+  });
 }
 
 async function listTasks(searchParams = new URLSearchParams()) {
@@ -510,37 +553,94 @@ function normalizeControl(value) {
   };
 }
 
-async function runServiceAction(action) {
-  return runExecFile('sudo', ['-n', 'systemctl', action, config.runnerServiceName], {
+async function runServiceAction(action, serviceName = config.runnerServiceName) {
+  return runExecFile('sudo', ['-n', 'systemctl', action, serviceName], {
     timeoutMs: 45_000
   });
 }
 
 async function getRunnerServiceStatus() {
+  return getServiceStatus(config.runnerServiceName);
+}
+
+async function getRunnerPoolServiceStatus() {
+  return getServiceStatus(config.runnerPoolServiceName);
+}
+
+async function getServiceStatus(serviceName) {
   try {
     const [active, enabled] = await Promise.all([
-      runExecFile('systemctl', ['is-active', config.runnerServiceName], {
+      runExecFile('systemctl', ['is-active', serviceName], {
         allowNonZero: true,
         timeoutMs: 10_000
       }),
-      runExecFile('systemctl', ['is-enabled', config.runnerServiceName], {
+      runExecFile('systemctl', ['is-enabled', serviceName], {
         allowNonZero: true,
         timeoutMs: 10_000
       })
     ]);
     return {
-      name: config.runnerServiceName,
+      name: serviceName,
       active: active.stdout.trim() || active.stderr.trim() || 'unknown',
       enabled: enabled.stdout.trim() || enabled.stderr.trim() || 'unknown'
     };
   } catch (error) {
     return {
-      name: config.runnerServiceName,
+      name: serviceName,
       active: 'unknown',
       enabled: 'unknown',
       error: error instanceof Error ? error.message : String(error)
     };
   }
+}
+
+async function getServiceNameForRunner(runnerId) {
+  const pool = await readRunnerPoolState();
+  const poolInstance = Array.isArray(pool?.instances)
+    ? pool.instances.find((instance) => instance?.runnerId === runnerId && instance?.unit)
+    : null;
+  if (poolInstance?.unit) {
+    return poolInstance.unit;
+  }
+  if (runnerId.startsWith(config.runnerPoolPrefix)) {
+    return instantiateTemplateService(config.runnerTemplateServiceName, runnerId);
+  }
+  return config.runnerServiceName;
+}
+
+async function readRunnerPoolState() {
+  if (!existsSync(config.runnerPoolStateFile)) {
+    return null;
+  }
+  try {
+    const data = JSON.parse(await readFile(config.runnerPoolStateFile, 'utf8'));
+    return data && typeof data === 'object' ? data : null;
+  } catch (error) {
+    return {
+      ok: false,
+      generatedAt: null,
+      error: error instanceof Error ? error.message : String(error),
+      config: {
+        poolPrefix: config.runnerPoolPrefix,
+        stateFile: config.runnerPoolStateFile
+      },
+      queue: null,
+      pool: null,
+      instances: [],
+      actions: []
+    };
+  }
+}
+
+function instantiateTemplateService(templateServiceName, instanceName) {
+  const safeInstance = sanitizeFileName(instanceName);
+  if (templateServiceName.includes('@.')) {
+    return templateServiceName.replace('@.', `@${safeInstance}.`);
+  }
+  if (templateServiceName.endsWith('@')) {
+    return `${templateServiceName}${safeInstance}.service`;
+  }
+  return `nexus-codex-runner@${safeInstance}.service`;
 }
 
 async function getGitHubCliStatus() {
@@ -602,10 +702,10 @@ async function getGitHubCliStatus() {
   }
 }
 
-async function readRunnerLogs(lines) {
+async function readRunnerLogs(lines, serviceName = config.runnerServiceName) {
   const args = [
     '-u',
-    config.runnerServiceName,
+    serviceName,
     '-n',
     String(lines),
     '--no-pager',
@@ -1002,7 +1102,7 @@ function renderDashboardPage(session) {
       color: var(--text);
       font-size: 13px;
       text-align: right;
-      white-space: nowrap;
+      overflow-wrap: anywhere;
     }
     .path-stack { display: grid; gap: 8px; }
     .path-item { display: grid; gap: 5px; min-width: 0; }
@@ -1297,7 +1397,8 @@ function renderDashboardPage(session) {
     const API = {
       overview: '${escapeJsString(withBasePath('/api/overview'))}',
       tasks: '${escapeJsString(withBasePath('/api/tasks'))}',
-      runners: '${escapeJsString(withBasePath('/api/runners'))}'
+      runners: '${escapeJsString(withBasePath('/api/runners'))}',
+      poolControl: '${escapeJsString(withBasePath('/api/pool/control'))}'
     };
     const landingViewEl = document.getElementById('landing-view');
     const detailViewEl = document.getElementById('detail-view');
@@ -1323,6 +1424,8 @@ function renderDashboardPage(session) {
     let latestRunners = [];
     let latestTasks = [];
     let latestService = {};
+    let latestPoolService = {};
+    let latestPool = null;
     let latestIntegrations = {};
     let selectedRunnerId = null;
     let runnerHistory = [];
@@ -1382,7 +1485,8 @@ function renderDashboardPage(session) {
     }
 
     function renderMetricRow(label, value) {
-      return '<div class="metric-row"><span>' + escapeHtml(label) + '</span><strong>' + escapeHtml(value || 'none') + '</strong></div>';
+      const normalized = value === 0 ? '0' : value;
+      return '<div class="metric-row"><span>' + escapeHtml(label) + '</span><strong>' + escapeHtml(normalized || 'none') + '</strong></div>';
     }
 
     function renderPathItem(label, value) {
@@ -1433,6 +1537,54 @@ function renderDashboardPage(session) {
         '</div>' +
         '<div class="mini">' + escapeHtml(detail || 'No details reported') + '</div>' +
       '</div>';
+    }
+
+    function getRunnerPoolInstance(runnerId) {
+      if (!latestPool || !Array.isArray(latestPool.instances)) return null;
+      return latestPool.instances.find((instance) => instance && instance.runnerId === runnerId) || null;
+    }
+
+    function getRunnerServiceView(runner) {
+      const instance = getRunnerPoolInstance(runner.runnerId);
+      return instance?.service || latestService || {};
+    }
+
+    function renderPoolControlSection(runner) {
+      const pool = latestPool;
+      const instance = getRunnerPoolInstance(runner.runnerId);
+      const latestAction = Array.isArray(pool?.actions) ? pool.actions[0] : null;
+      const queue = pool?.queue || {};
+      const poolStats = pool?.pool || {};
+      const poolConfig = pool?.config || {};
+      const managerState = latestPoolService?.active || 'unknown';
+      const instanceRows = instance
+        ? renderMetricRow('This unit', instance.unit) +
+          renderMetricRow('Desired', instance.desired ? 'yes' : 'no') +
+          renderMetricRow('Unit status', instance.service?.active || 'unknown')
+        : renderMetricRow('This unit', runner.runnerId.startsWith('${escapeJsString(config.runnerPoolPrefix)}') ? 'template-managed' : 'baseline');
+      const actionRows = latestAction
+        ? renderMetricRow('Last action', latestAction.action + ' ' + latestAction.runnerId) +
+          renderMetricRow('Action age', relativeTime(latestAction.at))
+        : renderMetricRow('Last action', 'none');
+
+      return '<section class="control-section">' +
+        '<div class="control-section-title"><span>Runner Pool</span>' + renderBadge(managerState, managerState === 'active' ? 'active' : 'inactive') + '</div>' +
+        '<div class="metric-list">' +
+          renderMetricRow('Queued work', queue.queued ?? 'unknown') +
+          renderMetricRow('Target workers', poolStats.target !== undefined ? poolStats.target + ' / ' + (poolConfig.maxRunners ?? 'unknown') : 'unknown') +
+          renderMetricRow('Active workers', poolStats.active ?? 'unknown') +
+          renderMetricRow('Busy workers', poolStats.busy ?? 'unknown') +
+          renderMetricRow('Idle cool-down', formatDurationMs(poolConfig.idleTtlMs)) +
+          instanceRows +
+          actionRows +
+        '</div>' +
+        '<div class="control-actions">' +
+          '<button data-pool-action="start">Start pool</button>' +
+          '<button class="warn" data-pool-action="restart">Restart pool</button>' +
+          '<button class="danger" data-pool-action="stop">Stop pool</button>' +
+        '</div>' +
+        (pool?.error ? '<div class="error">' + escapeHtml(pool.error) + '</div>' : '') +
+      '</section>';
     }
 
     function taskCanCancel(task) {
@@ -1522,20 +1674,27 @@ function renderDashboardPage(session) {
       '</div>';
     }
 
-    function renderSummary(runners, tasks, service, integrations) {
+    function renderSummary(runners, tasks, service, integrations, pool, poolService) {
       const activeRunners = runners.filter((runner) => runner.active && !runner.paused).length;
       const pausedRunners = runners.filter((runner) => runner.paused).length;
       const activeTasks = tasks.filter((task) => ['QUEUED', 'CLAIMED', 'RUNNING'].includes(task.status)).length;
       const failedTasks = tasks.filter((task) => task.status === 'FAILED').length;
       const codexCloudReady = runners.some((runner) => runner.codexCloudConfigured);
       const github = integrations?.github || {};
+      const queuedWork = pool?.queue?.queued ?? tasks.filter((task) => task.status === 'QUEUED').length;
+      const poolTarget = pool?.pool?.target ?? 0;
+      const poolMax = pool?.config?.maxRunners ?? 0;
+      const poolManagerActive = poolService?.active === 'active';
       summaryStripEl.innerHTML =
         '<div class="summary-pill"><strong>' + activeRunners + '</strong><span>active</span></div>' +
         '<div class="summary-pill"><strong>' + pausedRunners + '</strong><span>paused</span></div>' +
+        '<div class="summary-pill"><strong>' + escapeHtml(poolTarget + '/' + poolMax) + '</strong><span>pool target</span></div>' +
+        '<div class="summary-pill"><strong>' + escapeHtml(queuedWork) + '</strong><span>queued</span></div>' +
         '<div class="summary-pill"><strong>' + activeTasks + '</strong><span>open runs</span></div>' +
         '<div class="summary-pill"><strong>' + failedTasks + '</strong><span>failed</span></div>' +
         renderIntegrationPill('codex', 'Codex Cloud', codexCloudReady ? 'ready' : 'not configured', codexCloudReady) +
         renderIntegrationPill('github', 'GitHub CLI', github.authenticated ? (github.login || 'authenticated') : 'needs auth', github.authenticated) +
+        '<div class="summary-pill"><span class="status-dot ' + escapeHtml(poolManagerActive ? 'active' : 'inactive') + '"></span><span>pool ' + escapeHtml(poolService?.active || 'unknown') + '</span></div>' +
         '<div class="summary-pill"><span class="status-dot ' + escapeHtml(service?.active === 'active' ? 'active' : 'inactive') + '"></span><span>' + escapeHtml(service?.active || 'unknown') + '</span></div>';
     }
 
@@ -1548,7 +1707,8 @@ function renderDashboardPage(session) {
       detailControlsEl.innerHTML = '';
       detailActivityEl.innerHTML = renderActivity(runner);
       detailUpdatedEl.textContent = 'Updated ' + new Date().toLocaleTimeString();
-      serviceStateEl.innerHTML = renderBadge(latestService?.active || 'unknown', latestService?.active === 'active' ? 'active' : 'inactive');
+      const runnerService = getRunnerServiceView(runner);
+      serviceStateEl.innerHTML = renderBadge(runnerService?.active || 'unknown', runnerService?.active === 'active' ? 'active' : 'inactive');
       const github = latestIntegrations.github || {};
       runnerMetricsEl.innerHTML =
         '<section class="control-summary">' +
@@ -1598,6 +1758,7 @@ function renderDashboardPage(session) {
             '<button class="ghost" data-open-create>New run</button>' +
           '</div>' +
         '</section>' +
+        renderPoolControlSection(runner) +
         '<section class="control-section">' +
           '<div class="control-section-title"><span>Timing</span></div>' +
           '<div class="metric-list">' +
@@ -1651,8 +1812,10 @@ function renderDashboardPage(session) {
         latestRunners = data.runners || [];
         latestTasks = data.tasks || [];
         latestService = data.service || {};
+        latestPoolService = data.poolService || {};
+        latestPool = data.pool || null;
         latestIntegrations = data.integrations || {};
-        renderSummary(latestRunners, latestTasks, latestService, latestIntegrations);
+        renderSummary(latestRunners, latestTasks, latestService, latestIntegrations, latestPool, latestPoolService);
         generatedEl.textContent = 'Updated ' + new Date(data.generatedAt).toLocaleString();
         runnersEl.innerHTML = latestRunners.length ? latestRunners.map(renderRunner).join('') : '<div class="empty">No runner heartbeat files found yet.</div>';
         if (selectedRunnerId) {
@@ -1770,6 +1933,14 @@ function renderDashboardPage(session) {
           if (!window.confirm(action + ' the runner service?')) return;
           const runnerId = selectedRunnerId || latestRunners[0]?.runnerId || 'vps-codex-runner';
           await requestJson('${escapeJsString(withBasePath('/api/runners'))}/' + encodeURIComponent(runnerId) + '/control', {
+            method: 'POST',
+            body: JSON.stringify({ action })
+          });
+          await refresh();
+        } else if (button.dataset.poolAction) {
+          const action = button.dataset.poolAction;
+          if (!window.confirm(action + ' the runner pool manager?')) return;
+          await requestJson(API.poolControl, {
             method: 'POST',
             body: JSON.stringify({ action })
           });

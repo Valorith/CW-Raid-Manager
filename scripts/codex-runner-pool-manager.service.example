@@ -1,0 +1,17 @@
+[Unit]
+Description=Nexus Codex Runner Pool Manager
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/nexus-codex-runner
+EnvironmentFile=/home/ubuntu/nexus-codex-runner/.env
+EnvironmentFile=-/home/ubuntu/nexus-codex-runner/codex-runner-pool.env
+ExecStart=/usr/bin/node /home/ubuntu/nexus-codex-runner/codex-runner-pool-manager.mjs
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
