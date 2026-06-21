@@ -931,9 +931,9 @@ function renderDashboardPage(session) {
       border-color: rgba(237, 243, 251, 0.22);
     }
     .brand-mark.codex {
-      color: #062f2a;
-      background: linear-gradient(135deg, var(--teal), var(--green));
-      border-color: transparent;
+      color: #ffffff;
+      background: #111827;
+      border-color: rgba(237, 243, 251, 0.22);
     }
     .brand-mark svg {
       display: block;
