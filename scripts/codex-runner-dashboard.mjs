@@ -1,7 +1,8 @@
 #!/usr/bin/env node
+import { execFile } from 'child_process';
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { existsSync, readFileSync } from 'fs';
-import { mkdir, readdir, readFile, stat } from 'fs/promises';
+import { mkdir, readdir, readFile, stat, writeFile } from 'fs/promises';
 import { createServer } from 'http';
 import { hostname } from 'os';
 import { dirname, join, resolve } from 'path';
@@ -11,6 +12,10 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 
 loadEnv(resolve(process.cwd(), '.env'));
 loadEnv(resolve(scriptDir, 'codex-runner-dashboard.env'));
+
+const workRoot = resolve(process.env.CODEX_RUNNER_WORK_ROOT || join(process.cwd(), 'work'));
+const registryDir = resolve(process.env.CODEX_RUNNER_REGISTRY_DIR || join(workRoot, 'runners'));
+const controlDir = resolve(process.env.CODEX_RUNNER_CONTROL_DIR || join(workRoot, 'runner-controls'));
 
 const config = {
   host: process.env.DASHBOARD_HOST || '127.0.0.1',
@@ -24,12 +29,17 @@ const config = {
   allowedDomains: parseList(process.env.DASHBOARD_ALLOWED_DOMAINS).map((domain) =>
     domain.toLowerCase()
   ),
-  registryDir: resolve(
-    process.env.CODEX_RUNNER_REGISTRY_DIR ||
-      join(process.env.CODEX_RUNNER_WORK_ROOT || join(process.cwd(), 'work'), 'runners')
-  ),
+  nexusBaseUrl: requireEnv('NEXUS_BASE_URL').replace(/\/+$/, ''),
+  runnerToken: requireEnv('CODEX_RUNNER_TOKEN'),
+  defaultRepository: process.env.CODEX_RUNNER_REPOSITORY || 'Valorith/Server',
+  defaultBaseBranch: process.env.CODEX_RUNNER_BASE_BRANCH || 'master',
+  runnerServiceName: process.env.CODEX_RUNNER_SERVICE_NAME || 'nexus-codex-runner.service',
+  workRoot,
+  registryDir,
+  controlDir,
   staleAfterMs: parsePositiveInt(process.env.DASHBOARD_STALE_AFTER_MS, 45_000),
-  sessionTtlSeconds: parsePositiveInt(process.env.DASHBOARD_SESSION_TTL_SECONDS, 86_400)
+  sessionTtlSeconds: parsePositiveInt(process.env.DASHBOARD_SESSION_TTL_SECONDS, 86_400),
+  logLines: parsePositiveInt(process.env.DASHBOARD_LOG_LINES, 240)
 };
 
 if (config.allowedEmails.length === 0 && config.allowedDomains.length === 0) {
@@ -39,19 +49,29 @@ if (config.allowedEmails.length === 0 && config.allowedDomains.length === 0) {
 const redirectUri = `${config.baseUrl}${config.basePath}/auth/google/callback`;
 
 await mkdir(config.registryDir, { recursive: true });
+await mkdir(config.controlDir, { recursive: true });
 
 const server = createServer(async (request, response) => {
   try {
     await routeRequest(request, response);
   } catch (error) {
+    const statusCode = error instanceof HttpError ? error.statusCode : 500;
+    const message =
+      error instanceof Error ? error.message : 'The dashboard could not complete that request.';
     console.error(error instanceof Error ? error.stack || error.message : error);
-    sendHtml(response, 500, renderErrorPage('Something went sideways.', 'Check the dashboard service logs.'));
+
+    if (isApiRequest(request)) {
+      sendJson(response, statusCode, { error: message });
+      return;
+    }
+
+    sendHtml(response, statusCode, renderErrorPage('Something went sideways.', message));
   }
 });
 
 server.listen(config.port, config.host, () => {
   console.log(
-    `Nexus Codex runner dashboard listening on http://${config.host}:${config.port} for ${config.baseUrl}`
+    `Nexus Codex runner dashboard listening on http://${config.host}:${config.port} for ${config.baseUrl}${config.basePath}`
   );
 });
 
@@ -90,22 +110,91 @@ async function routeRequest(request, response) {
     return;
   }
 
+  if (path === '/api/overview') {
+    requireMethod(request, 'GET');
+    await sendOverview(response, url);
+    return;
+  }
+
   if (path === '/api/runners') {
+    requireMethod(request, 'GET');
     const runners = await listRunners();
     sendJson(response, 200, {
       generatedAt: new Date().toISOString(),
       staleAfterMs: config.staleAfterMs,
-      user: {
-        email: session.email,
-        name: session.name,
-        picture: session.picture
-      },
+      service: await getRunnerServiceStatus(),
+      user: serializeSessionUser(session),
       runners
     });
     return;
   }
 
+  const runnerControlMatch = path.match(/^\/api\/runners\/([^/]+)\/control$/);
+  if (runnerControlMatch) {
+    requireMethod(request, 'POST');
+    await handleRunnerControl(response, runnerControlMatch[1], session, await readJsonBody(request));
+    return;
+  }
+
+  const runnerLogsMatch = path.match(/^\/api\/runners\/([^/]+)\/logs$/);
+  if (runnerLogsMatch) {
+    requireMethod(request, 'GET');
+    const lines = parsePositiveInt(url.searchParams.get('lines') || '', config.logLines);
+    const logs = await readRunnerLogs(Math.min(lines, 1_000));
+    sendJson(response, 200, {
+      generatedAt: new Date().toISOString(),
+      runnerId: decodeURIComponent(runnerLogsMatch[1]),
+      serviceName: config.runnerServiceName,
+      logs
+    });
+    return;
+  }
+
+  if (path === '/api/tasks') {
+    if (request.method === 'GET') {
+      await sendTaskList(response, url);
+      return;
+    }
+    if (request.method === 'POST') {
+      await sendTaskCreate(response, await readJsonBody(request));
+      return;
+    }
+    throw new HttpError(405, 'Method not allowed.');
+  }
+
+  const taskDetailMatch = path.match(/^\/api\/tasks\/([^/]+)$/);
+  if (taskDetailMatch) {
+    requireMethod(request, 'GET');
+    const jobId = decodeURIComponent(taskDetailMatch[1]);
+    sendJson(response, 200, await nexusGet(`/jobs/${encodeURIComponent(jobId)}?detail=1`));
+    return;
+  }
+
+  const taskCancelMatch = path.match(/^\/api\/tasks\/([^/]+)\/cancel$/);
+  if (taskCancelMatch) {
+    requireMethod(request, 'POST');
+    const jobId = decodeURIComponent(taskCancelMatch[1]);
+    const body = await readJsonBody(request);
+    sendJson(
+      response,
+      200,
+      await nexusPost(`/jobs/${encodeURIComponent(jobId)}/cancel`, {
+        reason: typeof body.reason === 'string' ? body.reason : 'Canceled from dashboard.'
+      })
+    );
+    return;
+  }
+
+  const taskRetryMatch = path.match(/^\/api\/tasks\/([^/]+)\/retry$/);
+  if (taskRetryMatch) {
+    requireMethod(request, 'POST');
+    const jobId = decodeURIComponent(taskRetryMatch[1]);
+    sendJson(response, 200, await nexusPost(`/jobs/${encodeURIComponent(jobId)}/retry`, {}));
+    return;
+  }
+
   if (path === '/') {
+    requireMethod(request, 'GET');
     sendHtml(response, 200, renderDashboardPage(session));
     return;
   }
@@ -209,6 +298,98 @@ async function handleGoogleCallback(request, response, url) {
   redirect(response, withBasePath('/'));
 }
 
+async function sendOverview(response, url) {
+  const [runners, tasks, service] = await Promise.all([
+    listRunners(),
+    listTasks(url.searchParams),
+    getRunnerServiceStatus()
+  ]);
+
+  sendJson(response, 200, {
+    generatedAt: new Date().toISOString(),
+    staleAfterMs: config.staleAfterMs,
+    service,
+    defaults: {
+      repository: config.defaultRepository,
+      baseBranch: config.defaultBaseBranch
+    },
+    runners,
+    tasks
+  });
+}
+
+async function sendTaskList(response, url) {
+  sendJson(response, 200, {
+    generatedAt: new Date().toISOString(),
+    tasks: await listTasks(url.searchParams)
+  });
+}
+
+async function sendTaskCreate(response, body) {
+  const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : '';
+  if (prompt.length < 10) {
+    throw new HttpError(400, 'Task prompt must be at least 10 characters.');
+  }
+
+  sendJson(
+    response,
+    200,
+    await nexusPost('/jobs', {
+      title: typeof body.title === 'string' ? body.title.trim() : undefined,
+      targetRepository:
+        typeof body.targetRepository === 'string' ? body.targetRepository.trim() : undefined,
+      baseBranch: typeof body.baseBranch === 'string' ? body.baseBranch.trim() : undefined,
+      prompt
+    })
+  );
+}
+
+async function handleRunnerControl(response, encodedRunnerId, session, body) {
+  const runnerId = decodeURIComponent(encodedRunnerId);
+  const action = typeof body.action === 'string' ? body.action.trim().toLowerCase() : '';
+  const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+
+  if (action === 'pause' || action === 'resume') {
+    const paused = action === 'pause';
+    await writeRunnerControl(runnerId, {
+      paused,
+      reason: paused ? reason || 'Paused from the runner dashboard.' : reason || null,
+      updatedAt: new Date().toISOString(),
+      updatedBy: session.email
+    });
+    sendJson(response, 200, { ok: true, runnerId, action, control: await readRunnerControl(runnerId) });
+    return;
+  }
+
+  if (['start', 'stop', 'restart'].includes(action)) {
+    const result = await runServiceAction(action);
+    sendJson(response, 200, {
+      ok: true,
+      runnerId,
+      action,
+      service: await getRunnerServiceStatus(),
+      output: result.stdout || result.stderr || ''
+    });
+    return;
+  }
+
+  throw new HttpError(400, 'Unsupported runner control action.');
+}
+
+async function listTasks(searchParams = new URLSearchParams()) {
+  const params = new URLSearchParams();
+  params.set('limit', searchParams.get('limit') || '50');
+  if (searchParams.get('status')) {
+    params.set('status', searchParams.get('status'));
+  }
+  if (searchParams.get('runnerId')) {
+    params.set('runnerId', searchParams.get('runnerId'));
+  }
+
+  const response = await nexusGet(`/jobs?${params.toString()}`);
+  return Array.isArray(response.jobs) ? response.jobs : [];
+}
+
 async function listRunners() {
   const entries = await readdir(config.registryDir, { withFileTypes: true }).catch(() => []);
   const now = Date.now();
@@ -223,14 +404,18 @@ async function listRunners() {
     try {
       const [contents, stats] = await Promise.all([readFile(filePath, 'utf8'), stat(filePath)]);
       const data = JSON.parse(contents);
+      const runnerId = String(data.runnerId || entry.name.replace(/\.json$/, ''));
       const lastSeenAt = parseDateMs(data.lastSeenAt) || stats.mtimeMs;
       const ageMs = Math.max(0, now - lastSeenAt);
-      const active = ageMs <= config.staleAfterMs && !['stopped', 'stopping'].includes(data.status);
+      const status = String(data.status || 'unknown');
+      const control = normalizeControl(data.control || (await readRunnerControl(runnerId)));
+      const active = ageMs <= config.staleAfterMs && !['stopped', 'stopping'].includes(status);
       runners.push({
-        runnerId: String(data.runnerId || entry.name.replace(/\.json$/, '')),
+        runnerId,
         hostname: stringOrNull(data.hostname),
         pid: numberOrNull(data.pid),
-        status: String(data.status || 'unknown'),
+        status,
+        paused: status === 'paused' || control.paused === true,
         active,
         ageMs,
         lastSeenAt: toIso(lastSeenAt),
@@ -244,12 +429,16 @@ async function listRunners() {
         nexusBaseUrl: stringOrNull(data.nexusBaseUrl),
         pollIntervalMs: numberOrNull(data.pollIntervalMs),
         heartbeatIntervalMs: numberOrNull(data.heartbeatIntervalMs),
-        workRoot: stringOrNull(data.workRoot)
+        cancelCheckIntervalMs: numberOrNull(data.cancelCheckIntervalMs),
+        workRoot: stringOrNull(data.workRoot),
+        controlFile: stringOrNull(data.controlFile) || getRunnerControlFile(runnerId),
+        control
       });
     } catch (error) {
       runners.push({
         runnerId: entry.name.replace(/\.json$/, ''),
         active: false,
+        paused: false,
         status: 'unreadable',
         ageMs: null,
         lastSeenAt: null,
@@ -266,6 +455,150 @@ async function listRunners() {
   });
 }
 
+async function writeRunnerControl(runnerId, control) {
+  await mkdir(config.controlDir, { recursive: true });
+  await writeFile(getRunnerControlFile(runnerId), `${JSON.stringify(control, null, 2)}\n`, 'utf8');
+}
+
+async function readRunnerControl(runnerId) {
+  const filePath = getRunnerControlFile(runnerId);
+  if (!existsSync(filePath)) {
+    return normalizeControl(null);
+  }
+  try {
+    return normalizeControl(JSON.parse(await readFile(filePath, 'utf8')));
+  } catch (error) {
+    return normalizeControl({
+      paused: false,
+      reason: error instanceof Error ? `Invalid control file: ${error.message}` : 'Invalid control file'
+    });
+  }
+}
+
+function getRunnerControlFile(runnerId) {
+  return join(config.controlDir, `${sanitizeFileName(runnerId)}.json`);
+}
+
+function normalizeControl(value) {
+  if (!value || typeof value !== 'object') {
+    return {
+      paused: false,
+      reason: null,
+      updatedAt: null,
+      updatedBy: null
+    };
+  }
+  return {
+    paused: value.paused === true,
+    reason: typeof value.reason === 'string' && value.reason.trim() ? value.reason : null,
+    updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : null,
+    updatedBy: typeof value.updatedBy === 'string' && value.updatedBy.trim() ? value.updatedBy : null
+  };
+}
+
+async function runServiceAction(action) {
+  return runExecFile('sudo', ['-n', 'systemctl', action, config.runnerServiceName], {
+    timeoutMs: 45_000
+  });
+}
+
+async function getRunnerServiceStatus() {
+  try {
+    const [active, enabled] = await Promise.all([
+      runExecFile('systemctl', ['is-active', config.runnerServiceName], {
+        allowNonZero: true,
+        timeoutMs: 10_000
+      }),
+      runExecFile('systemctl', ['is-enabled', config.runnerServiceName], {
+        allowNonZero: true,
+        timeoutMs: 10_000
+      })
+    ]);
+    return {
+      name: config.runnerServiceName,
+      active: active.stdout.trim() || active.stderr.trim() || 'unknown',
+      enabled: enabled.stdout.trim() || enabled.stderr.trim() || 'unknown'
+    };
+  } catch (error) {
+    return {
+      name: config.runnerServiceName,
+      active: 'unknown',
+      enabled: 'unknown',
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+async function readRunnerLogs(lines) {
+  const args = [
+    '-u',
+    config.runnerServiceName,
+    '-n',
+    String(lines),
+    '--no-pager',
+    '--output',
+    'short-iso'
+  ];
+
+  try {
+    const result = await runExecFile('sudo', ['-n', 'journalctl', ...args], {
+      allowNonZero: true,
+      maxBuffer: 2_000_000,
+      timeoutMs: 20_000
+    });
+    return result.stdout || result.stderr || '';
+  } catch {
+    const result = await runExecFile('journalctl', args, {
+      allowNonZero: true,
+      maxBuffer: 2_000_000,
+      timeoutMs: 20_000
+    });
+    return result.stdout || result.stderr || '';
+  }
+}
+
+async function nexusGet(path) {
+  return parseNexusResponse(
+    await fetch(`${config.nexusBaseUrl}/api/codex-runner${path}`, {
+      headers: {
+        authorization: `Bearer ${config.runnerToken}`
+      }
+    })
+  );
+}
+
+async function nexusPost(path, body) {
+  return parseNexusResponse(
+    await fetch(`${config.nexusBaseUrl}/api/codex-runner${path}`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${config.runnerToken}`,
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify(body || {})
+    })
+  );
+}
+
+async function parseNexusResponse(response) {
+  const text = await response.text();
+  let body = null;
+  try {
+    body = text ? JSON.parse(text) : null;
+  } catch {
+    body = null;
+  }
+
+  if (!response.ok) {
+    throw new HttpError(
+      response.status,
+      body?.error || body?.message || text || `Nexus responded with ${response.status}.`
+    );
+  }
+
+  return body || {};
+}
+
 function renderDashboardPage(session) {
   return `<!doctype html>
 <html lang="en">
@@ -276,16 +609,20 @@ function renderDashboardPage(session) {
   <style>
     :root {
       color-scheme: dark;
-      --bg: #09111f;
-      --panel: #111c2e;
-      --panel-strong: #17243a;
-      --line: rgba(148, 163, 184, 0.22);
-      --text: #e5edf8;
-      --muted: #94a3b8;
-      --green: #3ddc84;
+      --bg: #07111d;
+      --surface: #101927;
+      --surface-2: #152236;
+      --surface-3: #1b2a41;
+      --line: rgba(148, 163, 184, 0.24);
+      --text: #e7eef9;
+      --muted: #98a8bd;
+      --soft: #cbd5e1;
+      --green: #36d982;
       --red: #fb7185;
-      --amber: #fbbf24;
-      --blue: #60a5fa;
+      --amber: #f6c453;
+      --cyan: #30d5c8;
+      --blue: #6aa8ff;
+      --shadow: rgba(0, 0, 0, 0.28);
     }
     * { box-sizing: border-box; }
     body {
@@ -297,92 +634,199 @@ function renderDashboardPage(session) {
     }
     header {
       border-bottom: 1px solid var(--line);
-      background: rgba(9, 17, 31, 0.92);
+      background: rgba(7, 17, 29, 0.94);
       position: sticky;
       top: 0;
-      z-index: 2;
+      z-index: 5;
     }
-    .shell { width: min(1180px, calc(100vw - 32px)); margin: 0 auto; }
+    button, input, textarea, select {
+      font: inherit;
+    }
+    button {
+      min-height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #17243a;
+      color: var(--text);
+      padding: 0 12px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    button:hover { border-color: rgba(106, 168, 255, 0.6); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.primary { background: #2463d8; border-color: #3478f6; }
+    button.good { background: #147a46; border-color: #22c55e; }
+    button.warn { background: #7a4c0b; border-color: #f6c453; }
+    button.danger { background: #7f1d2d; border-color: #fb7185; }
+    input, textarea, select {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #0b1524;
+      color: var(--text);
+      padding: 10px 11px;
+      outline: none;
+    }
+    textarea { min-height: 132px; resize: vertical; }
+    label { display: grid; gap: 6px; color: var(--soft); font-weight: 800; }
+    a { color: var(--blue); text-decoration: none; }
+    pre {
+      margin: 0;
+      overflow: auto;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    code {
+      color: #bfdbfe;
+      background: rgba(106, 168, 255, 0.1);
+      border: 1px solid rgba(106, 168, 255, 0.16);
+      border-radius: 5px;
+      padding: 2px 5px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+    }
+    .shell { width: min(1360px, calc(100vw - 32px)); margin: 0 auto; }
     .topbar {
-      min-height: 72px;
+      min-height: 74px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 18px;
     }
     h1 { margin: 0; font-size: 22px; letter-spacing: 0; }
+    h2 { margin: 0; font-size: 17px; letter-spacing: 0; }
+    h3 { margin: 0; font-size: 15px; letter-spacing: 0; }
     .subtitle { color: var(--muted); margin-top: 3px; }
     .user { display: flex; align-items: center; gap: 12px; color: var(--muted); }
     .user img { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); }
-    a { color: var(--blue); text-decoration: none; }
-    main { padding: 28px 0 48px; }
-    .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
-    .stat, .runner {
-      background: var(--panel);
+    main { padding: 24px 0 44px; }
+    .stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+    .stat, .panel, .runner, .task-row {
+      background: var(--surface);
       border: 1px solid var(--line);
       border-radius: 8px;
+      box-shadow: 0 12px 28px var(--shadow);
     }
-    .stat { padding: 16px; }
-    .stat strong { display: block; font-size: 24px; margin-bottom: 2px; }
+    .stat { padding: 15px; }
+    .stat strong { display: block; font-size: 25px; margin-bottom: 2px; }
     .stat span { color: var(--muted); }
-    .toolbar {
+    .layout { display: grid; grid-template-columns: minmax(320px, 0.72fr) minmax(440px, 1fr); gap: 14px; align-items: start; }
+    .panel { overflow: hidden; }
+    .panel-head {
       display: flex;
-      justify-content: space-between;
       align-items: center;
-      color: var(--muted);
-      margin: 18px 0 12px;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 52px;
+      padding: 14px 16px;
+      background: var(--surface-2);
+      border-bottom: 1px solid var(--line);
     }
+    .panel-body { padding: 16px; display: grid; gap: 13px; }
+    .row { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+    .muted { color: var(--muted); }
+    .mini { font-size: 12px; color: var(--muted); }
+    .form-grid { display: grid; grid-template-columns: 1fr 160px; gap: 10px; }
     .runner-list { display: grid; gap: 12px; }
     .runner { overflow: hidden; }
     .runner-head {
       display: flex;
       justify-content: space-between;
       gap: 14px;
-      padding: 16px;
-      background: var(--panel-strong);
+      padding: 15px;
+      background: var(--surface-2);
       border-bottom: 1px solid var(--line);
     }
-    .runner-title { font-weight: 800; font-size: 16px; }
+    .runner-title { font-weight: 900; font-size: 16px; overflow-wrap: anywhere; }
     .runner-meta { color: var(--muted); margin-top: 3px; }
+    .runner-body { padding: 15px; display: grid; gap: 13px; }
+    .runner-controls { display: flex; gap: 8px; flex-wrap: wrap; }
+    .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .field { min-width: 0; }
+    .field span { display: block; color: var(--muted); font-size: 12px; text-transform: uppercase; font-weight: 900; margin-bottom: 3px; }
+    .field code, .field div { overflow-wrap: anywhere; }
     .badge {
       display: inline-flex;
       align-items: center;
-      height: 28px;
-      padding: 0 10px;
+      justify-content: center;
+      min-height: 26px;
+      padding: 0 9px;
       border-radius: 999px;
       border: 1px solid var(--line);
-      font-weight: 800;
+      font-weight: 900;
       text-transform: uppercase;
       font-size: 12px;
+      white-space: nowrap;
     }
-    .badge--active { color: #052e16; background: var(--green); border-color: transparent; }
-    .badge--inactive { color: #fff1f2; background: rgba(251, 113, 133, 0.18); border-color: rgba(251, 113, 133, 0.45); }
-    .runner-body { padding: 16px; display: grid; gap: 14px; }
-    .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-    .field { min-width: 0; }
-    .field span { display: block; color: var(--muted); font-size: 12px; text-transform: uppercase; font-weight: 800; margin-bottom: 3px; }
-    .field code, .field div { overflow-wrap: anywhere; }
-    code {
-      color: #bfdbfe;
-      background: rgba(96, 165, 250, 0.1);
-      border: 1px solid rgba(96, 165, 250, 0.16);
-      border-radius: 5px;
-      padding: 2px 5px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 12px;
-    }
-    .job, .error {
+    .badge.active, .badge.succeeded { color: #052e16; background: var(--green); border-color: transparent; }
+    .badge.inactive, .badge.failed, .badge.canceled { color: #fff1f2; background: rgba(251, 113, 133, 0.18); border-color: rgba(251, 113, 133, 0.48); }
+    .badge.paused, .badge.queued, .badge.claimed { color: #422006; background: var(--amber); border-color: transparent; }
+    .badge.running { color: #042f2e; background: var(--cyan); border-color: transparent; }
+    .badge.idle { color: #dbeafe; background: rgba(106, 168, 255, 0.16); border-color: rgba(106, 168, 255, 0.34); }
+    .job, .error, .logbox {
       border: 1px solid var(--line);
       border-radius: 8px;
       padding: 12px;
-      background: rgba(2, 6, 23, 0.25);
+      background: rgba(2, 6, 23, 0.28);
     }
-    .error { border-color: rgba(251, 113, 133, 0.35); color: #fecdd3; white-space: pre-wrap; }
+    .error { border-color: rgba(251, 113, 133, 0.38); color: #fecdd3; white-space: pre-wrap; }
+    .logbox { min-height: 240px; max-height: 430px; overflow: auto; }
+    .toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      margin: 18px 0 12px;
+    }
+    .tasks { display: grid; gap: 8px; }
+    .task-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1.3fr) 150px 130px 170px;
+      gap: 12px;
+      align-items: center;
+      padding: 12px;
+      box-shadow: none;
+    }
+    .task-main { min-width: 0; display: grid; gap: 4px; }
+    .task-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
     .empty { border: 1px dashed var(--line); border-radius: 8px; padding: 28px; text-align: center; color: var(--muted); }
-    @media (max-width: 800px) {
+    .modal {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+      background: rgba(0, 0, 0, 0.62);
+    }
+    .modal[hidden] { display: none; }
+    .modal-card {
+      width: min(980px, 100%);
+      max-height: min(760px, calc(100vh - 40px));
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+    }
+    .modal-body { overflow: auto; padding: 16px; display: grid; gap: 14px; }
+    @media (max-width: 980px) {
+      .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .layout { grid-template-columns: 1fr; }
+      .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .task-row { grid-template-columns: 1fr; }
+      .task-actions { justify-content: flex-start; }
+    }
+    @media (max-width: 620px) {
+      .shell { width: min(100vw - 20px, 1360px); }
       .topbar { align-items: flex-start; flex-direction: column; padding: 16px 0; }
-      .stats, .grid { grid-template-columns: 1fr; }
+      .stats, .grid, .form-grid { grid-template-columns: 1fr; }
       .runner-head { flex-direction: column; }
+      .toolbar { align-items: flex-start; flex-direction: column; }
     }
   </style>
 </head>
@@ -391,7 +835,7 @@ function renderDashboardPage(session) {
     <div class="shell topbar">
       <div>
         <h1>Nexus Codex Runners</h1>
-        <div class="subtitle">VPS-managed autonomous Codex workers</div>
+        <div class="subtitle">Autonomous runner control, task queue, and service logs</div>
       </div>
       <div class="user">
         ${session.picture ? `<img src="${escapeHtml(session.picture)}" alt="">` : ''}
@@ -403,21 +847,109 @@ function renderDashboardPage(session) {
     </div>
   </header>
   <main class="shell">
-    <section class="stats" id="stats">
-      <div class="stat"><strong>0</strong><span>Active</span></div>
-      <div class="stat"><strong>0</strong><span>Inactive</span></div>
-      <div class="stat"><strong>0</strong><span>Total</span></div>
+    <section class="stats" id="stats"></section>
+    <section class="layout">
+      <article class="panel">
+        <div class="panel-head">
+          <h2>New Task</h2>
+          <span class="mini">Creates a queued Nexus Codex job</span>
+        </div>
+        <form class="panel-body" id="task-form">
+          <label>Title
+            <input name="title" maxlength="160" placeholder="Short description">
+          </label>
+          <div class="form-grid">
+            <label>Repository
+              <input name="targetRepository" value="${escapeHtml(config.defaultRepository)}">
+            </label>
+            <label>Base branch
+              <input name="baseBranch" value="${escapeHtml(config.defaultBaseBranch)}">
+            </label>
+          </div>
+          <label>Prompt
+            <textarea name="prompt" required placeholder="Tell Codex exactly what to investigate, change, test, and open a PR for."></textarea>
+          </label>
+          <div class="row">
+            <button class="primary" type="submit">Create Task</button>
+            <span class="mini" id="create-status"></span>
+          </div>
+        </form>
+      </article>
+      <article class="panel">
+        <div class="panel-head">
+          <h2>Runner Service</h2>
+          <div class="row">
+            <button data-service-action="start">Start</button>
+            <button class="warn" data-service-action="restart">Restart</button>
+            <button class="danger" data-service-action="stop">Stop</button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="grid" id="service-grid"></div>
+          <div class="row">
+            <button data-log-refresh>Refresh Logs</button>
+            <span class="mini" id="log-status">Logs load on demand.</span>
+          </div>
+          <div class="logbox"><pre id="logs">Select Refresh Logs to load runner service logs.</pre></div>
+        </div>
+      </article>
     </section>
     <div class="toolbar">
-      <div id="generated">Loading runners...</div>
-      <div>Auto refresh: 15s</div>
+      <div id="generated">Loading runner control plane...</div>
+      <div class="row">
+        <select id="status-filter" aria-label="Task status filter">
+          <option value="">All tasks</option>
+          <option value="QUEUED,CLAIMED,RUNNING">Active tasks</option>
+          <option value="FAILED">Failed</option>
+          <option value="CANCELED">Canceled</option>
+          <option value="SUCCEEDED">Succeeded</option>
+        </select>
+        <button data-refresh>Refresh</button>
+      </div>
+    </div>
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Tasks</h2>
+        <span class="mini">Cancel, retry, inspect output, or open PRs</span>
+      </div>
+      <div class="panel-body">
+        <div class="tasks" id="tasks"></div>
+      </div>
+    </section>
+    <div class="toolbar">
+      <div>Runners</div>
+      <div class="mini">Auto refresh: 15s</div>
     </div>
     <section class="runner-list" id="runners"></section>
   </main>
+  <div class="modal" id="detail-modal" hidden>
+    <article class="modal-card">
+      <div class="panel-head">
+        <h2 id="detail-title">Task Details</h2>
+        <button data-modal-close>Close</button>
+      </div>
+      <div class="modal-body" id="detail-body"></div>
+    </article>
+  </div>
   <script>
+    const API = {
+      overview: '${escapeJsString(withBasePath('/api/overview'))}',
+      tasks: '${escapeJsString(withBasePath('/api/tasks'))}',
+      runners: '${escapeJsString(withBasePath('/api/runners'))}'
+    };
     const runnersEl = document.getElementById('runners');
     const statsEl = document.getElementById('stats');
     const generatedEl = document.getElementById('generated');
+    const tasksEl = document.getElementById('tasks');
+    const serviceGridEl = document.getElementById('service-grid');
+    const logsEl = document.getElementById('logs');
+    const logStatusEl = document.getElementById('log-status');
+    const createStatusEl = document.getElementById('create-status');
+    const statusFilterEl = document.getElementById('status-filter');
+    const detailModalEl = document.getElementById('detail-modal');
+    const detailBodyEl = document.getElementById('detail-body');
+    const detailTitleEl = document.getElementById('detail-title');
+    let latestRunners = [];
 
     function escapeHtml(value) {
       return String(value ?? '').replace(/[&<>"']/g, (char) => ({
@@ -443,29 +975,57 @@ function renderDashboardPage(session) {
     }
 
     function renderField(label, value, code = false) {
-      const body = code ? '<code>' + escapeHtml(value || 'none') + '</code>' : '<div>' + escapeHtml(value || 'none') + '</div>';
+      const body = code
+        ? '<code>' + escapeHtml(value || 'none') + '</code>'
+        : '<div>' + escapeHtml(value || 'none') + '</div>';
       return '<div class="field"><span>' + escapeHtml(label) + '</span>' + body + '</div>';
     }
 
+    function statusClass(value) {
+      return String(value || '').toLowerCase();
+    }
+
+    function renderBadge(label, className) {
+      return '<span class="badge ' + escapeHtml(className || statusClass(label)) + '">' + escapeHtml(label || 'unknown') + '</span>';
+    }
+
+    function taskCanCancel(task) {
+      return ['QUEUED', 'CLAIMED', 'RUNNING'].includes(task.status);
+    }
+
+    function taskCanRetry(task) {
+      return ['FAILED', 'CANCELED'].includes(task.status);
+    }
+
     function renderRunner(runner) {
-      const activeLabel = runner.active ? 'Active' : 'Inactive';
-      const badgeClass = runner.active ? 'badge--active' : 'badge--inactive';
+      const activeLabel = runner.paused ? 'Paused' : runner.active ? 'Active' : 'Inactive';
+      const badgeClass = runner.paused ? 'paused' : runner.active ? 'active' : 'inactive';
       const job = runner.currentJob
         ? '<div class="job">' +
-          '<strong>Current job</strong><br>' +
+          '<strong>Current job</strong><div class="grid" style="margin-top:10px">' +
           renderField('Job ID', runner.currentJob.id, true) +
           renderField('Repository', runner.currentJob.targetRepository, true) +
           renderField('Branch', runner.currentJob.branchName, true) +
-          '</div>'
+          renderField('Created', relativeTime(runner.currentJob.createdAt)) +
+          '</div></div>'
         : '';
       const error = runner.lastError ? '<div class="error">' + escapeHtml(runner.lastError) + '</div>' : '';
+      const control = runner.control || {};
+      const controlNote = control.reason
+        ? '<div class="mini">Control: ' + escapeHtml(control.reason) + (control.updatedBy ? ' by ' + escapeHtml(control.updatedBy) : '') + '</div>'
+        : '';
       return '<article class="runner">' +
         '<div class="runner-head">' +
           '<div><div class="runner-title">' + escapeHtml(runner.runnerId) + '</div>' +
           '<div class="runner-meta">' + escapeHtml(runner.hostname || 'unknown host') + ' · PID ' + escapeHtml(runner.pid || 'n/a') + '</div></div>' +
-          '<div><span class="badge ' + badgeClass + '">' + activeLabel + '</span></div>' +
+          '<div>' + renderBadge(activeLabel, badgeClass) + '</div>' +
         '</div>' +
         '<div class="runner-body">' +
+          '<div class="runner-controls">' +
+            '<button data-runner-action="' + (runner.paused ? 'resume' : 'pause') + '" data-runner-id="' + escapeHtml(runner.runnerId) + '">' + (runner.paused ? 'Resume' : 'Pause') + '</button>' +
+            '<button class="warn" data-runner-action="restart" data-runner-id="' + escapeHtml(runner.runnerId) + '">Restart</button>' +
+            '<button data-runner-logs="' + escapeHtml(runner.runnerId) + '">View Logs</button>' +
+          '</div>' + controlNote +
           '<div class="grid">' +
             renderField('Status', runner.status) +
             renderField('Last seen', relativeTime(runner.lastSeenAt)) +
@@ -474,35 +1034,199 @@ function renderDashboardPage(session) {
             renderField('Nexus', runner.nexusBaseUrl, true) +
             renderField('Work root', runner.workRoot, true) +
             renderField('Poll interval', runner.pollIntervalMs ? runner.pollIntervalMs + ' ms' : null) +
-            renderField('Heartbeat', runner.heartbeatIntervalMs ? runner.heartbeatIntervalMs + ' ms' : null) +
+            renderField('Cancel check', runner.cancelCheckIntervalMs ? runner.cancelCheckIntervalMs + ' ms' : null) +
           '</div>' + job + error +
         '</div>' +
       '</article>';
     }
 
-    async function refresh() {
-      try {
-        const response = await fetch('${escapeJsString(withBasePath('/api/runners'))}', { credentials: 'same-origin' });
-        if (response.status === 401) {
-          window.location.href = '${escapeJsString(withBasePath('/login'))}';
-          return;
+    function renderTask(task) {
+      const id = escapeHtml(task.id);
+      const pr = task.prUrl ? '<a href="' + escapeHtml(task.prUrl) + '" target="_blank" rel="noreferrer">PR #' + escapeHtml(task.prNumber || '') + '</a>' : '<span class="muted">No PR</span>';
+      const runner = task.runnerId ? '<code>' + escapeHtml(task.runnerId) + '</code>' : '<span class="muted">unassigned</span>';
+      const actions =
+        '<button data-task-detail="' + id + '">Details</button>' +
+        (taskCanCancel(task) ? '<button class="danger" data-task-cancel="' + id + '">Cancel</button>' : '') +
+        (taskCanRetry(task) ? '<button class="warn" data-task-retry="' + id + '">Retry</button>' : '');
+      return '<div class="task-row">' +
+        '<div class="task-main">' +
+          '<div class="row">' + renderBadge(task.status, statusClass(task.status)) + '<code>' + id + '</code></div>' +
+          '<div><strong>' + escapeHtml(task.targetRepository) + '</strong> <span class="muted">on</span> <code>' + escapeHtml(task.baseBranch) + '</code></div>' +
+          '<div class="mini">' + escapeHtml(task.statusMessage || 'No status message') + '</div>' +
+        '</div>' +
+        '<div>' + runner + '</div>' +
+        '<div>' + pr + '</div>' +
+        '<div class="task-actions">' + actions + '</div>' +
+      '</div>';
+    }
+
+    function renderStats(runners, tasks, service) {
+      const activeRunners = runners.filter((runner) => runner.active && !runner.paused).length;
+      const pausedRunners = runners.filter((runner) => runner.paused).length;
+      const activeTasks = tasks.filter((task) => ['QUEUED', 'CLAIMED', 'RUNNING'].includes(task.status)).length;
+      const failedTasks = tasks.filter((task) => task.status === 'FAILED').length;
+      statsEl.innerHTML =
+        '<div class="stat"><strong>' + activeRunners + '</strong><span>Active runners</span></div>' +
+        '<div class="stat"><strong>' + pausedRunners + '</strong><span>Paused runners</span></div>' +
+        '<div class="stat"><strong>' + activeTasks + '</strong><span>Open tasks</span></div>' +
+        '<div class="stat"><strong>' + failedTasks + '</strong><span>Failed tasks</span></div>' +
+        '<div class="stat"><strong>' + escapeHtml(service?.active || 'unknown') + '</strong><span>Service</span></div>';
+    }
+
+    function renderService(service) {
+      serviceGridEl.innerHTML =
+        renderField('Service', service?.name || 'unknown', true) +
+        renderField('Active', service?.active || 'unknown') +
+        renderField('Enabled', service?.enabled || 'unknown') +
+        renderField('Host', window.location.host, true);
+    }
+
+    async function requestJson(url, options = {}) {
+      const { headers, ...restOptions } = options;
+      const response = await fetch(url, {
+        credentials: 'same-origin',
+        ...restOptions,
+        headers: {
+          'content-type': 'application/json',
+          ...(headers || {})
         }
-        const data = await response.json();
-        const active = data.runners.filter((runner) => runner.active).length;
-        const total = data.runners.length;
-        statsEl.innerHTML =
-          '<div class="stat"><strong>' + active + '</strong><span>Active</span></div>' +
-          '<div class="stat"><strong>' + (total - active) + '</strong><span>Inactive</span></div>' +
-          '<div class="stat"><strong>' + total + '</strong><span>Total</span></div>';
+      });
+      if (response.status === 401) {
+        window.location.href = '${escapeJsString(withBasePath('/login'))}';
+        return null;
+      }
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || 'Request failed with ' + response.status);
+      }
+      return data;
+    }
+
+    async function refresh() {
+      const params = new URLSearchParams();
+      params.set('limit', '50');
+      if (statusFilterEl.value) params.set('status', statusFilterEl.value);
+      try {
+        const data = await requestJson(API.overview + '?' + params.toString());
+        if (!data) return;
+        latestRunners = data.runners || [];
+        renderStats(latestRunners, data.tasks || [], data.service || {});
+        renderService(data.service || {});
         generatedEl.textContent = 'Updated ' + new Date(data.generatedAt).toLocaleString();
-        runnersEl.innerHTML = total
-          ? data.runners.map(renderRunner).join('')
-          : '<div class="empty">No runner heartbeat files found yet.</div>';
+        tasksEl.innerHTML = data.tasks?.length ? data.tasks.map(renderTask).join('') : '<div class="empty">No Codex tasks found.</div>';
+        runnersEl.innerHTML = latestRunners.length ? latestRunners.map(renderRunner).join('') : '<div class="empty">No runner heartbeat files found yet.</div>';
       } catch (error) {
-        generatedEl.textContent = 'Unable to refresh runner status';
-        runnersEl.innerHTML = '<div class="error">' + escapeHtml(error.message || error) + '</div>';
+        generatedEl.textContent = 'Unable to refresh runner control plane';
+        tasksEl.innerHTML = '<div class="error">' + escapeHtml(error.message || error) + '</div>';
       }
     }
+
+    async function refreshLogs(runnerId = null) {
+      const runner = runnerId || latestRunners[0]?.runnerId || 'runner';
+      logStatusEl.textContent = 'Loading logs...';
+      const data = await requestJson('${escapeJsString(withBasePath('/api/runners'))}/' + encodeURIComponent(runner) + '/logs?lines=240');
+      if (!data) return;
+      logsEl.textContent = data.logs || 'No log lines returned.';
+      logStatusEl.textContent = 'Loaded ' + new Date(data.generatedAt).toLocaleString();
+    }
+
+    async function showTaskDetail(jobId) {
+      detailTitleEl.textContent = 'Task ' + jobId;
+      detailBodyEl.innerHTML = '<div class="empty">Loading task...</div>';
+      detailModalEl.hidden = false;
+      const data = await requestJson(API.tasks + '/' + encodeURIComponent(jobId));
+      if (!data) return;
+      const task = data.job;
+      detailBodyEl.innerHTML =
+        '<div class="grid">' +
+          renderField('Status', task.status) +
+          renderField('Repository', task.targetRepository, true) +
+          renderField('Branch', task.branchName, true) +
+          renderField('Runner', task.runnerId, true) +
+        '</div>' +
+        (task.prUrl ? '<div><a href="' + escapeHtml(task.prUrl) + '" target="_blank" rel="noreferrer">Open pull request</a></div>' : '') +
+        '<section class="job"><h3>Status</h3><pre>' + escapeHtml(task.statusMessage || 'No status message') + '</pre></section>' +
+        (task.error ? '<section class="error"><h3>Error</h3><pre>' + escapeHtml(task.error) + '</pre></section>' : '') +
+        '<section class="job"><h3>Prompt</h3><pre>' + escapeHtml(task.prompt || '') + '</pre></section>' +
+        '<section class="job"><h3>Output</h3><pre>' + escapeHtml(task.output || 'No runner output captured yet.') + '</pre></section>';
+    }
+
+    document.getElementById('task-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const body = Object.fromEntries(new FormData(form).entries());
+      if (!body.prompt || String(body.prompt).trim().length < 10) {
+        createStatusEl.textContent = 'Add a more specific prompt.';
+        return;
+      }
+      if (!window.confirm('Create this Codex runner task?')) return;
+      createStatusEl.textContent = 'Creating task...';
+      try {
+        await requestJson(API.tasks, { method: 'POST', body: JSON.stringify(body) });
+        form.elements.prompt.value = '';
+        createStatusEl.textContent = 'Task queued.';
+        await refresh();
+      } catch (error) {
+        createStatusEl.textContent = error.message || String(error);
+      }
+    });
+
+    document.addEventListener('click', async (event) => {
+      const button = event.target.closest('button');
+      if (!button) return;
+      try {
+        if (button.hasAttribute('data-refresh')) {
+          await refresh();
+        } else if (button.hasAttribute('data-log-refresh')) {
+          await refreshLogs();
+        } else if (button.hasAttribute('data-modal-close')) {
+          detailModalEl.hidden = true;
+        } else if (button.dataset.runnerLogs) {
+          await refreshLogs(button.dataset.runnerLogs);
+        } else if (button.dataset.serviceAction) {
+          const action = button.dataset.serviceAction;
+          if (!window.confirm(action + ' the runner service?')) return;
+          const runnerId = latestRunners[0]?.runnerId || 'vps-codex-runner';
+          await requestJson('${escapeJsString(withBasePath('/api/runners'))}/' + encodeURIComponent(runnerId) + '/control', {
+            method: 'POST',
+            body: JSON.stringify({ action })
+          });
+          await refresh();
+        } else if (button.dataset.runnerAction) {
+          const action = button.dataset.runnerAction;
+          const runnerId = button.dataset.runnerId;
+          if (['restart', 'stop'].includes(action) && !window.confirm(action + ' ' + runnerId + '?')) return;
+          await requestJson('${escapeJsString(withBasePath('/api/runners'))}/' + encodeURIComponent(runnerId) + '/control', {
+            method: 'POST',
+            body: JSON.stringify({ action })
+          });
+          await refresh();
+        } else if (button.dataset.taskDetail) {
+          await showTaskDetail(button.dataset.taskDetail);
+        } else if (button.dataset.taskCancel) {
+          if (!window.confirm('Cancel this Codex task?')) return;
+          await requestJson(API.tasks + '/' + encodeURIComponent(button.dataset.taskCancel) + '/cancel', {
+            method: 'POST',
+            body: JSON.stringify({ reason: 'Canceled from dashboard.' })
+          });
+          await refresh();
+        } else if (button.dataset.taskRetry) {
+          if (!window.confirm('Retry this Codex task as a fresh queued job?')) return;
+          await requestJson(API.tasks + '/' + encodeURIComponent(button.dataset.taskRetry) + '/retry', {
+            method: 'POST',
+            body: JSON.stringify({})
+          });
+          await refresh();
+        }
+      } catch (error) {
+        window.alert(error.message || String(error));
+      }
+    });
+
+    detailModalEl.addEventListener('click', (event) => {
+      if (event.target === detailModalEl) detailModalEl.hidden = true;
+    });
+    statusFilterEl.addEventListener('change', refresh);
 
     refresh();
     setInterval(refresh, 15000);
@@ -519,11 +1243,11 @@ function renderErrorPage(title, detail) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Nexus Codex Runners</title>
   <style>
-    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #09111f; color: #e5edf8; font: 15px/1.45 system-ui, sans-serif; }
-    main { width: min(520px, calc(100vw - 32px)); border: 1px solid rgba(148, 163, 184, .25); border-radius: 8px; background: #111c2e; padding: 24px; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #07111d; color: #e5edf8; font: 15px/1.45 system-ui, sans-serif; }
+    main { width: min(520px, calc(100vw - 32px)); border: 1px solid rgba(148, 163, 184, .25); border-radius: 8px; background: #101927; padding: 24px; }
     h1 { margin: 0 0 8px; font-size: 22px; }
     p { color: #94a3b8; }
-    a { color: #60a5fa; }
+    a { color: #6aa8ff; }
   </style>
 </head>
 <body><main><h1>${escapeHtml(title)}</h1><p>${escapeHtml(detail)}</p><a href="${escapeHtml(withBasePath('/login'))}">Sign in again</a></main></body>
@@ -543,6 +1267,14 @@ function readSession(request) {
     return null;
   }
   return session;
+}
+
+function serializeSessionUser(session) {
+  return {
+    email: session.email,
+    name: session.name,
+    picture: session.picture
+  };
 }
 
 function isAllowedEmail(email) {
@@ -638,6 +1370,24 @@ function parseCookies(header) {
   return cookies;
 }
 
+async function readJsonBody(request) {
+  let body = '';
+  for await (const chunk of request) {
+    body += chunk.toString();
+    if (body.length > 300_000) {
+      throw new HttpError(413, 'Request body is too large.');
+    }
+  }
+  if (!body.trim()) {
+    return {};
+  }
+  try {
+    return JSON.parse(body);
+  } catch {
+    throw new HttpError(400, 'Request body must be valid JSON.');
+  }
+}
+
 function sendJson(response, statusCode, body) {
   response.writeHead(statusCode, {
     'content-type': 'application/json; charset=utf-8',
@@ -660,6 +1410,21 @@ function redirect(response, location) {
     'cache-control': 'no-store'
   });
   response.end();
+}
+
+function requireMethod(request, method) {
+  if (request.method !== method) {
+    throw new HttpError(405, 'Method not allowed.');
+  }
+}
+
+function isApiRequest(request) {
+  try {
+    const url = new URL(request.url || '/', config.baseUrl);
+    return stripBasePath(url.pathname).startsWith('/api/');
+  } catch {
+    return false;
+  }
 }
 
 function normalizeCurrentJob(value) {
@@ -721,7 +1486,11 @@ function escapeHtml(value) {
 }
 
 function escapeJsString(value) {
-  return String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  return String(value)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n');
 }
 
 function withBasePath(path) {
@@ -810,4 +1579,39 @@ function parsePositiveInt(value, fallback) {
   }
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function sanitizeFileName(value) {
+  return String(value)
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'runner';
+}
+
+function runExecFile(command, args, options = {}) {
+  return new Promise((resolvePromise, reject) => {
+    const child = execFile(
+      command,
+      args,
+      {
+        maxBuffer: options.maxBuffer || 1_000_000,
+        timeout: options.timeoutMs || 30_000
+      },
+      (error, stdout, stderr) => {
+        if (error && !options.allowNonZero) {
+          reject(error);
+          return;
+        }
+        resolvePromise({ stdout, stderr, code: error?.code ?? 0 });
+      }
+    );
+    child.stdin?.end();
+  });
+}
+
+class HttpError extends Error {
+  constructor(statusCode, message) {
+    super(message);
+    this.name = 'HttpError';
+    this.statusCode = statusCode;
+  }
 }

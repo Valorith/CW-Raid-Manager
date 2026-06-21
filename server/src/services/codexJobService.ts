@@ -11,6 +11,13 @@ import { appConfig } from '../config/appConfig.js';
 import { prisma } from '../utils/prisma.js';
 
 const MAX_PROMPT_CONTEXT_CHARS = 180_000;
+const DEFAULT_CODEX_REPOSITORY = 'Valorith/Server';
+const DEFAULT_CODEX_BASE_BRANCH = 'master';
+const TERMINAL_JOB_STATUSES = new Set<CodexJobStatus>([
+  CodexJobStatus.SUCCEEDED,
+  CodexJobStatus.FAILED,
+  CodexJobStatus.CANCELED
+]);
 
 type CodexActionConfig = {
   slackCodexHandoffEnabled?: boolean;
@@ -27,7 +34,14 @@ export function isCodexRunnerConfigured(): boolean {
   return Boolean(appConfig.codexRunner.token);
 }
 
-export function serializeCodexJob(job: CodexJobRecord) {
+export function serializeCodexJob(
+  job: CodexJobRecord,
+  options: {
+    includePrompt?: boolean;
+    includeContext?: boolean;
+    includeOutput?: boolean;
+  } = {}
+) {
   return {
     id: job.id,
     messageId: job.messageId,
@@ -38,15 +52,187 @@ export function serializeCodexJob(job: CodexJobRecord) {
     runnerId: job.runnerId,
     statusMessage: job.statusMessage,
     error: job.error,
-    output: job.output,
+    output: options.includeOutput === false ? null : job.output,
     prUrl: job.prUrl,
     prNumber: job.prNumber,
+    result: job.result,
+    ...(options.includePrompt ? { prompt: job.prompt } : {}),
+    ...(options.includeContext ? { context: job.context } : {}),
     claimedAt: job.claimedAt?.toISOString() ?? null,
     startedAt: job.startedAt?.toISOString() ?? null,
     completedAt: job.completedAt?.toISOString() ?? null,
     createdAt: job.createdAt.toISOString(),
     updatedAt: job.updatedAt.toISOString()
   };
+}
+
+export async function listCodexJobs(options: {
+  statuses?: CodexJobStatus[];
+  runnerId?: string;
+  limit?: number;
+} = {}) {
+  const where: Prisma.CodexJobWhereInput = {};
+  if (options.statuses?.length) {
+    where.status = { in: options.statuses };
+  }
+  if (options.runnerId) {
+    where.runnerId = options.runnerId;
+  }
+
+  const jobs = await prisma.codexJob.findMany({
+    where,
+    orderBy: { createdAt: 'desc' },
+    take: Math.min(Math.max(options.limit ?? 50, 1), 200)
+  });
+
+  return jobs.map((job) =>
+    serializeCodexJob(job, {
+      includeOutput: false
+    })
+  );
+}
+
+export async function getCodexJob(
+  jobId: string,
+  options: {
+    includeDetail?: boolean;
+  } = {}
+) {
+  const job = await prisma.codexJob.findUnique({
+    where: { id: jobId }
+  });
+
+  if (!job) {
+    throw new Error('Codex job not found.');
+  }
+
+  return serializeCodexJob(job, {
+    includePrompt: options.includeDetail === true,
+    includeContext: options.includeDetail === true
+  });
+}
+
+export async function createAdHocCodexJob(input: {
+  targetRepository?: string;
+  baseBranch?: string;
+  prompt: string;
+  title?: string | null;
+  createdById?: string | null;
+}) {
+  if (!isCodexRunnerConfigured()) {
+    throw new Error('CODEX_RUNNER_TOKEN is not configured for Nexus.');
+  }
+
+  const targetRepository = normalizeRepository(
+    input.targetRepository?.trim() ||
+      appConfig.codexRunner.repository ||
+      DEFAULT_CODEX_REPOSITORY
+  );
+  const baseBranch = normalizeGitRef(
+    input.baseBranch?.trim() || appConfig.codexRunner.baseBranch || DEFAULT_CODEX_BASE_BRANCH,
+    'base branch'
+  );
+  const title = normalizeTaskTitle(input.title || firstNonEmptyLine(input.prompt));
+  const branchName = buildAdHocBranchName(title);
+  const requestedAt = new Date();
+  const context = {
+    source: 'runner-dashboard',
+    title,
+    targetRepository,
+    baseBranch,
+    requestedAt: requestedAt.toISOString()
+  };
+  const prompt = buildAdHocCodexPrompt({
+    targetRepository,
+    baseBranch,
+    branchName,
+    title,
+    instructions: appConfig.codexRunner.instructions,
+    taskPrompt: input.prompt
+  });
+
+  const job = await prisma.codexJob.create({
+    data: {
+      createdById: input.createdById || undefined,
+      status: CodexJobStatus.QUEUED,
+      targetRepository,
+      baseBranch,
+      branchName,
+      prompt,
+      context,
+      statusMessage: 'Queued from the VPS runner dashboard.'
+    }
+  });
+
+  return serializeCodexJob(job);
+}
+
+export async function cancelCodexJob(jobId: string, reason?: string | null) {
+  const existing = await prisma.codexJob.findUnique({
+    where: { id: jobId }
+  });
+
+  if (!existing) {
+    throw new Error('Codex job not found.');
+  }
+  if (TERMINAL_JOB_STATUSES.has(existing.status)) {
+    throw new Error(`Codex job is already ${existing.status.toLowerCase()}.`);
+  }
+
+  const message = reason?.trim()
+    ? `Canceled from the runner dashboard: ${reason.trim()}`
+    : 'Canceled from the runner dashboard.';
+  const job = await prisma.codexJob.update({
+    where: { id: jobId },
+    data: {
+      status: CodexJobStatus.CANCELED,
+      statusMessage: message,
+      completedAt: new Date()
+    }
+  });
+
+  return serializeCodexJob(job);
+}
+
+export async function retryCodexJob(jobId: string) {
+  const existing = await prisma.codexJob.findUnique({
+    where: { id: jobId }
+  });
+
+  if (!existing) {
+    throw new Error('Codex job not found.');
+  }
+  if (existing.status !== CodexJobStatus.FAILED && existing.status !== CodexJobStatus.CANCELED) {
+    throw new Error('Only failed or canceled Codex jobs can be retried.');
+  }
+
+  const branchName = existing.messageId
+    ? buildBranchName(existing.messageId)
+    : buildAdHocBranchName(firstNonEmptyLine(existing.statusMessage || existing.prompt));
+  const job = await prisma.codexJob.create({
+    data: {
+      messageId: existing.messageId,
+      createdById: existing.createdById,
+      status: CodexJobStatus.QUEUED,
+      targetRepository: existing.targetRepository,
+      baseBranch: existing.baseBranch,
+      branchName,
+      prompt: existing.prompt.replace(
+        /^Runner branch: .+$/m,
+        `Runner branch: ${branchName}`
+      ),
+      context:
+        existing.context === null
+          ? Prisma.JsonNull
+          : (existing.context as Prisma.InputJsonValue),
+      statusMessage: `Queued as a retry of ${existing.id}.`,
+      result: {
+        retriedFromJobId: existing.id
+      }
+    }
+  });
+
+  return serializeCodexJob(job);
 }
 
 export async function createCodexJobForWebhookMessage(messageId: string, createdById?: string) {
@@ -187,6 +373,14 @@ export async function updateCodexJobFromRunner(
     throw new Error('Codex job is claimed by a different runner.');
   }
 
+  if (
+    existing.status === CodexJobStatus.CANCELED &&
+    input.status &&
+    input.status !== CodexJobStatus.CANCELED
+  ) {
+    return serializeCodexJob(existing);
+  }
+
   const now = new Date();
   const data: Prisma.CodexJobUpdateInput = {
     runnerId
@@ -252,15 +446,50 @@ function resolveCodexTargetConfig(
     repository:
       config.slackCodexRepository?.trim() ||
       appConfig.codexRunner.repository ||
-      'Valorith/Server',
+      DEFAULT_CODEX_REPOSITORY,
     baseBranch:
       config.slackCodexBaseBranch?.trim() ||
       appConfig.codexRunner.baseBranch ||
-      'master',
+      DEFAULT_CODEX_BASE_BRANCH,
     instructions:
       config.slackCodexInstructions?.trim() ||
       appConfig.codexRunner.instructions
   };
+}
+
+function buildAdHocCodexPrompt(options: {
+  targetRepository: string;
+  baseBranch: string;
+  branchName: string;
+  title: string;
+  instructions: string;
+  taskPrompt: string;
+}) {
+  return [
+    'You are Codex running from the Nexus VPS runner for an autonomous admin task.',
+    '',
+    `Target repository: ${options.targetRepository}`,
+    `Base branch: ${options.baseBranch}`,
+    `Runner branch: ${options.branchName}`,
+    `Task title: ${options.title}`,
+    '',
+    'Required outcome:',
+    '- Investigate the request below.',
+    '- Implement the smallest safe change in the checked-out repository.',
+    '- Run the relevant tests or build checks you can determine from the repo.',
+    '- Leave all code changes in the working tree. The runner will commit, push the runner branch, and open the PR.',
+    '',
+    'Safety rules:',
+    '- Do not push directly to the base branch.',
+    '- Do not mutate production, shared databases, live services, or secrets.',
+    '- Do not create the PR yourself; the Nexus runner owns the final commit, push, and PR creation.',
+    `- ${options.instructions}`,
+    '',
+    'Admin task:',
+    '```text',
+    truncateForPrompt(options.taskPrompt.trim()),
+    '```'
+  ].join('\n');
 }
 
 function normalizeCodexActionConfig(config: unknown): CodexActionConfig {
@@ -329,6 +558,12 @@ function buildBranchName(messageId: string) {
   return `codex/nexus-crash-${messagePart}-${suffix}`;
 }
 
+function buildAdHocBranchName(title: string) {
+  const suffix = randomBytes(3).toString('hex');
+  const titlePart = sanitizeGitRefSegment(title.toLowerCase()).slice(0, 40) || 'task';
+  return `codex/nexus-task-${titlePart}-${suffix}`;
+}
+
 function normalizeRepository(value: string) {
   const trimmed = value.trim();
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(trimmed)) {
@@ -357,6 +592,18 @@ function sanitizeGitRefSegment(value: string) {
     .replace(/[^A-Za-z0-9._-]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .replace(/-{2,}/g, '-');
+}
+
+function firstNonEmptyLine(value: string) {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean) || 'Codex task';
+}
+
+function normalizeTaskTitle(value: string) {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  return normalized.slice(0, 120) || 'Codex task';
 }
 
 function truncateForPrompt(value: string) {

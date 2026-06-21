@@ -11,19 +11,30 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 loadEnv(resolve(process.cwd(), '.env'));
 loadEnv(resolve(scriptDir, 'codex-runner.env'));
 
+const runnerId = process.env.CODEX_RUNNER_ID || `${hostname()}-codex-runner`;
+const workRoot = resolve(process.env.CODEX_RUNNER_WORK_ROOT || join(process.cwd(), 'work'));
+const registryDir = resolve(
+  process.env.CODEX_RUNNER_REGISTRY_DIR || join(workRoot, 'runners')
+);
+const controlDir = resolve(
+  process.env.CODEX_RUNNER_CONTROL_DIR || join(workRoot, 'runner-controls')
+);
+
 const config = {
   nexusBaseUrl: requireEnv('NEXUS_BASE_URL').replace(/\/+$/, ''),
   token: requireEnv('CODEX_RUNNER_TOKEN'),
-  runnerId: process.env.CODEX_RUNNER_ID || `${hostname()}-codex-runner`,
-  workRoot: resolve(process.env.CODEX_RUNNER_WORK_ROOT || join(process.cwd(), 'work')),
-  registryDir: resolve(
-    process.env.CODEX_RUNNER_REGISTRY_DIR ||
-      join(process.env.CODEX_RUNNER_WORK_ROOT || join(process.cwd(), 'work'), 'runners')
+  runnerId,
+  workRoot,
+  registryDir,
+  controlDir,
+  controlFile: resolve(
+    process.env.CODEX_RUNNER_CONTROL_FILE || join(controlDir, `${sanitizeFileName(runnerId)}.json`)
   ),
   codexBin: process.env.CODEX_BIN || 'codex',
   codexHome: process.env.CODEX_HOME || undefined,
   pollIntervalMs: parsePositiveInt(process.env.CODEX_RUNNER_POLL_INTERVAL_MS, 15_000),
   heartbeatIntervalMs: parsePositiveInt(process.env.CODEX_RUNNER_HEARTBEAT_INTERVAL_MS, 5_000),
+  cancelCheckIntervalMs: parsePositiveInt(process.env.CODEX_RUNNER_CANCEL_CHECK_INTERVAL_MS, 5_000),
   draftPr: parseBoolean(process.env.CODEX_RUNNER_DRAFT_PR, false),
   verifyCommand: process.env.CODEX_RUNNER_VERIFY_COMMAND || '',
   gitUserName: process.env.GIT_AUTHOR_NAME || 'Nexus Codex Runner',
@@ -51,7 +62,10 @@ const runnerState = {
   nexusBaseUrl: config.nexusBaseUrl,
   pollIntervalMs: config.pollIntervalMs,
   heartbeatIntervalMs: config.heartbeatIntervalMs,
-  workRoot: config.workRoot
+  cancelCheckIntervalMs: config.cancelCheckIntervalMs,
+  workRoot: config.workRoot,
+  controlFile: config.controlFile,
+  control: null
 };
 
 process.on('SIGINT', () => {
@@ -67,6 +81,7 @@ process.on('SIGTERM', () => {
 
 await mkdir(config.workRoot, { recursive: true });
 await mkdir(config.registryDir, { recursive: true });
+await mkdir(config.controlDir, { recursive: true });
 await writeHeartbeat();
 
 if (runOnce) {
@@ -95,6 +110,16 @@ await writeHeartbeat();
 
 async function pollOnce() {
   if (active) {
+    return false;
+  }
+
+  const control = await readRunnerControl();
+  runnerState.control = control;
+  if (control.paused) {
+    runnerState.status = 'paused';
+    runnerState.currentJob = null;
+    runnerState.lastError = null;
+    await writeHeartbeat();
     return false;
   }
 
@@ -158,6 +183,7 @@ async function processJob(job) {
       status: 'RUNNING',
       statusMessage: 'Cloning repository on the VPS runner.'
     });
+    await ensureJobActive(job.id);
 
     await runCommand(
       'gh',
@@ -171,20 +197,31 @@ async function processJob(job) {
         job.baseBranch,
         '--single-branch'
       ],
-      { cwd: jobDir, logPath }
+      { cwd: jobDir, logPath, jobId: job.id }
     );
 
-    await runCommand('git', ['checkout', '-b', job.branchName], { cwd: repoDir, logPath });
-    await runCommand('git', ['config', 'user.name', config.gitUserName], { cwd: repoDir, logPath });
+    await ensureJobActive(job.id);
+    await runCommand('git', ['checkout', '-b', job.branchName], {
+      cwd: repoDir,
+      logPath,
+      jobId: job.id
+    });
+    await runCommand('git', ['config', 'user.name', config.gitUserName], {
+      cwd: repoDir,
+      logPath,
+      jobId: job.id
+    });
     await runCommand('git', ['config', 'user.email', config.gitUserEmail], {
       cwd: repoDir,
-      logPath
+      logPath,
+      jobId: job.id
     });
 
     await updateJob(job.id, {
       status: 'RUNNING',
       statusMessage: 'Running Codex against the crash report.'
     });
+    await ensureJobActive(job.id);
 
     const codexArgs = [
       '-a',
@@ -201,40 +238,50 @@ async function processJob(job) {
     await runCommand(config.codexBin, codexArgs, {
       cwd: repoDir,
       logPath,
+      jobId: job.id,
       env: config.codexHome ? { CODEX_HOME: config.codexHome } : undefined,
       displayCommand: `${config.codexBin} -a never exec --cd ${repoDir} --sandbox workspace-write --output-last-message ${lastMessagePath} <prompt>`
     });
+    await ensureJobActive(job.id);
 
     if (config.verifyCommand) {
       await updateJob(job.id, {
         status: 'RUNNING',
         statusMessage: `Running verification command: ${config.verifyCommand}`
       });
-      await runShell(config.verifyCommand, { cwd: repoDir, logPath });
+      await ensureJobActive(job.id);
+      await runShell(config.verifyCommand, { cwd: repoDir, logPath, jobId: job.id });
     }
 
     const status = await runCommand('git', ['status', '--porcelain'], {
       cwd: repoDir,
-      logPath
+      logPath,
+      jobId: job.id
     });
     if (!status.stdout.trim()) {
       throw new Error('Codex completed without leaving any repository changes to commit.');
     }
+    await ensureJobActive(job.id);
 
     await updateJob(job.id, {
       status: 'RUNNING',
       statusMessage: 'Committing Codex changes and opening a pull request.'
     });
 
-    await runCommand('git', ['add', '-A'], { cwd: repoDir, logPath });
+    await ensureJobActive(job.id);
+    await runCommand('git', ['add', '-A'], { cwd: repoDir, logPath, jobId: job.id });
     await runCommand('git', ['commit', '-m', buildCommitMessage(job)], {
       cwd: repoDir,
-      logPath
+      logPath,
+      jobId: job.id
     });
+    await ensureJobActive(job.id);
     await runCommand('git', ['push', '--set-upstream', 'origin', job.branchName], {
       cwd: repoDir,
-      logPath
+      logPath,
+      jobId: job.id
     });
+    await ensureJobActive(job.id);
 
     const codexLastMessage = await readTextIfExists(lastMessagePath);
     await writeFile(prBodyPath, buildPullRequestBody(job, codexLastMessage), 'utf8');
@@ -257,7 +304,8 @@ async function processJob(job) {
       prArgs.push('--draft');
     }
 
-    const pr = await runCommand('gh', prArgs, { cwd: repoDir, logPath });
+    await ensureJobActive(job.id);
+    const pr = await runCommand('gh', prArgs, { cwd: repoDir, logPath, jobId: job.id });
     const prUrl = extractPullRequestUrl(pr.stdout);
 
     await updateJob(job.id, {
@@ -273,6 +321,15 @@ async function processJob(job) {
       }
     });
   } catch (error) {
+    if (error instanceof JobCanceledError) {
+      await updateJob(job.id, {
+        status: 'CANCELED',
+        statusMessage: 'Canceled by the Nexus runner control plane.',
+        output: truncate(await readTextIfExists(logPath), 500_000)
+      });
+      return;
+    }
+
     const message = error instanceof Error ? error.message : String(error);
     await updateJob(job.id, {
       status: 'FAILED',
@@ -301,6 +358,21 @@ async function apiPost(path, body) {
   return response.json();
 }
 
+async function apiGet(path) {
+  const response = await fetch(`${config.nexusBaseUrl}/api/codex-runner${path}`, {
+    headers: {
+      authorization: `Bearer ${config.token}`
+    }
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Nexus API ${path} responded with ${response.status}: ${text}`);
+  }
+
+  return response.json();
+}
+
 async function updateJob(jobId, patch) {
   try {
     await apiPost(`/jobs/${encodeURIComponent(jobId)}/status`, {
@@ -313,6 +385,13 @@ async function updateJob(jobId, patch) {
         error instanceof Error ? error.message : String(error)
       }`
     );
+  }
+}
+
+async function ensureJobActive(jobId) {
+  const response = await apiGet(`/jobs/${encodeURIComponent(jobId)}`);
+  if (response.job?.status === 'CANCELED') {
+    throw new JobCanceledError(`Codex job ${jobId} was canceled.`);
   }
 }
 
@@ -340,11 +419,50 @@ function runProcess(command, args, options) {
     });
     let stdout = '';
     let stderr = '';
+    let cancelError = null;
+    let checkingCancel = false;
+    let forceKillTimer = null;
     const startedAt = new Date().toISOString();
     const rendered =
       options.displayCommand || (options.shell ? command : [command, ...args].map(shellQuote).join(' '));
 
     void appendFile(options.logPath, `\n[${startedAt}] $ ${rendered}\n`, 'utf8');
+
+    const cancelTimer = options.jobId
+      ? setInterval(() => {
+          if (checkingCancel || cancelError) {
+            return;
+          }
+          checkingCancel = true;
+          ensureJobActive(options.jobId)
+            .catch((error) => {
+              if (error instanceof JobCanceledError) {
+                cancelError = error;
+                void appendFile(
+                  options.logPath,
+                  `\n[${new Date().toISOString()}] ${error.message}; terminating subprocess.\n`,
+                  'utf8'
+                );
+                child.kill('SIGTERM');
+                forceKillTimer = setTimeout(() => {
+                  child.kill('SIGKILL');
+                }, 5_000);
+                forceKillTimer.unref?.();
+              } else {
+                void appendFile(
+                  options.logPath,
+                  `\n[${new Date().toISOString()}] Cancellation check failed: ${
+                    error instanceof Error ? error.message : String(error)
+                  }\n`,
+                  'utf8'
+                );
+              }
+            })
+            .finally(() => {
+              checkingCancel = false;
+            });
+        }, config.cancelCheckIntervalMs)
+      : null;
 
     child.stdout.on('data', (chunk) => {
       const text = chunk.toString();
@@ -356,8 +474,26 @@ function runProcess(command, args, options) {
       stderr += text;
       void appendFile(options.logPath, text, 'utf8');
     });
-    child.on('error', reject);
+    child.on('error', (error) => {
+      if (cancelTimer) {
+        clearInterval(cancelTimer);
+      }
+      if (forceKillTimer) {
+        clearTimeout(forceKillTimer);
+      }
+      reject(error);
+    });
     child.on('close', (code) => {
+      if (cancelTimer) {
+        clearInterval(cancelTimer);
+      }
+      if (forceKillTimer) {
+        clearTimeout(forceKillTimer);
+      }
+      if (cancelError) {
+        reject(cancelError);
+        return;
+      }
       if (code === 0) {
         resolvePromise({ stdout, stderr });
         return;
@@ -404,6 +540,34 @@ function extractPullRequestUrl(stdout) {
 function extractPullRequestNumber(url) {
   const match = url?.match(/\/pull\/(\d+)$/);
   return match ? Number.parseInt(match[1], 10) : null;
+}
+
+async function readRunnerControl() {
+  if (!existsSync(config.controlFile)) {
+    return {
+      paused: false,
+      reason: null,
+      updatedAt: null,
+      updatedBy: null
+    };
+  }
+
+  try {
+    const raw = JSON.parse(await readFile(config.controlFile, 'utf8'));
+    return {
+      paused: raw.paused === true,
+      reason: typeof raw.reason === 'string' && raw.reason.trim() ? raw.reason : null,
+      updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : null,
+      updatedBy: typeof raw.updatedBy === 'string' && raw.updatedBy.trim() ? raw.updatedBy : null
+    };
+  } catch (error) {
+    return {
+      paused: false,
+      reason: error instanceof Error ? `Invalid control file: ${error.message}` : 'Invalid control file',
+      updatedAt: null,
+      updatedBy: null
+    };
+  }
 }
 
 async function writeHeartbeat() {
@@ -513,4 +677,11 @@ function shellQuote(value) {
 
 function sleep(ms) {
   return new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
+}
+
+class JobCanceledError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'JobCanceledError';
+  }
 }
