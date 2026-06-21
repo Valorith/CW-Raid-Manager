@@ -32,6 +32,7 @@ const config = {
   ),
   codexBin: process.env.CODEX_BIN || 'codex',
   codexHome: process.env.CODEX_HOME || undefined,
+  githubCliBin: process.env.GITHUB_CLI_BIN || process.env.GH_BIN || 'gh',
   executionMode: normalizeExecutionMode(
     process.env.CODEX_RUNNER_EXECUTION_MODE || process.env.CODEX_RUNNER_MODE || 'local'
   ),
@@ -72,6 +73,7 @@ const runnerState = {
   nexusBaseUrl: config.nexusBaseUrl,
   executionMode: config.executionMode,
   codexCloudConfigured: Boolean(config.codexCloudEnvId || config.codexCloudEnvByRepo.size),
+  githubCliBin: config.githubCliBin,
   pollIntervalMs: config.pollIntervalMs,
   heartbeatIntervalMs: config.heartbeatIntervalMs,
   cancelCheckIntervalMs: config.cancelCheckIntervalMs,
@@ -198,7 +200,7 @@ async function processJob(job) {
     await ensureJobActive(job.id);
 
     await runCommand(
-      'gh',
+      config.githubCliBin,
       [
         'repo',
         'clone',
@@ -296,7 +298,7 @@ async function processJob(job) {
     }
 
     await ensureJobActive(job.id);
-    const pr = await runCommand('gh', prArgs, { cwd: repoDir, logPath, jobId: job.id });
+    const pr = await runCommand(config.githubCliBin, prArgs, { cwd: repoDir, logPath, jobId: job.id });
     const prUrl = extractPullRequestUrl(pr.stdout);
 
     await updateJob(job.id, {

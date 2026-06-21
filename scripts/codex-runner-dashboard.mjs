@@ -39,6 +39,8 @@ const config = {
   defaultRepository: process.env.CODEX_RUNNER_REPOSITORY || 'Valorith/Server',
   defaultBaseBranch: process.env.CODEX_RUNNER_BASE_BRANCH || 'master',
   runnerServiceName: process.env.CODEX_RUNNER_SERVICE_NAME || 'nexus-codex-runner.service',
+  githubCliBin: process.env.GITHUB_CLI_BIN || process.env.GH_BIN || 'gh',
+  githubHost: process.env.GITHUB_HOST || 'github.com',
   workRoot,
   registryDir,
   controlDir,
@@ -304,10 +306,11 @@ async function handleGoogleCallback(request, response, url) {
 }
 
 async function sendOverview(response, url) {
-  const [runners, tasks, service] = await Promise.all([
+  const [runners, tasks, service, github] = await Promise.all([
     listRunners(),
     listTasks(url.searchParams),
-    getRunnerServiceStatus()
+    getRunnerServiceStatus(),
+    getGitHubCliStatus()
   ]);
 
   sendJson(response, 200, {
@@ -319,7 +322,10 @@ async function sendOverview(response, url) {
       baseBranch: config.defaultBaseBranch
     },
     runners,
-    tasks
+    tasks,
+    integrations: {
+      github
+    }
   });
 }
 
@@ -434,6 +440,7 @@ async function listRunners() {
         nexusBaseUrl: stringOrNull(data.nexusBaseUrl),
         executionMode: stringOrNull(data.executionMode),
         codexCloudConfigured: data.codexCloudConfigured === true,
+        githubCliBin: stringOrNull(data.githubCliBin),
         pollIntervalMs: numberOrNull(data.pollIntervalMs),
         heartbeatIntervalMs: numberOrNull(data.heartbeatIntervalMs),
         cancelCheckIntervalMs: numberOrNull(data.cancelCheckIntervalMs),
@@ -532,6 +539,65 @@ async function getRunnerServiceStatus() {
       active: 'unknown',
       enabled: 'unknown',
       error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+async function getGitHubCliStatus() {
+  const checkedAt = new Date().toISOString();
+  try {
+    const auth = await runExecFile(
+      config.githubCliBin,
+      ['auth', 'status', '--hostname', config.githubHost],
+      {
+        allowNonZero: true,
+        maxBuffer: 500_000,
+        timeoutMs: 10_000
+      }
+    );
+    const authOutput = sanitizeGitHubCliOutput(`${auth.stdout}\n${auth.stderr}`.trim());
+    const authenticated = auth.code === 0 && /Logged in to/i.test(authOutput);
+    const parsedLogin = parseGitHubLogin(authOutput);
+    let viewer = null;
+
+    if (authenticated) {
+      const user = await runExecFile(config.githubCliBin, ['api', 'user'], {
+        allowNonZero: true,
+        maxBuffer: 500_000,
+        timeoutMs: 10_000
+      });
+      if (user.code === 0 && user.stdout.trim()) {
+        viewer = parseJsonObject(user.stdout);
+      }
+    }
+
+    const login = stringOrNull(viewer?.login) || parsedLogin;
+    return {
+      cli: config.githubCliBin,
+      host: config.githubHost,
+      authenticated,
+      login,
+      name: stringOrNull(viewer?.name),
+      profileUrl: stringOrNull(viewer?.html_url),
+      protocol: parseGitHubProtocol(authOutput),
+      scopes: parseGitHubScopes(authOutput),
+      statusText: authenticated
+        ? `Authenticated as ${login || 'GitHub account'}`
+        : authOutput || 'GitHub CLI is not authenticated.',
+      checkedAt
+    };
+  } catch (error) {
+    return {
+      cli: config.githubCliBin,
+      host: config.githubHost,
+      authenticated: false,
+      login: null,
+      name: null,
+      profileUrl: null,
+      protocol: null,
+      scopes: [],
+      statusText: error instanceof Error ? error.message : String(error),
+      checkedAt
     };
   }
 }
@@ -745,6 +811,46 @@ function renderDashboardPage(session) {
       box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
     }
     .summary-pill span { color: var(--muted); font-weight: 700; }
+    .summary-pill.brand strong { color: var(--text); }
+    .brand-mark {
+      display: inline-grid;
+      place-items: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 7px;
+      border: 1px solid var(--line);
+      background: rgba(237, 243, 251, 0.08);
+      color: var(--text);
+      font-size: 10px;
+      font-weight: 950;
+      letter-spacing: 0;
+    }
+    .brand-mark.github {
+      color: #ffffff;
+      background: #111827;
+      border-color: rgba(237, 243, 251, 0.22);
+    }
+    .brand-mark.codex {
+      color: #062f2a;
+      background: linear-gradient(135deg, var(--teal), var(--green));
+      border-color: transparent;
+    }
+    .integration-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .integration-card {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+      border: 1px solid rgba(172, 187, 205, 0.16);
+      border-radius: 8px;
+      background: rgba(2, 6, 23, 0.2);
+      padding: 10px;
+    }
+    .integration-card strong { overflow-wrap: anywhere; }
+    .integration-card .mini { overflow-wrap: anywhere; }
     .panel, .runner-card, .history-row {
       background: rgba(18, 24, 33, 0.92);
       border: 1px solid var(--line);
@@ -1041,6 +1147,7 @@ function renderDashboardPage(session) {
       .topbar { align-items: flex-start; flex-direction: column; padding: 16px 0; }
       .command-bar, .toolbar, .detail-head { align-items: flex-start; flex-direction: column; }
       .runner-card, .grid, .form-grid { grid-template-columns: 1fr; }
+      .integration-grid { grid-template-columns: 1fr; }
       .control-actions { grid-template-columns: 1fr; }
       .detail-controls { justify-content: flex-start; }
     }
@@ -1051,7 +1158,7 @@ function renderDashboardPage(session) {
     <div class="shell topbar">
       <div>
         <h1>Nexus Codex</h1>
-        <div class="subtitle">Runner operations</div>
+        <div class="subtitle">Codex Cloud and GitHub runner operations</div>
       </div>
       <div class="user">
         ${session.picture ? `<img src="${escapeHtml(session.picture)}" alt="">` : ''}
@@ -1159,7 +1266,7 @@ function renderDashboardPage(session) {
           </label>
         </div>
         <label>Prompt
-          <textarea name="prompt" required placeholder="Tell Codex what to investigate, change, test, and open a PR for."></textarea>
+          <textarea name="prompt" required placeholder="Tell Codex what to investigate, change, test, and open a GitHub PR for."></textarea>
         </label>
         <div class="row">
           <button class="primary" type="submit">Queue run</button>
@@ -1207,6 +1314,7 @@ function renderDashboardPage(session) {
     let latestRunners = [];
     let latestTasks = [];
     let latestService = {};
+    let latestIntegrations = {};
     let selectedRunnerId = null;
     let runnerHistory = [];
 
@@ -1288,6 +1396,32 @@ function renderDashboardPage(session) {
       return '<span class="badge ' + escapeHtml(className || statusClass(label)) + '">' + escapeHtml(label || 'unknown') + '</span>';
     }
 
+    function renderBrandMark(kind, label) {
+      return '<span class="brand-mark ' + escapeHtml(kind) + '">' + escapeHtml(label) + '</span>';
+    }
+
+    function renderIntegrationPill(kind, label, detail, active) {
+      return '<div class="summary-pill brand">' +
+        renderBrandMark(kind, kind === 'github' ? 'GH' : 'Cx') +
+        '<strong>' + escapeHtml(label) + '</strong>' +
+        '<span>' + escapeHtml(detail || (active ? 'ready' : 'offline')) + '</span>' +
+      '</div>';
+    }
+
+    function renderIntegrationCard(kind, title, status, detail, active, href) {
+      const titleHtml = href
+        ? '<a href="' + escapeHtml(href) + '" target="_blank" rel="noreferrer">' + escapeHtml(title) + '</a>'
+        : escapeHtml(title);
+      return '<div class="integration-card">' +
+        '<div class="row">' +
+          renderBrandMark(kind, kind === 'github' ? 'GH' : 'Cx') +
+          '<strong>' + titleHtml + '</strong>' +
+          renderBadge(status, active ? 'active' : 'inactive') +
+        '</div>' +
+        '<div class="mini">' + escapeHtml(detail || 'No details reported') + '</div>' +
+      '</div>';
+    }
+
     function taskCanCancel(task) {
       return ['QUEUED', 'CLAIMED', 'RUNNING'].includes(task.status);
     }
@@ -1358,7 +1492,7 @@ function renderDashboardPage(session) {
 
     function renderHistoryTask(task) {
       const id = escapeHtml(task.id);
-      const pr = task.prUrl ? '<a href="' + escapeHtml(task.prUrl) + '" target="_blank" rel="noreferrer">PR #' + escapeHtml(task.prNumber || '') + '</a>' : '<span class="muted">No PR</span>';
+      const pr = task.prUrl ? '<a href="' + escapeHtml(task.prUrl) + '" target="_blank" rel="noreferrer">GitHub PR #' + escapeHtml(task.prNumber || '') + '</a>' : '<span class="muted">No PR</span>';
       const actions =
         '<button data-task-detail="' + id + '">Details</button>' +
         (taskCanCancel(task) ? '<button class="danger" data-task-cancel="' + id + '">Cancel</button>' : '') +
@@ -1375,16 +1509,20 @@ function renderDashboardPage(session) {
       '</div>';
     }
 
-    function renderSummary(runners, tasks, service) {
+    function renderSummary(runners, tasks, service, integrations) {
       const activeRunners = runners.filter((runner) => runner.active && !runner.paused).length;
       const pausedRunners = runners.filter((runner) => runner.paused).length;
       const activeTasks = tasks.filter((task) => ['QUEUED', 'CLAIMED', 'RUNNING'].includes(task.status)).length;
       const failedTasks = tasks.filter((task) => task.status === 'FAILED').length;
+      const codexCloudReady = runners.some((runner) => runner.codexCloudConfigured);
+      const github = integrations?.github || {};
       summaryStripEl.innerHTML =
         '<div class="summary-pill"><strong>' + activeRunners + '</strong><span>active</span></div>' +
         '<div class="summary-pill"><strong>' + pausedRunners + '</strong><span>paused</span></div>' +
         '<div class="summary-pill"><strong>' + activeTasks + '</strong><span>open runs</span></div>' +
         '<div class="summary-pill"><strong>' + failedTasks + '</strong><span>failed</span></div>' +
+        renderIntegrationPill('codex', 'Codex Cloud', codexCloudReady ? 'ready' : 'not configured', codexCloudReady) +
+        renderIntegrationPill('github', 'GitHub CLI', github.authenticated ? (github.login || 'authenticated') : 'needs auth', github.authenticated) +
         '<div class="summary-pill"><span class="status-dot ' + escapeHtml(service?.active === 'active' ? 'active' : 'inactive') + '"></span><span>' + escapeHtml(service?.active || 'unknown') + '</span></div>';
     }
 
@@ -1398,6 +1536,7 @@ function renderDashboardPage(session) {
       detailActivityEl.innerHTML = renderActivity(runner);
       detailUpdatedEl.textContent = 'Updated ' + new Date().toLocaleTimeString();
       serviceStateEl.innerHTML = renderBadge(latestService?.active || 'unknown', latestService?.active === 'active' ? 'active' : 'inactive');
+      const github = latestIntegrations.github || {};
       runnerMetricsEl.innerHTML =
         '<section class="control-summary">' +
           '<div class="control-summary-main">' +
@@ -1405,6 +1544,30 @@ function renderDashboardPage(session) {
             '<div><strong>' + escapeHtml(runner.status || 'unknown') + '</strong><span>Seen ' + escapeHtml(relativeTime(runner.lastSeenAt)) + '</span></div>' +
           '</div>' +
           renderBadge(runner.paused ? 'Paused' : runner.active ? 'Active' : 'Inactive', stateClass) +
+        '</section>' +
+        '<section class="control-section">' +
+          '<div class="control-section-title"><span>Integrations</span></div>' +
+          '<div class="integration-grid">' +
+            renderIntegrationCard(
+              'codex',
+              runner.executionMode === 'cloud-hybrid' ? 'Codex Cloud' : 'Codex CLI',
+              runner.codexCloudConfigured ? 'Ready' : 'Local',
+              runner.executionMode === 'cloud-hybrid'
+                ? 'Cloud task diffs are applied, verified, and published by this VPS runner.'
+                : 'Local Codex CLI mode is available for direct runner work.',
+              runner.codexCloudConfigured || runner.executionMode === 'local'
+            ) +
+            renderIntegrationCard(
+              'github',
+              github.login ? 'GitHub: ' + github.login : 'GitHub CLI',
+              github.authenticated ? 'Ready' : 'Needs auth',
+              github.authenticated
+                ? (runner.githubCliBin || github.cli || 'gh') + ' is authenticated for clone, push, and pull request creation.'
+                : github.statusText || 'gh auth status did not report an authenticated account.',
+              github.authenticated,
+              github.profileUrl
+            ) +
+          '</div>' +
         '</section>' +
         '<section class="control-section">' +
           '<div class="control-section-title"><span>Service Actions</span></div>' +
@@ -1475,7 +1638,8 @@ function renderDashboardPage(session) {
         latestRunners = data.runners || [];
         latestTasks = data.tasks || [];
         latestService = data.service || {};
-        renderSummary(latestRunners, latestTasks, latestService);
+        latestIntegrations = data.integrations || {};
+        renderSummary(latestRunners, latestTasks, latestService, latestIntegrations);
         generatedEl.textContent = 'Updated ' + new Date(data.generatedAt).toLocaleString();
         runnersEl.innerHTML = latestRunners.length ? latestRunners.map(renderRunner).join('') : '<div class="empty">No runner heartbeat files found yet.</div>';
         if (selectedRunnerId) {
@@ -1875,6 +2039,43 @@ function normalizeCodexCloud(value) {
     applyingAt: stringOrNull(value.applyingAt),
     appliedAt: stringOrNull(value.appliedAt)
   };
+}
+
+function sanitizeGitHubCliOutput(value) {
+  return String(value || '')
+    .split(/\r?\n/)
+    .filter((line) => !/^\s*-\s*Token:/i.test(line))
+    .map((line) => line.trimEnd())
+    .join('\n')
+    .trim();
+}
+
+function parseGitHubLogin(value) {
+  return stringOrNull(String(value || '').match(/\baccount\s+([^\s(]+)/i)?.[1]);
+}
+
+function parseGitHubProtocol(value) {
+  return stringOrNull(String(value || '').match(/Git operations protocol:\s*([^\s]+)/i)?.[1]);
+}
+
+function parseGitHubScopes(value) {
+  const scopes = String(value || '').match(/Token scopes:\s*(.+)$/im)?.[1];
+  if (!scopes) {
+    return [];
+  }
+  return scopes
+    .split(',')
+    .map((scope) => scope.replace(/['"`]/g, '').trim())
+    .filter(Boolean);
+}
+
+function parseJsonObject(value) {
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 function parseDateMs(value) {
