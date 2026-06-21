@@ -678,7 +678,7 @@ function renderDashboardPage(session) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Nexus Codex</title>
+  <title>Nexus Runners</title>
   <style>
     :root {
       color-scheme: dark;
@@ -1157,7 +1157,7 @@ function renderDashboardPage(session) {
   <header>
     <div class="shell topbar">
       <div>
-        <h1>Nexus Codex</h1>
+        <h1>Nexus Runners</h1>
         <div class="subtitle">Codex Cloud and GitHub runner operations</div>
       </div>
       <div class="user">
@@ -1818,7 +1818,7 @@ function renderErrorPage(title, detail) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Nexus Codex Runners</title>
+  <title>Nexus Runners</title>
   <style>
     body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #07111d; color: #e5edf8; font: 15px/1.45 system-ui, sans-serif; }
     main { width: min(520px, calc(100vw - 32px)); border: 1px solid rgba(148, 163, 184, .25); border-radius: 8px; background: #101927; padding: 24px; }
