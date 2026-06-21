@@ -1596,45 +1596,53 @@ function renderDashboardPage(session) {
     .runner-actions {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 7px;
+      gap: 5px;
       justify-self: end;
-      width: min(264px, 100%);
+      width: min(224px, 100%);
     }
     .runner-actions button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
       width: 100%;
-      min-height: 30px;
-      padding: 0 10px;
+      min-height: 26px;
+      padding: 0 7px;
       color: var(--soft);
-      background: rgba(18, 24, 33, 0.48);
-      border-color: rgba(172, 187, 205, 0.2);
+      background: rgba(18, 24, 33, 0.22);
+      border-color: transparent;
       box-shadow: none;
-      font-size: 13px;
+      font-size: 12px;
+    }
+    .runner-actions button svg {
+      width: 13px;
+      height: 13px;
+      flex: 0 0 auto;
     }
     .runner-actions button.primary {
-      background: rgba(53, 221, 139, 0.12);
-      border-color: rgba(53, 221, 139, 0.32);
+      background: rgba(53, 221, 139, 0.08);
       color: #bbf7d0;
     }
     .runner-actions button.danger {
-      background: rgba(255, 113, 133, 0.11);
-      border-color: rgba(255, 113, 133, 0.34);
+      background: rgba(255, 113, 133, 0.08);
       color: #fecdd3;
     }
     .runner-actions button.warn {
-      background: rgba(244, 201, 93, 0.12);
-      border-color: rgba(244, 201, 93, 0.34);
+      background: rgba(244, 201, 93, 0.08);
       color: #fde68a;
     }
     .runner-actions button.ghost {
-      background: rgba(18, 24, 33, 0.32);
-      border-color: rgba(172, 187, 205, 0.16);
+      background: rgba(18, 24, 33, 0.18);
       color: var(--muted);
     }
     .runner-actions button:hover {
       transform: none;
-      border-color: rgba(172, 187, 205, 0.34);
       background: rgba(23, 31, 42, 0.7);
     }
+    .runner-actions button.primary:hover { border-color: rgba(53, 221, 139, 0.34); }
+    .runner-actions button.danger:hover { border-color: rgba(255, 113, 133, 0.38); }
+    .runner-actions button.warn:hover { border-color: rgba(244, 201, 93, 0.38); }
+    .runner-actions button.ghost:hover { border-color: rgba(172, 187, 205, 0.28); }
     .detail-shell {
       display: grid;
       grid-template-columns: minmax(0, 1fr) 360px;
@@ -2475,19 +2483,40 @@ function renderDashboardPage(session) {
       return ['FAILED', 'CANCELED'].includes(task.status);
     }
 
+    function renderRunnerActionIcon(kind) {
+      const base = '<svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">';
+      const icons = {
+        start: '<path d="M5.5 3.5 12 8l-6.5 4.5z"/>',
+        stop: '<path d="M5 5h6v6H5z"/>',
+        restart: '<path d="M12.5 6.5A4.7 4.7 0 1 0 13 8"/><path d="M12.5 3.5v3h-3"/>',
+        pause: '<path d="M5.5 4.5v7"/><path d="M10.5 4.5v7"/>',
+        details: '<path d="M7.25 11.5a4.25 4.25 0 1 1 3-1.25L13 13"/><path d="M7.25 5.5v.01"/><path d="M7.25 7.5v2.25"/>'
+      };
+      return base + (icons[kind] || '') + '</svg>';
+    }
+
+    function renderRunnerActionButton(className, action, runnerId, label, icon, openRunnerId = '') {
+      const actionAttribute = action ? ' data-runner-action="' + escapeHtml(action) + '"' : '';
+      const openAttribute = openRunnerId ? ' data-runner-open="' + escapeHtml(openRunnerId) + '"' : '';
+      return '<button class="' + escapeHtml(className) + '"' + actionAttribute + ' data-runner-id="' + escapeHtml(runnerId) + '"' + openAttribute + ' title="' + escapeHtml(label) + '">' +
+        renderRunnerActionIcon(icon) +
+        '<span>' + escapeHtml(label) + '</span>' +
+      '</button>';
+    }
+
     function renderRunnerActions(runner) {
-      const runnerId = escapeHtml(runner.runnerId);
+      const runnerId = runner.runnerId;
       const powerAction = runner.active
-        ? '<button class="danger" data-runner-action="stop" data-runner-id="' + runnerId + '">Stop</button>'
-        : '<button class="primary" data-runner-action="start" data-runner-id="' + runnerId + '">Start</button>';
+        ? renderRunnerActionButton('danger', 'stop', runnerId, 'Stop', 'stop')
+        : renderRunnerActionButton('primary', 'start', runnerId, 'Start', 'start');
       const pauseAction = runner.active
-        ? '<button class="ghost" data-runner-action="' + escapeHtml(runner.paused ? 'resume' : 'pause') + '" data-runner-id="' + runnerId + '">' + escapeHtml(runner.paused ? 'Resume' : 'Pause') + '</button>'
+        ? renderRunnerActionButton('ghost', runner.paused ? 'resume' : 'pause', runnerId, runner.paused ? 'Resume' : 'Pause', runner.paused ? 'start' : 'pause')
         : '';
-      return '<div class="runner-actions" aria-label="Controls for ' + runnerId + '">' +
+      return '<div class="runner-actions" aria-label="Controls for ' + escapeHtml(runnerId) + '">' +
         powerAction +
-        '<button class="warn" data-runner-action="restart" data-runner-id="' + runnerId + '">Restart</button>' +
+        renderRunnerActionButton('warn', 'restart', runnerId, 'Restart', 'restart') +
         pauseAction +
-        '<button class="ghost" data-runner-open="' + runnerId + '">Details</button>' +
+        renderRunnerActionButton('ghost', '', runnerId, 'Details', 'details', runnerId) +
       '</div>';
     }
 
