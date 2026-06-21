@@ -1207,9 +1207,7 @@ function renderDashboardPage(session) {
       margin-bottom: 16px;
     }
     .summary-strip {
-      display: grid;
-      grid-template-columns: minmax(230px, 0.9fr) minmax(230px, 0.95fr) minmax(280px, 1.15fr) minmax(240px, 0.95fr);
-      gap: 10px;
+      display: block;
       min-width: 0;
     }
     .ops-toolbar {
@@ -1219,94 +1217,174 @@ function renderDashboardPage(session) {
       gap: 8px;
       min-width: max-content;
     }
-    .summary-card {
+    .ops-overview {
       min-width: 0;
       display: grid;
-      gap: 10px;
+      grid-template-columns: minmax(290px, 0.92fr) minmax(420px, 1.32fr) minmax(280px, 0.92fr);
+      align-items: stretch;
       border: 1px solid rgba(172, 187, 205, 0.18);
       border-radius: 8px;
-      padding: 12px;
-      background: rgba(18, 24, 33, 0.78);
+      background:
+        radial-gradient(circle at 8% 0%, rgba(53, 221, 139, 0.13), transparent 28%),
+        radial-gradient(circle at 70% 100%, rgba(106, 168, 255, 0.1), transparent 32%),
+        linear-gradient(90deg, rgba(18, 24, 33, 0.96), rgba(16, 22, 31, 0.88)),
+        rgba(18, 24, 33, 0.88);
       color: var(--soft);
       font-weight: 800;
-      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+      overflow: hidden;
+      box-shadow: 0 16px 34px rgba(0, 0, 0, 0.28);
     }
-    .summary-card-head {
+    .ops-pane {
+      min-width: 0;
+      padding: 15px 16px;
+    }
+    .ops-pane + .ops-pane {
+      border-left: 1px solid rgba(172, 187, 205, 0.14);
+    }
+    .ops-state {
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      gap: 10px;
+      gap: 13px;
       min-width: 0;
     }
-    .summary-card-head span:first-child {
+    .ops-orb {
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      border: 1px solid rgba(53, 221, 139, 0.26);
+      background: rgba(53, 221, 139, 0.1);
+      box-shadow: inset 0 0 22px rgba(53, 221, 139, 0.08);
+      animation: pulse-green 2.5s infinite;
+    }
+    .ops-orb.warning {
+      border-color: rgba(244, 201, 93, 0.38);
+      background: rgba(244, 201, 93, 0.11);
+      animation-name: pulse-amber;
+    }
+    .ops-orb.alert {
+      border-color: rgba(255, 113, 133, 0.42);
+      background: rgba(255, 113, 133, 0.12);
+      animation: none;
+    }
+    .ops-orb .status-dot { width: 12px; height: 12px; }
+    .ops-state-main { min-width: 0; display: grid; gap: 3px; }
+    .ops-label {
       color: var(--muted);
       font-size: 11px;
       font-weight: 950;
       text-transform: uppercase;
       letter-spacing: 0.04em;
     }
-    .summary-card-head span:last-child {
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 750;
-      overflow-wrap: anywhere;
-      text-align: right;
-    }
-    .summary-metric-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px;
-    }
-    .summary-metric {
-      min-width: 0;
-      display: grid;
-      gap: 2px;
-      border: 1px solid rgba(172, 187, 205, 0.12);
-      border-radius: 8px;
-      background: rgba(2, 6, 23, 0.2);
-      padding: 9px;
-    }
-    .summary-metric strong {
+    .ops-title {
       color: var(--text);
       font-size: 22px;
+      font-weight: 950;
+      line-height: 1.05;
+      overflow-wrap: anywhere;
+    }
+    .ops-copy {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+      overflow-wrap: anywhere;
+    }
+    .ops-track {
+      position: relative;
+      width: min(250px, 100%);
+      height: 6px;
+      margin-top: 9px;
+      border-radius: 999px;
+      background: rgba(172, 187, 205, 0.13);
+      overflow: hidden;
+    }
+    .ops-track span {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--good), var(--accent));
+      box-shadow: 0 0 18px rgba(53, 221, 139, 0.22);
+    }
+    .ops-stat-rail {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      height: 100%;
+    }
+    .ops-stat {
+      min-width: 0;
+      display: grid;
+      align-content: center;
+      gap: 5px;
+      padding: 0 13px;
+    }
+    .ops-stat + .ops-stat {
+      border-left: 1px solid rgba(172, 187, 205, 0.11);
+    }
+    .ops-stat span {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 950;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .ops-stat strong {
+      color: var(--text);
+      font-size: 28px;
       line-height: 1;
       overflow-wrap: anywhere;
     }
-    .summary-metric span {
+    .ops-stat small {
       color: var(--muted);
       font-size: 12px;
-      font-weight: 800;
+      font-weight: 700;
+      overflow-wrap: anywhere;
     }
-    .summary-status-list {
+    .ops-system-list {
+      display: grid;
+      gap: 8px;
+      height: 100%;
+      align-content: center;
+    }
+    .ops-system-group {
       display: grid;
       gap: 7px;
     }
-    .summary-status {
+    .ops-system-heading {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 950;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+    }
+    .ops-system {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 10px;
-      min-height: 31px;
-      border: 1px solid rgba(172, 187, 205, 0.12);
-      border-radius: 8px;
-      background: rgba(2, 6, 23, 0.2);
-      padding: 6px 8px;
+      min-width: 0;
     }
-    .summary-status-left {
+    .ops-system-left {
       display: inline-flex;
       align-items: center;
       gap: 8px;
       min-width: 0;
     }
-    .summary-status-left strong {
+    .ops-system-left strong {
       color: var(--text);
+      font-size: 13px;
       overflow-wrap: anywhere;
     }
-    .summary-status > span:last-child {
+    .ops-system > span:last-child {
       color: var(--muted);
       font-size: 12px;
       font-weight: 850;
       white-space: nowrap;
+    }
+    .ops-divider {
+      height: 1px;
+      background: rgba(172, 187, 205, 0.12);
     }
     .brand-mark {
       display: inline-grid;
@@ -1743,7 +1821,8 @@ function renderDashboardPage(session) {
     @media (max-width: 1180px) {
       .command-bar { grid-template-columns: 1fr; }
       .ops-toolbar { justify-content: flex-start; min-width: 0; flex-wrap: wrap; }
-      .summary-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .ops-overview { grid-template-columns: 1fr; }
+      .ops-pane + .ops-pane { border-left: 0; border-top: 1px solid rgba(172, 187, 205, 0.14); }
     }
     @media (max-width: 980px) {
       .runner-card { grid-template-columns: 1fr 1fr; }
@@ -1758,7 +1837,11 @@ function renderDashboardPage(session) {
       .shell { width: min(100vw - 20px, 1280px); }
       .topbar { align-items: flex-start; flex-direction: column; padding: 16px 0; }
       .toolbar, .detail-head { align-items: flex-start; flex-direction: column; }
-      .summary-strip { grid-template-columns: 1fr; }
+      .ops-stat-rail { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .ops-stat { padding: 10px 8px; }
+      .ops-stat + .ops-stat { border-left: 0; }
+      .ops-stat:nth-child(even) { border-left: 1px solid rgba(172, 187, 205, 0.11); }
+      .ops-stat:nth-child(n + 3) { border-top: 1px solid rgba(172, 187, 205, 0.11); }
       .runner-card, .grid, .form-grid { grid-template-columns: 1fr; }
       .health-grid { grid-template-columns: 1fr; }
       .integration-grid { grid-template-columns: 1fr; }
@@ -2060,14 +2143,14 @@ function renderDashboardPage(session) {
       return '<div class="metric-row"><span>' + escapeHtml(label) + '</span><strong>' + escapeHtml(normalized || 'none') + '</strong></div>';
     }
 
-    function renderSummaryMetric(label, value) {
+    function renderOpsStat(label, value, detail) {
       const normalized = value === 0 ? '0' : value;
-      return '<div class="summary-metric"><strong>' + escapeHtml(normalized || '0') + '</strong><span>' + escapeHtml(label) + '</span></div>';
+      return '<div class="ops-stat"><span>' + escapeHtml(label) + '</span><strong>' + escapeHtml(normalized || '0') + '</strong><small>' + escapeHtml(detail || '') + '</small></div>';
     }
 
-    function renderSummaryStatus(iconHtml, label, detail, active) {
-      return '<div class="summary-status">' +
-        '<div class="summary-status-left">' +
+    function renderOpsSystem(iconHtml, label, detail, active) {
+      return '<div class="ops-system">' +
+        '<div class="ops-system-left">' +
           (iconHtml || '<span class="status-dot ' + escapeHtml(active ? 'active' : 'inactive') + '"></span>') +
           '<strong>' + escapeHtml(label) + '</strong>' +
         '</div>' +
@@ -2433,37 +2516,55 @@ function renderDashboardPage(session) {
       const poolMax = pool?.config?.maxRunners ?? 0;
       const poolManagerActive = poolService?.active === 'active';
       const runnerServiceActive = service?.active === 'active';
+      const poolActive = pool?.pool?.active ?? 0;
+      const succeededTasks = tasks.filter((task) => task.status === 'SUCCEEDED').length;
+      const hasServiceIssue = !runnerServiceActive || !poolManagerActive;
+      const hasFailedWork = failedTasks > 0;
+      const fleetState = hasServiceIssue || hasFailedWork
+        ? 'Attention Needed'
+        : activeTasks > 0 || queuedWork > 0
+          ? 'Work in Progress'
+          : 'Operational';
+      const fleetClass = hasServiceIssue || hasFailedWork ? 'alert' : activeTasks > 0 || queuedWork > 0 ? 'warning' : '';
+      const fleetDotClass = hasServiceIssue || hasFailedWork ? 'inactive' : activeTasks > 0 || queuedWork > 0 ? 'paused' : 'active';
+      const poolUtilization = poolMax > 0
+        ? Math.max(0, Math.min(100, Math.round((poolActive / poolMax) * 100)))
+        : 0;
       summaryStripEl.innerHTML =
-        '<article class="summary-card">' +
-          '<div class="summary-card-head"><span>Capacity</span><span>Elastic pool ' + escapeHtml(poolTarget + '/' + poolMax) + '</span></div>' +
-          '<div class="summary-metric-grid">' +
-            renderSummaryMetric('active runners', activeRunners) +
-            renderSummaryMetric('paused', pausedRunners) +
-            renderSummaryMetric('pool target', poolTarget + ' / ' + poolMax) +
-            renderSummaryMetric('pool active', pool?.pool?.active ?? 0) +
+        '<article class="ops-overview">' +
+          '<div class="ops-pane">' +
+            '<div class="ops-state">' +
+              '<div class="ops-orb ' + escapeHtml(fleetClass) + '"><span class="status-dot ' + escapeHtml(fleetDotClass) + '"></span></div>' +
+              '<div class="ops-state-main">' +
+                '<span class="ops-label">Runner Fleet</span>' +
+                '<strong class="ops-title">' + escapeHtml(fleetState) + '</strong>' +
+                '<span class="ops-copy">' + escapeHtml(activeRunners + ' active · ' + queuedWork + ' queued · pool ' + poolTarget + '/' + poolMax) + '</span>' +
+                '<div class="ops-track" aria-label="Pool utilization"><span style="width: ' + escapeHtml(poolUtilization) + '%"></span></div>' +
+              '</div>' +
+            '</div>' +
           '</div>' +
-        '</article>' +
-        '<article class="summary-card">' +
-          '<div class="summary-card-head"><span>Workload</span><span>Nexus queue</span></div>' +
-          '<div class="summary-metric-grid">' +
-            renderSummaryMetric('queued', queuedWork) +
-            renderSummaryMetric('open runs', activeTasks) +
-            renderSummaryMetric('failed', failedTasks) +
-            renderSummaryMetric('succeeded', tasks.filter((task) => task.status === 'SUCCEEDED').length) +
+          '<div class="ops-pane">' +
+            '<div class="ops-stat-rail">' +
+              renderOpsStat('Runners', activeRunners, pausedRunners + ' paused') +
+              renderOpsStat('Queue', queuedWork, activeTasks + ' open') +
+              renderOpsStat('Pool', poolTarget + ' / ' + poolMax, poolActive + ' active') +
+              renderOpsStat('Failures', failedTasks, succeededTasks + ' succeeded') +
+            '</div>' +
           '</div>' +
-        '</article>' +
-        '<article class="summary-card">' +
-          '<div class="summary-card-head"><span>Integrations</span><span>Auth and execution</span></div>' +
-          '<div class="summary-status-list">' +
-            renderSummaryStatus(renderBrandMark('codex'), 'Codex Cloud', codexCloudReady ? 'ready' : 'not configured', codexCloudReady) +
-            renderSummaryStatus(renderBrandMark('github'), 'GitHub CLI', github.authenticated ? (github.login || 'authenticated') : 'needs auth', github.authenticated) +
-          '</div>' +
-        '</article>' +
-        '<article class="summary-card">' +
-          '<div class="summary-card-head"><span>Services</span><span>systemd</span></div>' +
-          '<div class="summary-status-list">' +
-            renderSummaryStatus(null, 'Runner service', service?.active || 'unknown', runnerServiceActive) +
-            renderSummaryStatus(null, 'Pool manager', poolService?.active || 'unknown', poolManagerActive) +
+          '<div class="ops-pane">' +
+            '<div class="ops-system-list">' +
+              '<div class="ops-system-group">' +
+                '<span class="ops-system-heading">Execution</span>' +
+                renderOpsSystem(renderBrandMark('codex'), 'Codex Cloud', codexCloudReady ? 'ready' : 'not configured', codexCloudReady) +
+                renderOpsSystem(renderBrandMark('github'), 'GitHub CLI', github.authenticated ? (github.login || 'authenticated') : 'needs auth', github.authenticated) +
+              '</div>' +
+              '<div class="ops-divider"></div>' +
+              '<div class="ops-system-group">' +
+                '<span class="ops-system-heading">Services</span>' +
+                renderOpsSystem(null, 'Runner service', service?.active || 'unknown', runnerServiceActive) +
+                renderOpsSystem(null, 'Pool manager', poolService?.active || 'unknown', poolManagerActive) +
+              '</div>' +
+            '</div>' +
           '</div>' +
         '</article>';
     }
