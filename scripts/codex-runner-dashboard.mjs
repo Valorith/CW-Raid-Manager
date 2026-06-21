@@ -1632,6 +1632,16 @@ function renderDashboardPage(session) {
     .readiness-button .status-dot {
       width: 7px;
       height: 7px;
+      animation: none;
+      box-shadow: none;
+      opacity: 0.78;
+    }
+    .readiness-button .status-dot.active,
+    .readiness-button .status-dot.running,
+    .readiness-button .status-dot.paused,
+    .readiness-button .status-dot.inactive {
+      animation: none;
+      box-shadow: none;
     }
     .preflight-panel {
       display: grid;
