@@ -16,6 +16,7 @@ const config = {
   host: process.env.DASHBOARD_HOST || '127.0.0.1',
   port: parsePositiveInt(process.env.DASHBOARD_PORT, 8788),
   baseUrl: requireEnv('DASHBOARD_BASE_URL').replace(/\/+$/, ''),
+  basePath: normalizeBasePath(process.env.DASHBOARD_BASE_PATH || ''),
   googleClientId: requireEnv('GOOGLE_CLIENT_ID'),
   googleClientSecret: requireEnv('GOOGLE_CLIENT_SECRET'),
   sessionSecret: requireEnv('DASHBOARD_SESSION_SECRET'),
@@ -35,7 +36,7 @@ if (config.allowedEmails.length === 0 && config.allowedDomains.length === 0) {
   throw new Error('DASHBOARD_ALLOWED_EMAILS or DASHBOARD_ALLOWED_DOMAINS is required.');
 }
 
-const redirectUri = `${config.baseUrl}/auth/google/callback`;
+const redirectUri = `${config.baseUrl}${config.basePath}/auth/google/callback`;
 
 await mkdir(config.registryDir, { recursive: true });
 
@@ -56,39 +57,40 @@ server.listen(config.port, config.host, () => {
 
 async function routeRequest(request, response) {
   const url = new URL(request.url || '/', config.baseUrl);
+  const path = stripBasePath(url.pathname);
 
-  if (url.pathname === '/health') {
+  if (url.pathname === '/health' || path === '/health') {
     sendJson(response, 200, { ok: true, hostname: hostname() });
     return;
   }
 
-  if (url.pathname === '/login') {
+  if (path === '/login') {
     handleLogin(response);
     return;
   }
 
-  if (url.pathname === '/auth/google/callback') {
+  if (path === '/auth/google/callback') {
     await handleGoogleCallback(request, response, url);
     return;
   }
 
-  if (url.pathname === '/logout') {
+  if (path === '/logout') {
     clearCookie(response, 'nexus_codex_dashboard');
-    redirect(response, '/login');
+    redirect(response, withBasePath('/login'));
     return;
   }
 
   const session = readSession(request);
   if (!session) {
-    if (url.pathname.startsWith('/api/')) {
+    if (path.startsWith('/api/')) {
       sendJson(response, 401, { error: 'Unauthorized' });
     } else {
-      redirect(response, '/login');
+      redirect(response, withBasePath('/login'));
     }
     return;
   }
 
-  if (url.pathname === '/api/runners') {
+  if (path === '/api/runners') {
     const runners = await listRunners();
     sendJson(response, 200, {
       generatedAt: new Date().toISOString(),
@@ -103,7 +105,7 @@ async function routeRequest(request, response) {
     return;
   }
 
-  if (url.pathname === '/') {
+  if (path === '/') {
     sendHtml(response, 200, renderDashboardPage(session));
     return;
   }
@@ -204,7 +206,7 @@ async function handleGoogleCallback(request, response, url) {
     maxAge: config.sessionTtlSeconds,
     httpOnly: true
   });
-  redirect(response, '/');
+  redirect(response, withBasePath('/'));
 }
 
 async function listRunners() {
@@ -395,7 +397,7 @@ function renderDashboardPage(session) {
         ${session.picture ? `<img src="${escapeHtml(session.picture)}" alt="">` : ''}
         <div>
           <div>${escapeHtml(session.name || session.email)}</div>
-          <a href="/logout">Sign out</a>
+          <a href="${escapeHtml(withBasePath('/logout'))}">Sign out</a>
         </div>
       </div>
     </div>
@@ -480,9 +482,9 @@ function renderDashboardPage(session) {
 
     async function refresh() {
       try {
-        const response = await fetch('/api/runners', { credentials: 'same-origin' });
+        const response = await fetch('${escapeJsString(withBasePath('/api/runners'))}', { credentials: 'same-origin' });
         if (response.status === 401) {
-          window.location.href = '/login';
+          window.location.href = '${escapeJsString(withBasePath('/login'))}';
           return;
         }
         const data = await response.json();
@@ -524,7 +526,7 @@ function renderErrorPage(title, detail) {
     a { color: #60a5fa; }
   </style>
 </head>
-<body><main><h1>${escapeHtml(title)}</h1><p>${escapeHtml(detail)}</p><a href="/login">Sign in again</a></main></body>
+<body><main><h1>${escapeHtml(title)}</h1><p>${escapeHtml(detail)}</p><a href="${escapeHtml(withBasePath('/login'))}">Sign in again</a></main></body>
 </html>`;
 }
 
@@ -594,7 +596,7 @@ function safeEqual(left, right) {
 function setCookie(response, name, value, options = {}) {
   const parts = [
     `${name}=${value}`,
-    'Path=/',
+    `Path=${config.basePath || '/'}`,
     'SameSite=Lax',
     options.httpOnly === false ? null : 'HttpOnly',
     config.baseUrl.startsWith('https://') ? 'Secure' : null,
@@ -607,7 +609,7 @@ function clearCookie(response, name) {
   appendHeader(
     response,
     'Set-Cookie',
-    `${name}=; Path=/; SameSite=Lax; HttpOnly; Max-Age=0${
+    `${name}=; Path=${config.basePath || '/'}; SameSite=Lax; HttpOnly; Max-Age=0${
       config.baseUrl.startsWith('https://') ? '; Secure' : ''
     }`
   );
@@ -716,6 +718,42 @@ function escapeHtml(value) {
         return char;
     }
   });
+}
+
+function escapeJsString(value) {
+  return String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+function withBasePath(path) {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  if (!config.basePath) {
+    return normalizedPath;
+  }
+  if (normalizedPath === '/') {
+    return `${config.basePath}/`;
+  }
+  return `${config.basePath}${normalizedPath}`;
+}
+
+function stripBasePath(pathname) {
+  if (!config.basePath) {
+    return pathname || '/';
+  }
+  if (pathname === config.basePath) {
+    return '/';
+  }
+  if (pathname.startsWith(`${config.basePath}/`)) {
+    return pathname.slice(config.basePath.length) || '/';
+  }
+  return pathname;
+}
+
+function normalizeBasePath(value) {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === '/') {
+    return '';
+  }
+  return `/${trimmed.replace(/^\/+|\/+$/g, '')}`;
 }
 
 function loadEnv(path) {
