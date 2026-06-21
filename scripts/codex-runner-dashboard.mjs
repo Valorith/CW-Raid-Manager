@@ -1200,33 +1200,114 @@ function renderDashboardPage(session) {
     .user img { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); }
     main { padding: 24px 0 48px; }
     .command-bar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: start;
+      gap: 14px;
       margin-bottom: 16px;
     }
     .summary-strip {
+      display: grid;
+      grid-template-columns: minmax(230px, 0.9fr) minmax(230px, 0.95fr) minmax(280px, 1.15fr) minmax(240px, 0.95fr);
+      gap: 10px;
+      min-width: 0;
+    }
+    .ops-toolbar {
       display: flex;
       align-items: center;
+      justify-content: flex-end;
       gap: 8px;
-      flex-wrap: wrap;
+      min-width: max-content;
     }
-    .summary-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      min-height: 32px;
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      padding: 0 11px;
-      background: rgba(18, 24, 33, 0.68);
+    .summary-card {
+      min-width: 0;
+      display: grid;
+      gap: 10px;
+      border: 1px solid rgba(172, 187, 205, 0.18);
+      border-radius: 8px;
+      padding: 12px;
+      background: rgba(18, 24, 33, 0.78);
       color: var(--soft);
       font-weight: 800;
       box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
     }
-    .summary-pill span { color: var(--muted); font-weight: 700; }
-    .summary-pill.brand strong { color: var(--text); }
+    .summary-card-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-width: 0;
+    }
+    .summary-card-head span:first-child {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 950;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .summary-card-head span:last-child {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 750;
+      overflow-wrap: anywhere;
+      text-align: right;
+    }
+    .summary-metric-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .summary-metric {
+      min-width: 0;
+      display: grid;
+      gap: 2px;
+      border: 1px solid rgba(172, 187, 205, 0.12);
+      border-radius: 8px;
+      background: rgba(2, 6, 23, 0.2);
+      padding: 9px;
+    }
+    .summary-metric strong {
+      color: var(--text);
+      font-size: 22px;
+      line-height: 1;
+      overflow-wrap: anywhere;
+    }
+    .summary-metric span {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .summary-status-list {
+      display: grid;
+      gap: 7px;
+    }
+    .summary-status {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-height: 31px;
+      border: 1px solid rgba(172, 187, 205, 0.12);
+      border-radius: 8px;
+      background: rgba(2, 6, 23, 0.2);
+      padding: 6px 8px;
+    }
+    .summary-status-left {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+    .summary-status-left strong {
+      color: var(--text);
+      overflow-wrap: anywhere;
+    }
+    .summary-status > span:last-child {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 850;
+      white-space: nowrap;
+    }
     .brand-mark {
       display: inline-grid;
       place-items: center;
@@ -1659,6 +1740,11 @@ function renderDashboardPage(session) {
       55% { transform: translateX(95%); }
       100% { transform: translateX(260%); }
     }
+    @media (max-width: 1180px) {
+      .command-bar { grid-template-columns: 1fr; }
+      .ops-toolbar { justify-content: flex-start; min-width: 0; flex-wrap: wrap; }
+      .summary-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
     @media (max-width: 980px) {
       .runner-card { grid-template-columns: 1fr 1fr; }
       .detail-shell { grid-template-columns: 1fr; }
@@ -1671,7 +1757,8 @@ function renderDashboardPage(session) {
     @media (max-width: 620px) {
       .shell { width: min(100vw - 20px, 1280px); }
       .topbar { align-items: flex-start; flex-direction: column; padding: 16px 0; }
-      .command-bar, .toolbar, .detail-head { align-items: flex-start; flex-direction: column; }
+      .toolbar, .detail-head { align-items: flex-start; flex-direction: column; }
+      .summary-strip { grid-template-columns: 1fr; }
       .runner-card, .grid, .form-grid { grid-template-columns: 1fr; }
       .health-grid { grid-template-columns: 1fr; }
       .integration-grid { grid-template-columns: 1fr; }
@@ -1699,7 +1786,7 @@ function renderDashboardPage(session) {
   <main class="shell">
     <section class="command-bar">
       <div class="summary-strip" id="summary-strip"></div>
-      <div class="row">
+      <div class="ops-toolbar">
         <button class="ghost" data-refresh>Refresh</button>
         <button class="ghost" data-open-health>VPS Health</button>
         <button class="ghost" data-open-create>New run</button>
@@ -1971,6 +2058,21 @@ function renderDashboardPage(session) {
     function renderMetricRow(label, value) {
       const normalized = value === 0 ? '0' : value;
       return '<div class="metric-row"><span>' + escapeHtml(label) + '</span><strong>' + escapeHtml(normalized || 'none') + '</strong></div>';
+    }
+
+    function renderSummaryMetric(label, value) {
+      const normalized = value === 0 ? '0' : value;
+      return '<div class="summary-metric"><strong>' + escapeHtml(normalized || '0') + '</strong><span>' + escapeHtml(label) + '</span></div>';
+    }
+
+    function renderSummaryStatus(iconHtml, label, detail, active) {
+      return '<div class="summary-status">' +
+        '<div class="summary-status-left">' +
+          (iconHtml || '<span class="status-dot ' + escapeHtml(active ? 'active' : 'inactive') + '"></span>') +
+          '<strong>' + escapeHtml(label) + '</strong>' +
+        '</div>' +
+        '<span>' + escapeHtml(detail || (active ? 'ready' : 'offline')) + '</span>' +
+      '</div>';
     }
 
     function renderPathItem(label, value) {
@@ -2330,17 +2432,40 @@ function renderDashboardPage(session) {
       const poolTarget = pool?.pool?.target ?? 0;
       const poolMax = pool?.config?.maxRunners ?? 0;
       const poolManagerActive = poolService?.active === 'active';
+      const runnerServiceActive = service?.active === 'active';
       summaryStripEl.innerHTML =
-        '<div class="summary-pill"><strong>' + activeRunners + '</strong><span>active</span></div>' +
-        '<div class="summary-pill"><strong>' + pausedRunners + '</strong><span>paused</span></div>' +
-        '<div class="summary-pill"><strong>' + escapeHtml(poolTarget + '/' + poolMax) + '</strong><span>pool target</span></div>' +
-        '<div class="summary-pill"><strong>' + escapeHtml(queuedWork) + '</strong><span>queued</span></div>' +
-        '<div class="summary-pill"><strong>' + activeTasks + '</strong><span>open runs</span></div>' +
-        '<div class="summary-pill"><strong>' + failedTasks + '</strong><span>failed</span></div>' +
-        renderIntegrationPill('codex', 'Codex Cloud', codexCloudReady ? 'ready' : 'not configured', codexCloudReady) +
-        renderIntegrationPill('github', 'GitHub CLI', github.authenticated ? (github.login || 'authenticated') : 'needs auth', github.authenticated) +
-        '<div class="summary-pill"><span class="status-dot ' + escapeHtml(poolManagerActive ? 'active' : 'inactive') + '"></span><span>pool ' + escapeHtml(poolService?.active || 'unknown') + '</span></div>' +
-        '<div class="summary-pill"><span class="status-dot ' + escapeHtml(service?.active === 'active' ? 'active' : 'inactive') + '"></span><span>' + escapeHtml(service?.active || 'unknown') + '</span></div>';
+        '<article class="summary-card">' +
+          '<div class="summary-card-head"><span>Capacity</span><span>Elastic pool ' + escapeHtml(poolTarget + '/' + poolMax) + '</span></div>' +
+          '<div class="summary-metric-grid">' +
+            renderSummaryMetric('active runners', activeRunners) +
+            renderSummaryMetric('paused', pausedRunners) +
+            renderSummaryMetric('pool target', poolTarget + ' / ' + poolMax) +
+            renderSummaryMetric('pool active', pool?.pool?.active ?? 0) +
+          '</div>' +
+        '</article>' +
+        '<article class="summary-card">' +
+          '<div class="summary-card-head"><span>Workload</span><span>Nexus queue</span></div>' +
+          '<div class="summary-metric-grid">' +
+            renderSummaryMetric('queued', queuedWork) +
+            renderSummaryMetric('open runs', activeTasks) +
+            renderSummaryMetric('failed', failedTasks) +
+            renderSummaryMetric('succeeded', tasks.filter((task) => task.status === 'SUCCEEDED').length) +
+          '</div>' +
+        '</article>' +
+        '<article class="summary-card">' +
+          '<div class="summary-card-head"><span>Integrations</span><span>Auth and execution</span></div>' +
+          '<div class="summary-status-list">' +
+            renderSummaryStatus(renderBrandMark('codex'), 'Codex Cloud', codexCloudReady ? 'ready' : 'not configured', codexCloudReady) +
+            renderSummaryStatus(renderBrandMark('github'), 'GitHub CLI', github.authenticated ? (github.login || 'authenticated') : 'needs auth', github.authenticated) +
+          '</div>' +
+        '</article>' +
+        '<article class="summary-card">' +
+          '<div class="summary-card-head"><span>Services</span><span>systemd</span></div>' +
+          '<div class="summary-status-list">' +
+            renderSummaryStatus(null, 'Runner service', service?.active || 'unknown', runnerServiceActive) +
+            renderSummaryStatus(null, 'Pool manager', poolService?.active || 'unknown', poolManagerActive) +
+          '</div>' +
+        '</article>';
     }
 
     function renderSelectedRunner() {
