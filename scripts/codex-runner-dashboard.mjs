@@ -1623,17 +1623,27 @@ function renderDashboardPage(session) {
       gap: 8px;
       min-width: max-content;
     }
+    .readiness-button {
+      gap: 7px;
+      color: var(--muted);
+      background: rgba(18, 24, 33, 0.34);
+      border-color: rgba(172, 187, 205, 0.14);
+    }
+    .readiness-button .status-dot {
+      width: 7px;
+      height: 7px;
+    }
     .preflight-panel {
       display: grid;
       gap: 0;
-      margin: 0 0 16px;
+      margin: 0;
       border: 1px solid rgba(172, 187, 205, 0.18);
       border-radius: 8px;
       background:
         linear-gradient(135deg, rgba(23, 31, 42, 0.94), rgba(12, 18, 28, 0.9)),
         rgba(18, 24, 33, 0.92);
       overflow: hidden;
-      box-shadow: 0 14px 30px rgba(0, 0, 0, 0.28);
+      box-shadow: none;
     }
     .preflight-head {
       display: flex;
@@ -2466,6 +2476,7 @@ function renderDashboardPage(session) {
       overflow: hidden;
       box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
     }
+    .modal-card.preflight-modal-card { width: min(1120px, calc(100vw - 40px)); }
     .modal-body { overflow: auto; padding: 16px; display: grid; gap: 14px; }
     @keyframes pulse-green {
       0% { box-shadow: 0 0 0 0 rgba(53, 221, 139, 0.42); }
@@ -2549,12 +2560,13 @@ function renderDashboardPage(session) {
       <div class="summary-strip" id="summary-strip"></div>
       <div class="ops-toolbar">
         <button class="ghost" data-refresh>Refresh</button>
+        <button class="ghost readiness-button" data-open-preflight title="Open runner readiness checks">
+          <span class="status-dot idle" id="preflight-toolbar-dot"></span>
+          <span id="preflight-toolbar-label">Readiness</span>
+        </button>
         <button class="ghost" data-open-health>VPS Health</button>
         <button class="ghost" data-open-create>New run</button>
       </div>
-    </section>
-    <section class="preflight-panel" id="preflight-panel">
-      <div class="empty">Running preflight checks...</div>
     </section>
     <section class="view-stack" id="landing-view">
       <div class="toolbar">
@@ -2669,6 +2681,22 @@ function renderDashboardPage(session) {
       </form>
     </article>
   </div>
+  <div class="modal" id="preflight-modal" hidden>
+    <article class="modal-card preflight-modal-card">
+      <div class="panel-head">
+        <div>
+          <h2>Runner Readiness</h2>
+          <div class="mini" id="preflight-modal-subtitle">Readiness checks load on demand.</div>
+        </div>
+        <button data-preflight-close>Close</button>
+      </div>
+      <div class="modal-body">
+        <section class="preflight-panel" id="preflight-panel">
+          <div class="empty">Running preflight checks...</div>
+        </section>
+      </div>
+    </article>
+  </div>
   <div class="modal" id="detail-modal" hidden>
     <article class="modal-card">
       <div class="panel-head">
@@ -2696,6 +2724,11 @@ function renderDashboardPage(session) {
     const runnersEl = document.getElementById('runners');
     const summaryStripEl = document.getElementById('summary-strip');
     const preflightEl = document.getElementById('preflight-panel');
+    const preflightButtonEl = document.querySelector('[data-open-preflight]');
+    const preflightToolbarDotEl = document.getElementById('preflight-toolbar-dot');
+    const preflightToolbarLabelEl = document.getElementById('preflight-toolbar-label');
+    const preflightModalEl = document.getElementById('preflight-modal');
+    const preflightModalSubtitleEl = document.getElementById('preflight-modal-subtitle');
     const generatedEl = document.getElementById('generated');
     const healthMetaEl = document.getElementById('health-meta');
     const healthContentEl = document.getElementById('health-content');
@@ -2909,6 +2942,14 @@ function renderDashboardPage(session) {
       return 'Ready with cautions';
     }
 
+    function updatePreflightChrome(status, detail) {
+      const dotClass = status === 'ok' ? 'active' : status === 'fail' ? 'inactive' : status === 'warn' ? 'paused' : 'idle';
+      preflightToolbarDotEl.className = 'status-dot ' + dotClass;
+      preflightToolbarLabelEl.textContent = 'Readiness';
+      preflightButtonEl.title = detail || 'Open runner readiness checks';
+      preflightModalSubtitleEl.textContent = detail || 'Readiness checks load on demand.';
+    }
+
     function renderPreflightCheck(check) {
       const status = check?.status || 'warn';
       return '<div class="preflight-check ' + escapeHtml(status) + '">' +
@@ -2928,10 +2969,12 @@ function renderDashboardPage(session) {
     function renderPreflight() {
       const preflight = latestPreflight;
       if (!preflight) {
+        updatePreflightChrome('idle', 'Readiness checks are loading.');
         preflightEl.innerHTML = '<div class="empty">Running preflight checks...</div>';
         return;
       }
       if (preflight.error) {
+        updatePreflightChrome('fail', 'Unable to load readiness checks.');
         preflightEl.innerHTML =
           '<div class="preflight-head">' +
             '<div class="preflight-title"><div class="preflight-ring fail"><span class="status-dot inactive"></span></div><div><h2>Runner Preflight</h2><span>Unable to load readiness checks.</span></div></div>' +
@@ -2955,12 +2998,14 @@ function renderDashboardPage(session) {
           : warnCount > 0
             ? warnCount + ' caution' + (warnCount === 1 ? '' : 's')
             : 'All required checks are green';
+      const title = preflightStatusLabel(worstStatus) + ' · ' + summary + ' · updated ' + new Date(preflight.generatedAt).toLocaleTimeString();
+      updatePreflightChrome(worstStatus, title);
 
       preflightEl.innerHTML =
         '<div class="preflight-head">' +
           '<div class="preflight-title">' +
             '<div class="preflight-ring ' + escapeHtml(worstStatus) + '"><span class="status-dot ' + escapeHtml(worstStatus === 'ok' ? 'active' : worstStatus === 'fail' ? 'inactive' : 'paused') + '"></span></div>' +
-            '<div><h2>Runner Preflight</h2><span>' + escapeHtml(preflightStatusLabel(worstStatus) + ' · ' + summary + ' · updated ' + new Date(preflight.generatedAt).toLocaleTimeString()) + '</span></div>' +
+            '<div><h2>Runner Preflight</h2><span>' + escapeHtml(title) + '</span></div>' +
           '</div>' +
           '<div class="preflight-actions">' +
             '<button class="ghost" data-preflight-refresh>Refresh checks</button>' +
@@ -3756,6 +3801,12 @@ function renderDashboardPage(session) {
         }
         if (button.hasAttribute('data-refresh')) {
           await refresh();
+        } else if (button.hasAttribute('data-open-preflight')) {
+          preflightModalEl.hidden = false;
+          if (!latestPreflight || latestPreflight.error) {
+            latestPreflight = await requestJson(API.preflight);
+          }
+          renderPreflight();
         } else if (button.hasAttribute('data-preflight-refresh')) {
           latestPreflight = await requestJson(API.preflight);
           renderPreflight();
@@ -3786,6 +3837,8 @@ function renderDashboardPage(session) {
           await loadVpsHealth();
         } else if (button.hasAttribute('data-create-close')) {
           createModalEl.hidden = true;
+        } else if (button.hasAttribute('data-preflight-close')) {
+          preflightModalEl.hidden = true;
         } else if (button.hasAttribute('data-back-to-runners')) {
           closeRunner();
         } else if (button.hasAttribute('data-refresh-history')) {
@@ -3846,6 +3899,9 @@ function renderDashboardPage(session) {
 
     createModalEl.addEventListener('click', (event) => {
       if (event.target === createModalEl) createModalEl.hidden = true;
+    });
+    preflightModalEl.addEventListener('click', (event) => {
+      if (event.target === preflightModalEl) preflightModalEl.hidden = true;
     });
     detailModalEl.addEventListener('click', (event) => {
       if (event.target === detailModalEl) detailModalEl.hidden = true;
