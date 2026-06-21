@@ -1596,28 +1596,44 @@ function renderDashboardPage(session) {
     .runner-actions {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px;
+      gap: 7px;
       justify-self: end;
-      width: min(280px, 100%);
+      width: min(264px, 100%);
     }
     .runner-actions button {
       width: 100%;
-      min-height: 32px;
+      min-height: 30px;
       padding: 0 10px;
+      color: var(--soft);
+      background: rgba(18, 24, 33, 0.48);
+      border-color: rgba(172, 187, 205, 0.2);
+      box-shadow: none;
+      font-size: 13px;
     }
     .runner-actions button.primary {
-      background: linear-gradient(135deg, #147a46, #136f63);
-      border-color: rgba(53, 221, 139, 0.72);
-      color: #ecfdf5;
-      box-shadow: 0 8px 18px rgba(20, 122, 70, 0.22);
+      background: rgba(53, 221, 139, 0.12);
+      border-color: rgba(53, 221, 139, 0.32);
+      color: #bbf7d0;
     }
     .runner-actions button.danger {
-      background: linear-gradient(135deg, #742033, #9f2842);
-      border-color: rgba(255, 113, 133, 0.72);
+      background: rgba(255, 113, 133, 0.11);
+      border-color: rgba(255, 113, 133, 0.34);
+      color: #fecdd3;
     }
     .runner-actions button.warn {
-      background: linear-gradient(135deg, #735117, #96691a);
-      border-color: rgba(244, 201, 93, 0.78);
+      background: rgba(244, 201, 93, 0.12);
+      border-color: rgba(244, 201, 93, 0.34);
+      color: #fde68a;
+    }
+    .runner-actions button.ghost {
+      background: rgba(18, 24, 33, 0.32);
+      border-color: rgba(172, 187, 205, 0.16);
+      color: var(--muted);
+    }
+    .runner-actions button:hover {
+      transform: none;
+      border-color: rgba(172, 187, 205, 0.34);
+      background: rgba(23, 31, 42, 0.7);
     }
     .detail-shell {
       display: grid;
