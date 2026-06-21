@@ -8,6 +8,7 @@ import { availabilityRoutes } from './availability.js';
 import { bisRoutes } from './bis.js';
 import { charactersRoutes } from './characters.js';
 import { cliAuthRoutes } from './cliAuth.js';
+import { codexRunnerRoutes } from './codexRunner.js';
 import { guildBankRoutes } from './guildBank.js';
 import { guildDonationRoutes } from './guildDonations.js';
 import { guildRoutes } from './guilds.js';
@@ -31,6 +32,7 @@ import { webhookInboxRoutes } from './webhookInbox.js';
 export function registerRoutes(server: FastifyInstance): void {
   server.register(authRoutes, { prefix: '/api/auth' });
   server.register(cliAuthRoutes, { prefix: '/api/cli/auth' });
+  server.register(codexRunnerRoutes, { prefix: '/api/codex-runner' });
   server.register(guildRoutes, { prefix: '/api/guilds' });
   server.register(lootListRoutes, { prefix: '/api/guilds' });
   server.register(guildMetricsRoutes, { prefix: '/api/guilds' });

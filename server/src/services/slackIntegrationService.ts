@@ -3,8 +3,7 @@ import { randomBytes } from 'crypto';
 import {
   InboundWebhookActionType,
   type Prisma,
-  SlackInstallTargetType,
-  type GuildSlackWebhook
+  SlackInstallTargetType
 } from '@prisma/client';
 
 import { appConfig } from '../config/appConfig.js';
@@ -161,8 +160,8 @@ export async function completeSlackInstall(input: {
       await applyInboundWebhookActionConnection(tx, session.targetId, connection);
     } else if (session.targetType === SlackInstallTargetType.TEST_MANAGER_SETTINGS) {
       await applyTestManagerSettingsConnection(tx, connection);
-    } else if (session.targetType === SlackInstallTargetType.GUILD_SLACK_WEBHOOK) {
-      await applyGuildSlackWebhookConnection(tx, session.targetId, connection);
+    } else {
+      throw new Error('Unsupported Slack install target.');
     }
 
     await tx.slackInstallSession.update({
@@ -277,29 +276,6 @@ async function applyTestManagerSettingsConnection(
   });
 }
 
-async function applyGuildSlackWebhookConnection(
-  tx: Prisma.TransactionClient,
-  webhookId: string | null,
-  connection: SlackIncomingWebhookConnection
-) {
-  if (!webhookId) {
-    throw new Error('Slack guild webhook target is missing.');
-  }
-
-  await tx.guildSlackWebhook.update({
-    where: { id: webhookId },
-    data: {
-      webhookUrl: connection.webhookUrl,
-      configurationUrl: connection.configurationUrl,
-      slackTeamId: connection.slackTeamId,
-      slackTeamName: connection.slackTeamName,
-      slackChannelId: connection.slackChannelId,
-      slackChannelName: connection.slackChannelName,
-      isEnabled: true
-    }
-  });
-}
-
 function parseJsonObject(value: string): Record<string, unknown> {
   try {
     return asObject(JSON.parse(value) as unknown);
@@ -333,161 +309,6 @@ export function redactSlackConfig(config: unknown): Record<string, unknown> {
     ...record,
     slackConnection: summary
   };
-}
-
-export function serializeGuildSlackWebhook(
-  webhook: GuildSlackWebhook
-): Omit<GuildSlackWebhook, 'webhookUrl'> & SlackWebhookConnectionSummary {
-  const { webhookUrl, ...safeWebhook } = webhook;
-  return {
-    ...safeWebhook,
-    hasSlackWebhook: Boolean(webhookUrl?.trim()),
-    configurationUrl: webhook.configurationUrl ?? null,
-    slackTeamId: webhook.slackTeamId ?? null,
-    slackTeamName: webhook.slackTeamName ?? null,
-    slackChannelId: webhook.slackChannelId ?? null,
-    slackChannelName: webhook.slackChannelName ?? null,
-    connectedAt: webhook.updatedAt?.toISOString?.() ?? null
-  };
-}
-
-export async function listGuildSlackWebhooks(guildId: string) {
-  const webhooks = await prisma.guildSlackWebhook.findMany({
-    where: { guildId },
-    orderBy: { createdAt: 'asc' }
-  });
-  return webhooks.map(serializeGuildSlackWebhook);
-}
-
-export async function createGuildSlackWebhook(
-  guildId: string,
-  createdById: string,
-  input: {
-    label: string;
-    isEnabled?: boolean;
-    eventSubscriptions?: Record<string, boolean>;
-  }
-) {
-  const webhook = await prisma.guildSlackWebhook.create({
-    data: {
-      guildId,
-      createdById,
-      label: sanitizeLabel(input.label),
-      isEnabled: input.isEnabled ?? true,
-      eventSubscriptions: normalizeBooleanMap(input.eventSubscriptions) as Prisma.InputJsonValue
-    }
-  });
-  return serializeGuildSlackWebhook(webhook);
-}
-
-export async function updateGuildSlackWebhook(
-  webhookId: string,
-  guildId: string,
-  input: {
-    label?: string;
-    isEnabled?: boolean;
-    eventSubscriptions?: Record<string, boolean>;
-  }
-) {
-  const existing = await prisma.guildSlackWebhook.findUnique({
-    where: { id: webhookId }
-  });
-  if (!existing || existing.guildId !== guildId) {
-    throw new Error('Slack webhook not found.');
-  }
-
-  const webhook = await prisma.guildSlackWebhook.update({
-    where: { id: webhookId },
-    data: {
-      label: input.label !== undefined ? sanitizeLabel(input.label) : undefined,
-      isEnabled: input.isEnabled,
-      eventSubscriptions:
-        input.eventSubscriptions !== undefined
-          ? (normalizeBooleanMap(input.eventSubscriptions) as Prisma.InputJsonValue)
-          : undefined
-    }
-  });
-  return serializeGuildSlackWebhook(webhook);
-}
-
-export async function deleteGuildSlackWebhook(webhookId: string, guildId: string) {
-  const existing = await prisma.guildSlackWebhook.findUnique({
-    where: { id: webhookId },
-    select: { guildId: true }
-  });
-  if (!existing || existing.guildId !== guildId) {
-    throw new Error('Slack webhook not found.');
-  }
-  await prisma.guildSlackWebhook.delete({ where: { id: webhookId } });
-}
-
-export async function disconnectGuildSlackWebhook(webhookId: string, guildId: string) {
-  const existing = await prisma.guildSlackWebhook.findUnique({
-    where: { id: webhookId }
-  });
-  if (!existing || existing.guildId !== guildId) {
-    throw new Error('Slack webhook not found.');
-  }
-
-  const webhook = await prisma.guildSlackWebhook.update({
-    where: { id: webhookId },
-    data: {
-      webhookUrl: null,
-      configurationUrl: null,
-      slackTeamId: null,
-      slackTeamName: null,
-      slackChannelId: null,
-      slackChannelName: null,
-      isEnabled: false
-    }
-  });
-
-  return serializeGuildSlackWebhook(webhook);
-}
-
-export async function sendGuildSlackWebhookTest(webhookId: string, guildId: string) {
-  const webhook = await prisma.guildSlackWebhook.findUnique({
-    where: { id: webhookId },
-    include: { guild: { select: { name: true } } }
-  });
-  if (!webhook || webhook.guildId !== guildId) {
-    throw new Error('Slack webhook not found.');
-  }
-  if (!webhook.webhookUrl) {
-    throw new Error('Slack incoming webhook is not connected.');
-  }
-
-  await sendSlackIncomingWebhook(
-    webhook.webhookUrl,
-    buildSlackPayloadFromText({
-      title: 'CW Nexus Guild Slack Test',
-      text: `Slack notifications are connected for ${webhook.guild.name}.`,
-      url: null
-    })
-  );
-
-  await prisma.guildSlackWebhook.update({
-    where: { id: webhook.id },
-    data: { lastSentAt: new Date() }
-  });
-}
-
-function sanitizeLabel(value: string) {
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed.slice(0, 120) : 'Slack Webhook';
-}
-
-function normalizeBooleanMap(value: unknown): Record<string, boolean> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return {};
-  }
-  const result: Record<string, boolean> = {};
-  for (const [key, enabled] of Object.entries(value)) {
-    if (typeof enabled === 'boolean') {
-      result[key] = enabled;
-    }
-  }
-  return result;
 }
 
 export async function sendSlackIncomingWebhook(

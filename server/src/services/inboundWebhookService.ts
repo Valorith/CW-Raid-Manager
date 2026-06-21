@@ -18,7 +18,8 @@ import {
   getSlackWebhookUrlFromConfig,
   redactSlackConfig,
   sendSlackIncomingWebhook,
-  summarizeSlackConnectionFromConfig
+  summarizeSlackConnectionFromConfig,
+  type SlackWebhookBody
 } from './slackIntegrationService.js';
 import { queueUserNotification } from './userNotificationService.js';
 import { appConfig } from '../config/appConfig.js';
@@ -197,6 +198,11 @@ export interface InboundWebhookActionConfig {
   slackChannelName?: string | null;
   connectedAt?: string | null;
   slackConnection?: ReturnType<typeof summarizeSlackConnectionFromConfig>;
+  slackCodexHandoffEnabled?: boolean;
+  slackCodexMention?: string;
+  slackCodexRepository?: string;
+  slackCodexBaseBranch?: string;
+  slackCodexInstructions?: string;
   customWebhookUrl?: string;
   crashModel?: string;
   crashMaxInputChars?: number;
@@ -647,6 +653,192 @@ export async function sendSlackRelayTestForAction(actionId: string) {
   );
 
   return redactInboundWebhookActionConfig(action);
+}
+
+export interface CodexSlackHandoffResult {
+  actionId: string;
+  actionName: string;
+  slackTeamName: string | null;
+  slackChannelName: string | null;
+  sentAt: string;
+}
+
+export async function sendCodexSlackHandoffForMessage(
+  messageId: string
+): Promise<CodexSlackHandoffResult> {
+  const message = await prisma.inboundWebhookMessage.findUnique({
+    where: { id: messageId },
+    include: {
+      webhook: {
+        include: {
+          actions: {
+            orderBy: [
+              { sortOrder: 'asc' },
+              { createdAt: 'asc' }
+            ]
+          }
+        }
+      },
+      actionRuns: {
+        include: {
+          action: {
+            select: { type: true }
+          }
+        },
+        orderBy: { createdAt: 'desc' }
+      }
+    }
+  });
+
+  if (!message) {
+    throw new Error('Webhook message not found.');
+  }
+
+  const crashReport = buildCrashReviewInput(message.payload, message.rawBody, message.payload);
+  if (!crashReport.trim()) {
+    throw new Error('Crash report text is empty.');
+  }
+  if (!looksLikeCrashReport(crashReport)) {
+    throw new Error('Only crash reports can be sent to Codex.');
+  }
+
+  const codexActions = message.webhook.actions
+    .map((action) => ({
+      action,
+      config: normalizeActionConfig(action.config)
+    }))
+    .filter(
+      ({ action, config }) =>
+        action.type === 'SLACK_RELAY' &&
+        action.isEnabled &&
+        config.slackCodexHandoffEnabled === true
+    );
+
+  if (codexActions.length === 0) {
+    throw new Error('Enable Codex Handoff on a Slack Relay action for this webhook first.');
+  }
+
+  const connectedActions = codexActions.filter(({ config }) =>
+    Boolean(getSlackWebhookUrlFromConfig(config))
+  );
+  if (connectedActions.length === 0) {
+    throw new Error('Connect Slack for the Codex Handoff Slack Relay action first.');
+  }
+
+  const target = connectedActions.find(({ config }) =>
+    Boolean(normalizeSlackCodexMentionToken(config.slackCodexMention))
+  );
+  if (!target) {
+    throw new Error(
+      "Paste Codex's Slack mention token, such as <@U123ABCDEF>, on the Slack Relay action first."
+    );
+  }
+
+  const slackUrl = getSlackWebhookUrlFromConfig(target.config);
+  if (!slackUrl) {
+    throw new Error('Slack incoming webhook is not connected.');
+  }
+
+  const startedAt = Date.now();
+  const sentAt = new Date();
+  try {
+    await sendSlackRelay(
+      slackUrl,
+      buildCodexCrashHandoffPayload(message, crashReport, sentAt),
+      target.config,
+      messageId
+    );
+    await prisma.inboundWebhookActionRun.create({
+      data: {
+        messageId,
+        actionId: target.action.id,
+        status: 'SUCCESS',
+        result: {
+          manual: true,
+          target: 'codex',
+          sentAt: sentAt.toISOString()
+        },
+        durationMs: Date.now() - startedAt
+      }
+    });
+    await updateActionSummary(messageId, target.action.id, 'SUCCESS');
+  } catch (error) {
+    await prisma.inboundWebhookActionRun.create({
+      data: {
+        messageId,
+        actionId: target.action.id,
+        status: 'FAILED',
+        error: error instanceof Error ? error.message : 'Unknown Slack/Codex handoff error',
+        result: {
+          manual: true,
+          target: 'codex'
+        },
+        durationMs: Date.now() - startedAt
+      }
+    });
+    await updateActionSummary(messageId, target.action.id, 'FAILED');
+    throw error;
+  }
+
+  return {
+    actionId: target.action.id,
+    actionName: target.action.name,
+    slackTeamName: target.config.slackTeamName ?? null,
+    slackChannelName: target.config.slackChannelName ?? null,
+    sentAt: sentAt.toISOString()
+  };
+}
+
+export function buildCodexCrashHandoffPayload(
+  message: {
+    id: string;
+    webhookId: string;
+    receivedAt: Date;
+    sourceIp: string | null;
+    payload: Prisma.JsonValue;
+    rawBody: string | null;
+    webhook?: { label: string | null } | null;
+    actionRuns: Array<{
+      status: string;
+      result: Prisma.JsonValue | null;
+      createdAt: Date;
+      action: { type: InboundWebhookActionType } | null;
+    }>;
+  },
+  crashReport: string,
+  sentAt: Date
+): Prisma.JsonObject {
+  const extracted = extractCrashReportSections(crashReport);
+  const latestReview = getLatestCrashReviewResult(message.actionRuns);
+  const inboxUrl =
+    clientBaseUrl && message.id
+      ? `${clientBaseUrl}/admin/webhooks?messageId=${encodeURIComponent(message.id)}`
+      : null;
+
+  return {
+    event: 'crash.fix_requested',
+    schemaVersion: 1,
+    source: 'cwraidmanager.webhook_inbox',
+    target: 'codex',
+    sentAt: sentAt.toISOString(),
+    task:
+      'Investigate this crash report, implement the smallest safe fix, run the relevant tests, and open a PR from an isolated branch. Do not push to master or mutate production/shared state.',
+    message: {
+      id: message.id,
+      webhookId: message.webhookId,
+      webhookLabel: message.webhook?.label ?? null,
+      receivedAt: message.receivedAt.toISOString(),
+      sourceIp: message.sourceIp,
+      inboxUrl
+    },
+    aiReview: latestReview,
+    crashReport: buildCrashReportExtract(extracted),
+    telemetry: {
+      crashReport: extracted.combined || crashReport.slice(0, EXTRACT_MAX_CHARS),
+      originalPayload: message.payload,
+      rawBody: message.rawBody
+    }
+  };
 }
 
 export async function listInboundWebhookMessages(options: {
@@ -2577,7 +2769,7 @@ function normalizeNpcNameToken(value: unknown): string | null {
  * Returns true if it appears to be a crash/error report that should be reviewed by AI.
  * Returns false for other types of messages (which should pass through unchanged).
  */
-function looksLikeCrashReport(text: string): boolean {
+export function looksLikeCrashReport(text: string): boolean {
   // Strip markdown formatting (**, __, etc.) for more reliable detection
   const stripped = text.replace(/\*\*/g, '').replace(/__/g, '');
   const lower = stripped.toLowerCase();
@@ -3033,6 +3225,18 @@ function normalizeActionConfig(config: unknown): InboundWebhookActionConfig {
     slackChannelId: typeof raw.slackChannelId === 'string' ? raw.slackChannelId : undefined,
     slackChannelName: typeof raw.slackChannelName === 'string' ? raw.slackChannelName : undefined,
     connectedAt: typeof raw.connectedAt === 'string' ? raw.connectedAt : undefined,
+    slackCodexHandoffEnabled:
+      typeof raw.slackCodexHandoffEnabled === 'boolean'
+        ? raw.slackCodexHandoffEnabled
+        : undefined,
+    slackCodexMention:
+      typeof raw.slackCodexMention === 'string' ? raw.slackCodexMention : undefined,
+    slackCodexRepository:
+      typeof raw.slackCodexRepository === 'string' ? raw.slackCodexRepository : undefined,
+    slackCodexBaseBranch:
+      typeof raw.slackCodexBaseBranch === 'string' ? raw.slackCodexBaseBranch : undefined,
+    slackCodexInstructions:
+      typeof raw.slackCodexInstructions === 'string' ? raw.slackCodexInstructions : undefined,
     customWebhookUrl: typeof raw.customWebhookUrl === 'string' ? raw.customWebhookUrl : undefined,
     crashModel: typeof raw.crashModel === 'string' ? raw.crashModel : undefined,
     crashMaxInputChars: typeof raw.crashMaxInputChars === 'number' ? raw.crashMaxInputChars : undefined,
@@ -3095,6 +3299,7 @@ function buildSlackRelayPayload(
   config: InboundWebhookActionConfig,
   messageUrl: string | null
 ) {
+  let slackPayload: SlackWebhookBody;
   if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
     const record = payload as Record<string, unknown>;
     const crashReview = record.crashReview;
@@ -3112,19 +3317,103 @@ function buildSlackRelayPayload(
           : null
       ].filter(Boolean);
 
-      return buildSlackPayloadFromText({
+      slackPayload = buildSlackPayloadFromText({
         title,
         text: lines.join('\n\n'),
         url: messageUrl
       });
+      return appendSlackCodexHandoff(slackPayload, config, messageUrl);
     }
   }
 
-  return buildSlackPayloadFromUnknown(payload, {
+  slackPayload = buildSlackPayloadFromUnknown(payload, {
     title: 'Webhook Payload',
     template: config.slackTemplate,
     messageUrl
   });
+  return appendSlackCodexHandoff(slackPayload, config, messageUrl);
+}
+
+const DEFAULT_SLACK_CODEX_REPOSITORY = 'Valorith/Server';
+const DEFAULT_SLACK_CODEX_BASE_BRANCH = 'master';
+const DEFAULT_SLACK_CODEX_INSTRUCTIONS =
+  'Investigate this crash report, implement the smallest safe fix, run the relevant tests, and open a PR. Work in an isolated branch or worktree only. Do not push to master, mutate production, or make permanent changes outside the PR branch. If the PR is rejected, closing the PR/branch should leave no lasting changes.';
+
+function appendSlackCodexHandoff(
+  slackPayload: SlackWebhookBody,
+  config: InboundWebhookActionConfig,
+  messageUrl: string | null
+) {
+  if (!config.slackCodexHandoffEnabled) {
+    return slackPayload;
+  }
+
+  const repository = config.slackCodexRepository?.trim() || DEFAULT_SLACK_CODEX_REPOSITORY;
+  const baseBranch = config.slackCodexBaseBranch?.trim() || DEFAULT_SLACK_CODEX_BASE_BRANCH;
+  const instructions =
+    config.slackCodexInstructions?.trim() || DEFAULT_SLACK_CODEX_INSTRUCTIONS;
+  const handoffText = [
+    '*Codex handoff:* direct Nexus runner',
+    `*Repository:* \`${escapeSlackMrkdwn(repository)}\``,
+    `*Base branch:* \`${escapeSlackMrkdwn(baseBranch)}\``,
+    `*Outcome:* use *Fix with -> Codex* in Nexus to queue a VPS runner job against \`${escapeSlackMrkdwn(repository)}:${escapeSlackMrkdwn(
+      baseBranch
+    )}\`.`,
+    `*Safety:* ${escapeSlackMrkdwn(instructions)}`,
+    messageUrl ? `*Nexus message:* <${messageUrl}|Open in Webhook Inbox>` : null
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  return {
+    text: truncateSlackMrkdwnText(
+      `${slackPayload.text}\n\nCodex handoff: ${stripSlackMarkup(handoffText)}`,
+      3000
+    ),
+    blocks: [
+      ...(slackPayload.blocks ?? []),
+      { type: 'divider' },
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: truncateSlackMrkdwnText(handoffText, 2900)
+        }
+      }
+    ]
+  };
+}
+
+function normalizeSlackCodexMentionToken(value?: string): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const match = trimmed.match(/^<@([A-Z0-9][A-Z0-9._-]*)(?:\|[^>]+)?>$/);
+  if (!match) {
+    return null;
+  }
+  return `<@${match[1]}>`;
+}
+
+function escapeSlackMrkdwn(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function stripSlackMarkup(value: string): string {
+  return value
+    .replace(/<([^|>]+)\|([^>]+)>/g, '$2')
+    .replace(/[*`]/g, '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+}
+
+function truncateSlackMrkdwnText(value: string, maxLength: number): string {
+  const trimmed = value.trim();
+  return trimmed.length > maxLength
+    ? `${trimmed.slice(0, Math.max(0, maxLength - 3))}...`
+    : trimmed;
 }
 
 async function sendCustomWebhookRelay(url: string, payload: unknown) {

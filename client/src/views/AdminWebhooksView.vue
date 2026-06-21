@@ -1173,6 +1173,49 @@
                       placeholder="Use {{json}} for pretty JSON or {{raw}} for full JSON"
                       :rows="7"
                     />
+                    <div
+                      v-if="action.type === 'SLACK_RELAY'"
+                      class="slack-codex-handoff endpoint-field-wide"
+                    >
+                      <div class="slack-codex-handoff__header">
+                        <span class="label">Codex Handoff</span>
+                        <label class="toggle">
+                          <span class="label">
+                            {{ action.config.slackCodexHandoffEnabled ? 'Enabled' : 'Off' }}
+                          </span>
+                          <input v-model="action.config.slackCodexHandoffEnabled" type="checkbox" />
+                        </label>
+                      </div>
+                      <div
+                        v-if="action.config.slackCodexHandoffEnabled"
+                        class="slack-codex-handoff__grid"
+                      >
+                        <label class="form-field">
+                          <span>Repository</span>
+                          <input
+                            v-model="action.config.slackCodexRepository"
+                            class="input"
+                            placeholder="Valorith/Server"
+                          />
+                        </label>
+                        <label class="form-field">
+                          <span>Base Branch</span>
+                          <input
+                            v-model="action.config.slackCodexBaseBranch"
+                            class="input"
+                            placeholder="master"
+                          />
+                        </label>
+                        <label class="form-field endpoint-field-wide">
+                          <span>Instructions</span>
+                          <textarea
+                            v-model="action.config.slackCodexInstructions"
+                            class="textarea"
+                            rows="5"
+                          ></textarea>
+                        </label>
+                      </div>
+                    </div>
                     <label v-if="action.type === 'CRASH_REVIEW'" class="form-field">
                       <span>Model</span>
                       <select v-model="action.config.crashModel" class="select">
@@ -1369,6 +1412,56 @@
                     placeholder="Use {{json}} for pretty JSON or {{raw}} for full JSON"
                     :rows="7"
                   />
+                  <div
+                    v-if="actionDrafts[selectedWebhook.id].type === 'SLACK_RELAY'"
+                    class="slack-codex-handoff endpoint-field-wide"
+                  >
+                    <div class="slack-codex-handoff__header">
+                      <span class="label">Codex Handoff</span>
+                      <label class="toggle">
+                        <span class="label">
+                          {{
+                            actionDrafts[selectedWebhook.id].slackCodexHandoffEnabled
+                              ? 'Enabled'
+                              : 'Off'
+                          }}
+                        </span>
+                        <input
+                          v-model="actionDrafts[selectedWebhook.id].slackCodexHandoffEnabled"
+                          type="checkbox"
+                        />
+                      </label>
+                    </div>
+                    <div
+                      v-if="actionDrafts[selectedWebhook.id].slackCodexHandoffEnabled"
+                      class="slack-codex-handoff__grid"
+                    >
+                      <label class="form-field">
+                        <span>Repository</span>
+                        <input
+                          v-model="actionDrafts[selectedWebhook.id].slackCodexRepository"
+                          class="input"
+                          placeholder="Valorith/Server"
+                        />
+                      </label>
+                      <label class="form-field">
+                        <span>Base Branch</span>
+                        <input
+                          v-model="actionDrafts[selectedWebhook.id].slackCodexBaseBranch"
+                          class="input"
+                          placeholder="master"
+                        />
+                      </label>
+                      <label class="form-field endpoint-field-wide">
+                        <span>Instructions</span>
+                        <textarea
+                          v-model="actionDrafts[selectedWebhook.id].slackCodexInstructions"
+                          class="textarea"
+                          rows="5"
+                        ></textarea>
+                      </label>
+                    </div>
+                  </div>
                   <label
                     v-if="actionDrafts[selectedWebhook.id].type === 'CRASH_REVIEW'"
                     class="form-field"
@@ -2883,20 +2976,67 @@
               </svg>
               Resolve
             </button>
-            <button
+            <div
               v-if="isCrashReportMessage(selectedMessage)"
-              class="btn btn--devin"
-              type="button"
-              :disabled="
-                !getFixWithDevinState(selectedMessage).canSend ||
-                isSendingDevinFix(selectedMessage.id)
-              "
-              :title="getFixWithDevinState(selectedMessage).title"
-              @click="fixWithDevin(selectedMessage)"
+              class="fix-with-menu"
+              @click.stop
             >
-              <img class="devin-logo" :src="DEVIN_LOGO_SRC" alt="" aria-hidden="true" />
-              {{ isSendingDevinFix(selectedMessage.id) ? 'Sending...' : 'Fix with Devin' }}
-            </button>
+              <button
+                class="btn btn--fix-with"
+                type="button"
+                :disabled="!getFixWithState(selectedMessage).canOpen"
+                :title="getFixWithState(selectedMessage).title"
+                :aria-expanded="isFixWithMenuOpen(selectedMessage.id)"
+                aria-haspopup="menu"
+                @click="toggleFixWithMenu(selectedMessage.id)"
+              >
+                {{ isSendingAnyFix(selectedMessage.id) ? 'Sending...' : 'Fix with' }}
+                <svg class="fix-with-chevron" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="m7 10 5 5 5-5"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2.2"
+                  />
+                </svg>
+              </button>
+              <div
+                v-if="isFixWithMenuOpen(selectedMessage.id)"
+                class="fix-with-menu__popover"
+                role="menu"
+              >
+                <button
+                  class="fix-with-menu__item"
+                  type="button"
+                  role="menuitem"
+                  :disabled="
+                    !getFixWithCodexState(selectedMessage).canSend ||
+                    isSendingCodexFix(selectedMessage.id)
+                  "
+                  :title="getFixWithCodexState(selectedMessage).title"
+                  @click="fixWithCodex(selectedMessage)"
+                >
+                  <img class="openai-logo" src="/assets/openai-logo-light.svg" alt="" aria-hidden="true" />
+                  <span>Codex</span>
+                </button>
+                <button
+                  class="fix-with-menu__item"
+                  type="button"
+                  role="menuitem"
+                  :disabled="
+                    !getFixWithDevinState(selectedMessage).canSend ||
+                    isSendingDevinFix(selectedMessage.id)
+                  "
+                  :title="getFixWithDevinState(selectedMessage).title"
+                  @click="fixWithDevin(selectedMessage)"
+                >
+                  <img class="devin-logo" :src="DEVIN_LOGO_SRC" alt="" aria-hidden="true" />
+                  <span>Devin</span>
+                </button>
+              </div>
+            </div>
             <button class="btn btn--outline" type="button" @click="toggleArchive(selectedMessage)">
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path
@@ -4172,6 +4312,10 @@ const crashModelOptions = [
 ];
 const DEFAULT_DISCORD_TEMPLATE = 'Webhook payload:\n\n```json\n{{json}}\n```';
 const DEFAULT_SLACK_TEMPLATE = 'Webhook payload:\n\n```json\n{{json}}\n```';
+const DEFAULT_SLACK_CODEX_REPOSITORY = 'Valorith/Server';
+const DEFAULT_SLACK_CODEX_BASE_BRANCH = 'master';
+const DEFAULT_SLACK_CODEX_INSTRUCTIONS =
+  'Investigate this crash report, implement the smallest safe fix, run the relevant tests, and open a PR. Work in an isolated branch or worktree only. Do not push to master, mutate production, or make permanent changes outside the PR branch. If the PR is rejected, closing the PR/branch should leave no lasting changes.';
 const discordTemplatePlaceholders = ['{{json}}', '{{raw}}'];
 const crashTemplatePlaceholders = ['{{crashReport}}'];
 const ORACLE_LOGO_SRC = '/assets/eqemu-oracle-logo.webp';
@@ -4197,8 +4341,10 @@ const retryingCrashId = ref<string | null>(null);
 const sendingDiscordSummaryIds = ref<Set<string>>(new Set());
 const sendingSlackActionIds = ref<Set<string>>(new Set());
 const sendingDevinMessageIds = ref<Set<string>>(new Set());
+const sendingCodexMessageIds = ref<Set<string>>(new Set());
 const resolvingMessageIds = ref<Set<string>>(new Set());
 const activeMessageActionMenuId = ref<string | null>(null);
+const activeFixWithMenuMessageId = ref<string | null>(null);
 const showPromptModal = ref(false);
 const manualReviewUseOracle = ref(true);
 let inboxPollTimer: ReturnType<typeof setInterval> | null = null;
@@ -5370,6 +5516,10 @@ function buildActionDraft() {
     discordMode: 'WRAP',
     discordTemplate: DEFAULT_DISCORD_TEMPLATE,
     slackTemplate: DEFAULT_SLACK_TEMPLATE,
+    slackCodexHandoffEnabled: false,
+    slackCodexRepository: DEFAULT_SLACK_CODEX_REPOSITORY,
+    slackCodexBaseBranch: DEFAULT_SLACK_CODEX_BASE_BRANCH,
+    slackCodexInstructions: DEFAULT_SLACK_CODEX_INSTRUCTIONS,
     customWebhookUrl: '',
     crashModel: 'gemini-2.5-flash-lite',
     crashMaxInputChars: 250000,
@@ -5399,6 +5549,10 @@ function normalizeClientActionConfig(
       connectedAt: null
     },
     customWebhookUrl: config?.customWebhookUrl ?? '',
+    slackCodexHandoffEnabled: config?.slackCodexHandoffEnabled ?? false,
+    slackCodexRepository: config?.slackCodexRepository ?? DEFAULT_SLACK_CODEX_REPOSITORY,
+    slackCodexBaseBranch: config?.slackCodexBaseBranch ?? DEFAULT_SLACK_CODEX_BASE_BRANCH,
+    slackCodexInstructions: config?.slackCodexInstructions ?? DEFAULT_SLACK_CODEX_INSTRUCTIONS,
     crashModel: config?.crashModel ?? 'gemini-2.5-flash-lite',
     crashMaxInputChars: config?.crashMaxInputChars ?? 250000,
     crashMaxOutputTokens: config?.crashMaxOutputTokens ?? 4096,
@@ -5427,7 +5581,11 @@ function buildActionConfigFromDraft(draft: any): InboundWebhookActionConfig {
 
   if (draft.type === 'SLACK_RELAY') {
     return {
-      slackTemplate: draft.slackTemplate?.trim() || undefined
+      slackTemplate: draft.slackTemplate?.trim() || undefined,
+      slackCodexHandoffEnabled: Boolean(draft.slackCodexHandoffEnabled),
+      slackCodexRepository: draft.slackCodexRepository?.trim() || undefined,
+      slackCodexBaseBranch: draft.slackCodexBaseBranch?.trim() || undefined,
+      slackCodexInstructions: draft.slackCodexInstructions?.trim() || undefined
     };
   }
 
@@ -5466,7 +5624,11 @@ function buildActionConfigFromAction(action: InboundWebhookAction): InboundWebho
 
   if (action.type === 'SLACK_RELAY') {
     return {
-      slackTemplate: action.config.slackTemplate?.trim() || undefined
+      slackTemplate: action.config.slackTemplate?.trim() || undefined,
+      slackCodexHandoffEnabled: Boolean(action.config.slackCodexHandoffEnabled),
+      slackCodexRepository: action.config.slackCodexRepository?.trim() || undefined,
+      slackCodexBaseBranch: action.config.slackCodexBaseBranch?.trim() || undefined,
+      slackCodexInstructions: action.config.slackCodexInstructions?.trim() || undefined
     };
   }
 
@@ -7240,6 +7402,40 @@ function getFixWithDevinState(message: InboundWebhookMessage): {
   return { canSend: true, title: `Send crash report to ${enabledDevinEndpoint.value.label}.` };
 }
 
+function getFixWithCodexState(message: InboundWebhookMessage): {
+  canSend: boolean;
+  title: string;
+} {
+  if (!isCrashReportMessage(message)) {
+    return { canSend: false, title: 'Only crash reports can be sent to Codex.' };
+  }
+
+  if (!getCrashReportText(message).trim()) {
+    return { canSend: false, title: 'A stored crash report is required.' };
+  }
+
+  if (isSendingCodexFix(message.id)) {
+    return { canSend: false, title: 'Queueing crash report for Codex...' };
+  }
+
+  return { canSend: true, title: 'Queue this crash report for the Codex VPS runner.' };
+}
+
+function getFixWithState(message: InboundWebhookMessage): {
+  canOpen: boolean;
+  title: string;
+} {
+  const codexState = getFixWithCodexState(message);
+  const devinState = getFixWithDevinState(message);
+  if (codexState.canSend || devinState.canSend) {
+    return { canOpen: true, title: 'Choose Codex or Devin for this crash report.' };
+  }
+  return {
+    canOpen: false,
+    title: 'Only crash reports can be sent to Codex or Devin.'
+  };
+}
+
 function isCrashReportMessage(message: InboundWebhookMessage) {
   if (isServerCrashWebhook(message.webhook)) {
     return true;
@@ -7259,6 +7455,27 @@ function isSendingDiscordSummary(messageId: string) {
 
 function isSendingDevinFix(messageId: string) {
   return sendingDevinMessageIds.value.has(messageId);
+}
+
+function isSendingCodexFix(messageId: string) {
+  return sendingCodexMessageIds.value.has(messageId);
+}
+
+function isSendingAnyFix(messageId: string) {
+  return isSendingCodexFix(messageId) || isSendingDevinFix(messageId);
+}
+
+function isFixWithMenuOpen(messageId: string) {
+  return activeFixWithMenuMessageId.value === messageId;
+}
+
+function toggleFixWithMenu(messageId: string) {
+  activeFixWithMenuMessageId.value =
+    activeFixWithMenuMessageId.value === messageId ? null : messageId;
+}
+
+function closeFixWithMenu() {
+  activeFixWithMenuMessageId.value = null;
 }
 
 function isResolvingMessage(messageId: string) {
@@ -8224,6 +8441,9 @@ function handleGlobalClick(event: MouseEvent) {
   if (!target.closest('.message-action-menu')) {
     closeMessageActionMenu();
   }
+  if (!target.closest('.fix-with-menu')) {
+    closeFixWithMenu();
+  }
 }
 
 // ==================== Message Merging ====================
@@ -8571,8 +8791,47 @@ async function sendDiscordSummary(message: InboundWebhookMessage) {
   }
 }
 
+async function fixWithCodex(message: InboundWebhookMessage) {
+  closeMessageActionMenu();
+  closeFixWithMenu();
+  const sendState = getFixWithCodexState(message);
+  if (!sendState.canSend || isSendingCodexFix(message.id)) {
+    return;
+  }
+
+  const confirmed = window.confirm('Queue this crash report for the Codex VPS runner?');
+  if (!confirmed) {
+    return;
+  }
+
+  sendingCodexMessageIds.value.add(message.id);
+  sendingCodexMessageIds.value = new Set(sendingCodexMessageIds.value);
+
+  try {
+    const { result, message: updated } = await api.sendWebhookCrashToCodex(message.id);
+    if (updated) {
+      updateInboxMessage(updated);
+    }
+    addToast({
+      title: 'Codex Job Queued',
+      message: `Job ${result.id} queued for ${result.targetRepository}:${result.baseBranch}.`,
+      variant: 'success'
+    });
+  } catch (error) {
+    addToast({
+      title: 'Codex Handoff Failed',
+      message: getActionErrorMessage(error, 'Failed to send crash report to Codex.'),
+      variant: 'error'
+    });
+  } finally {
+    sendingCodexMessageIds.value.delete(message.id);
+    sendingCodexMessageIds.value = new Set(sendingCodexMessageIds.value);
+  }
+}
+
 async function fixWithDevin(message: InboundWebhookMessage) {
   closeMessageActionMenu();
+  closeFixWithMenu();
   const sendState = getFixWithDevinState(message);
   if (!sendState.canSend || isSendingDevinFix(message.id)) {
     return;
@@ -9917,6 +10176,35 @@ function escapeHtml(text: string): string {
     rgba(15, 23, 42, 0.98);
 }
 
+.btn--fix-with {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  border-color: rgba(45, 212, 191, 0.42);
+  background:
+    linear-gradient(135deg, rgba(37, 99, 235, 0.88), rgba(20, 184, 166, 0.78)),
+    rgba(15, 23, 42, 0.92);
+  color: #f8fafc;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 14px 28px rgba(2, 6, 23, 0.28);
+}
+
+.btn--fix-with:hover:not(:disabled),
+.btn--fix-with[aria-expanded='true'] {
+  border-color: rgba(125, 211, 252, 0.75);
+  background:
+    linear-gradient(135deg, rgba(37, 99, 235, 0.98), rgba(20, 184, 166, 0.92)),
+    rgba(15, 23, 42, 0.98);
+}
+
+.fix-with-chevron {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+}
+
 .openai-logo {
   display: block;
   width: 1rem;
@@ -11053,6 +11341,27 @@ function escapeHtml(text: string): string {
   background: rgba(15, 23, 42, 0.48);
 }
 
+.slack-codex-handoff {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.slack-codex-handoff__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.slack-codex-handoff__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.1fr) minmax(0, 0.8fr);
+  gap: 0.85rem;
+}
+
 .endpoint-control-row {
   display: grid;
   grid-template-columns: minmax(7.5rem, 0.55fr) minmax(0, 1fr);
@@ -11394,6 +11703,13 @@ function escapeHtml(text: string): string {
     inset 0 0 0 1px rgba(15, 23, 42, 0.4);
 }
 
+.input--invalid {
+  border-color: rgba(248, 113, 113, 0.82);
+  box-shadow:
+    0 0 0 2px rgba(248, 113, 113, 0.12),
+    inset 0 0 0 1px rgba(15, 23, 42, 0.4);
+}
+
 .input::placeholder {
   color: rgba(148, 163, 184, 0.7);
 }
@@ -11496,6 +11812,10 @@ input[type='checkbox']:checked::after {
   font-size: 0.75rem;
   color: rgba(148, 163, 184, 0.7);
   line-height: 1.4;
+}
+
+.form-hint--warning {
+  color: #fca5a5;
 }
 
 .toggle {
@@ -12473,6 +12793,57 @@ input[type='checkbox']:checked::after {
   width: 1rem;
   height: 1rem;
   flex: 0 0 auto;
+}
+
+.fix-with-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.fix-with-menu__popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 0.45rem);
+  z-index: 25;
+  display: flex;
+  min-width: 10rem;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.35rem;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 0.65rem;
+  background: rgba(15, 23, 42, 0.98);
+  box-shadow:
+    0 18px 38px rgba(2, 6, 23, 0.48),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.fix-with-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.62rem 0.7rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: #e2e8f0;
+  font: inherit;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fix-with-menu__item:hover:not(:disabled),
+.fix-with-menu__item:focus-visible {
+  outline: none;
+  background: rgba(59, 130, 246, 0.2);
+  color: #ffffff;
+}
+
+.fix-with-menu__item:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .modal--settings {
@@ -13566,7 +13937,8 @@ input[type='checkbox']:checked::after {
 
   .endpoint-summary-strip,
   .endpoint-form-grid,
-  .endpoint-control-row {
+  .endpoint-control-row,
+  .slack-codex-handoff__grid {
     grid-template-columns: 1fr;
   }
 
@@ -13606,6 +13978,16 @@ input[type='checkbox']:checked::after {
 
   .payload-modal__footer-actions .btn {
     width: 100%;
+  }
+
+  .fix-with-menu {
+    width: 100%;
+  }
+
+  .fix-with-menu__popover {
+    right: 0;
+    left: 0;
+    min-width: 0;
   }
 
   .modal--settings {

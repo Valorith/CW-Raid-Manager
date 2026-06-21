@@ -49,6 +49,7 @@ import {
   autoLinkSharedIpsStream,
   type ConnectionForSync
 } from '../services/characterAdminService.js';
+import { createCodexJobForWebhookMessage } from '../services/codexJobService.js';
 import {
   fetchServerConnections,
   fetchIpExemptions,
@@ -1609,6 +1610,11 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
     discordMode: z.enum(['RAW', 'WRAP']).optional().nullable(),
     discordTemplate: z.string().max(4000).optional().nullable(),
     slackTemplate: z.string().max(4000).optional().nullable(),
+    slackCodexHandoffEnabled: z.boolean().optional().nullable(),
+    slackCodexMention: z.string().max(120).optional().nullable(),
+    slackCodexRepository: z.string().max(120).optional().nullable(),
+    slackCodexBaseBranch: z.string().max(120).optional().nullable(),
+    slackCodexInstructions: z.string().max(8000).optional().nullable(),
     customWebhookUrl: z.string().url().max(512).optional().nullable(),
     crashModel: z.string().max(120).optional().nullable(),
     crashMaxInputChars: z.coerce.number().int().positive().optional().nullable(),
@@ -1915,6 +1921,26 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
           typeof config.slackTemplate === 'string'
             ? config.slackTemplate.trim() || undefined
             : undefined,
+        slackCodexHandoffEnabled:
+          typeof config.slackCodexHandoffEnabled === 'boolean'
+            ? config.slackCodexHandoffEnabled
+            : undefined,
+        slackCodexMention:
+          typeof config.slackCodexMention === 'string'
+            ? config.slackCodexMention.trim() || undefined
+            : undefined,
+        slackCodexRepository:
+          typeof config.slackCodexRepository === 'string'
+            ? config.slackCodexRepository.trim() || undefined
+            : undefined,
+        slackCodexBaseBranch:
+          typeof config.slackCodexBaseBranch === 'string'
+            ? config.slackCodexBaseBranch.trim() || undefined
+            : undefined,
+        slackCodexInstructions:
+          typeof config.slackCodexInstructions === 'string'
+            ? config.slackCodexInstructions.trim() || undefined
+            : undefined,
         customWebhookUrl:
           typeof config.customWebhookUrl === 'string'
             ? config.customWebhookUrl.trim() || undefined
@@ -2020,6 +2046,26 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
             slackTemplate:
               typeof config.slackTemplate === 'string'
                 ? config.slackTemplate.trim() || undefined
+                : undefined,
+            slackCodexHandoffEnabled:
+              typeof config.slackCodexHandoffEnabled === 'boolean'
+                ? config.slackCodexHandoffEnabled
+                : undefined,
+            slackCodexMention:
+              typeof config.slackCodexMention === 'string'
+                ? config.slackCodexMention.trim() || undefined
+                : undefined,
+            slackCodexRepository:
+              typeof config.slackCodexRepository === 'string'
+                ? config.slackCodexRepository.trim() || undefined
+                : undefined,
+            slackCodexBaseBranch:
+              typeof config.slackCodexBaseBranch === 'string'
+                ? config.slackCodexBaseBranch.trim() || undefined
+                : undefined,
+            slackCodexInstructions:
+              typeof config.slackCodexInstructions === 'string'
+                ? config.slackCodexInstructions.trim() || undefined
                 : undefined,
             customWebhookUrl:
               typeof config.customWebhookUrl === 'string'
@@ -2484,6 +2530,31 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
         }
         return reply.badRequest(
           error instanceof Error ? error.message : 'Unable to send crash report to Devin.'
+        );
+      }
+    }
+  );
+
+  server.post(
+    '/webhook-inbox/:messageId/fix-with-codex',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({ messageId: z.string() });
+      const { messageId } = paramsSchema.parse(request.params);
+
+      try {
+        const result = await createCodexJobForWebhookMessage(messageId, request.user.userId);
+        const message = await getInboundWebhookMessage(messageId, request.user.userId);
+        return reply.code(201).send({ result, message });
+      } catch (error) {
+        request.log.error({ error }, 'Failed to send crash report to Codex.');
+        if (error instanceof Error && error.message.includes('not found')) {
+          return reply.notFound(error.message);
+        }
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to send crash report to Codex.'
         );
       }
     }

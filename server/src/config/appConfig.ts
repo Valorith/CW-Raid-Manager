@@ -88,6 +88,14 @@ const fileConfigSchema = z
           })
           .optional()
       })
+      .optional(),
+    codexRunner: z
+      .object({
+        token: z.string().min(24).optional(),
+        repository: z.string().min(1).optional(),
+        baseBranch: z.string().min(1).optional(),
+        instructions: z.string().min(1).optional()
+      })
       .optional()
   })
   .partial();
@@ -304,6 +312,10 @@ const envDiscordCallbackUrl = readOptionalEnv('DISCORD_CALLBACK_URL', googleCall
 const envSlackClientId = readOptionalEnv('SLACK_CLIENT_ID', z.string().min(1));
 const envSlackClientSecret = readOptionalEnv('SLACK_CLIENT_SECRET', z.string().min(1));
 const envSlackCallbackUrl = readOptionalEnv('SLACK_CALLBACK_URL', googleCallbackSchema);
+const envCodexRunnerToken = readOptionalEnv('CODEX_RUNNER_TOKEN', z.string().min(24));
+const envCodexRunnerRepository = readOptionalEnv('CODEX_RUNNER_REPOSITORY', z.string().min(1));
+const envCodexRunnerBaseBranch = readOptionalEnv('CODEX_RUNNER_BASE_BRANCH', z.string().min(1));
+const envCodexRunnerInstructions = readOptionalEnv('CODEX_RUNNER_INSTRUCTIONS', z.string().min(1));
 const envPasskeyRpName = readOptionalEnv('PASSKEY_RP_NAME', z.string().min(1));
 const envPasskeyRpId = readOptionalEnv('PASSKEY_RP_ID', z.string().min(1));
 const envPasskeyOrigin = readOptionalEnv('PASSKEY_ORIGIN', z.string().url());
@@ -483,6 +495,16 @@ if (slackClientId && slackClientSecret) {
   };
 }
 
+const codexRunnerConfig = {
+  token: envCodexRunnerToken ?? fileConfig.codexRunner?.token ?? null,
+  repository: envCodexRunnerRepository ?? fileConfig.codexRunner?.repository ?? 'Valorith/Server',
+  baseBranch: envCodexRunnerBaseBranch ?? fileConfig.codexRunner?.baseBranch ?? 'master',
+  instructions:
+    envCodexRunnerInstructions ??
+    fileConfig.codexRunner?.instructions ??
+    'Investigate the crash report, implement the smallest safe fix, run the relevant tests, and leave changes in the working tree for the runner to commit, push, and open a PR. Do not mutate production/shared services or push to the base branch.'
+};
+
 const telegramBotToken = envTelegramBotToken ?? fileConfig.notifications?.telegram?.botToken;
 const telegramBotUsername =
   envTelegramBotUsername ?? fileConfig.notifications?.telegram?.botUsername;
@@ -573,6 +595,7 @@ export const appConfig = {
   google: googleConfig,
   discord: discordConfig,
   slack: slackConfig,
+  codexRunner: codexRunnerConfig,
   passkeys: {
     rpName: passkeyRpName,
     rpId: passkeyRpId,

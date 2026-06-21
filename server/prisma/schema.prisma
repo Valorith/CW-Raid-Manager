@@ -49,7 +49,7 @@ model User {
   inboundWebhooks      InboundWebhook[] @relation("InboundWebhookCreator")
   outboundWebhookEndpoints OutboundWebhookEndpoint[] @relation("OutboundWebhookEndpointCreator")
   slackInstallSessions SlackInstallSession[] @relation("SlackInstallSessionCreator")
-  createdSlackWebhooks GuildSlackWebhook[] @relation("GuildSlackWebhookCreator")
+  createdCodexJobs   CodexJob[] @relation("CodexJobCreator")
   inboundWebhookAssignments InboundWebhookMessage[] @relation("InboundWebhookAssignee")
   webhookMessageReadStatuses WebhookMessageReadStatus[] @relation("WebhookMessageReadStatus")
   webhookMessageStars WebhookMessageStar[] @relation("WebhookMessageStars")
@@ -93,7 +93,6 @@ model Guild {
   createdBy            User                     @relation("GuildCreator", fields: [createdById], references: [id])
   applications         GuildApplication[]
   discordWebhooks      GuildDiscordWebhook[]
-  slackWebhooks        GuildSlackWebhook[]
   lootParserSettings   GuildLootParserSettings?
   lootLists            GuildLootListEntry[]
   members              GuildMembership[]
@@ -817,6 +816,15 @@ enum InboundWebhookActionRunStatus {
   PENDING_REVIEW
 }
 
+enum CodexJobStatus {
+  QUEUED
+  CLAIMED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELED
+}
+
 enum OutboundWebhookEndpointService {
   CUSTOM
   DEVIN
@@ -825,7 +833,6 @@ enum OutboundWebhookEndpointService {
 enum SlackInstallTargetType {
   INBOUND_WEBHOOK_ACTION
   TEST_MANAGER_SETTINGS
-  GUILD_SLACK_WEBHOOK
 }
 
 model InboundWebhook {
@@ -893,30 +900,6 @@ model SlackInstallSession {
   @@index([expiresAt])
 }
 
-model GuildSlackWebhook {
-  id                 String   @id @default(cuid())
-  guildId            String
-  label              String   @db.VarChar(120)
-  webhookUrl         String?  @db.Text
-  configurationUrl   String?  @db.VarChar(1024)
-  isEnabled          Boolean  @default(false)
-  slackTeamId        String?  @db.VarChar(120)
-  slackTeamName      String?  @db.VarChar(191)
-  slackChannelId     String?  @db.VarChar(120)
-  slackChannelName   String?  @db.VarChar(191)
-  eventSubscriptions Json     @default(dbgenerated("(json_object())"))
-  createdById        String
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-  lastSentAt         DateTime?
-  guild              Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
-  createdBy          User     @relation("GuildSlackWebhookCreator", fields: [createdById], references: [id], onDelete: Cascade)
-
-  @@index([guildId])
-  @@index([createdById])
-  @@index([isEnabled])
-}
-
 model InboundWebhookAction {
   id        String                   @id @default(cuid())
   webhookId String
@@ -956,6 +939,7 @@ model InboundWebhookMessage {
   stars         WebhookMessageStar[]
   labelAssignments WebhookMessageLabelAssignment[]
   testChangeLinks TestChangeWebhookReport[]
+  codexJobs     CodexJob[]
 
   @@index([webhookId])
   @@index([receivedAt])
@@ -981,6 +965,37 @@ model InboundWebhookActionRun {
   @@index([messageId])
   @@index([actionId])
   @@index([createdAt])
+}
+
+model CodexJob {
+  id               String                 @id @default(cuid())
+  messageId        String?
+  createdById      String?
+  status           CodexJobStatus         @default(QUEUED)
+  targetRepository String                 @db.VarChar(120)
+  baseBranch       String                 @db.VarChar(120)
+  branchName       String                 @db.VarChar(191)
+  prompt           String                 @db.LongText
+  context          Json?
+  runnerId         String?                @db.VarChar(120)
+  statusMessage    String?                @db.Text
+  error            String?                @db.LongText
+  output           String?                @db.LongText
+  prUrl            String?                @db.VarChar(1024)
+  prNumber         Int?
+  result           Json?
+  claimedAt        DateTime?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  message          InboundWebhookMessage? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  createdBy        User?                  @relation("CodexJobCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([messageId])
+  @@index([createdById])
+  @@index([status, createdAt])
+  @@index([branchName])
 }
 
 // Webhook Message Read Status - per-user read tracking

@@ -1,0 +1,16 @@
+[Unit]
+Description=Nexus Codex Runner
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/nexus-codex-runner
+EnvironmentFile=/home/ubuntu/nexus-codex-runner/.env
+ExecStart=/usr/bin/node /home/ubuntu/nexus-codex-runner/codex-runner.mjs
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

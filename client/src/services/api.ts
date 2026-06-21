@@ -778,40 +778,6 @@ export interface GuildDiscordWebhookInput {
 
 export interface GuildDiscordWebhookUpdateInput extends Partial<GuildDiscordWebhookInput> {}
 
-export interface GuildSlackWebhookSettings {
-  id: string;
-  guildId: string;
-  label: string;
-  isEnabled: boolean;
-  hasSlackWebhook: boolean;
-  configurationUrl: string | null;
-  slackTeamId: string | null;
-  slackTeamName: string | null;
-  slackChannelId: string | null;
-  slackChannelName: string | null;
-  eventSubscriptions: Record<string, boolean>;
-  createdById: string;
-  createdAt?: string | null;
-  updatedAt?: string | null;
-  lastSentAt?: string | null;
-}
-
-export interface GuildSlackWebhookListResponse {
-  webhooks: GuildSlackWebhookSettings[];
-  eventDefinitions: DiscordWebhookEventDefinition[];
-  defaultEventSubscriptions: Record<string, boolean>;
-}
-
-export interface GuildSlackWebhookInput {
-  label: string;
-  isEnabled?: boolean;
-  eventSubscriptions?: Record<string, boolean>;
-}
-
-export interface GuildSlackWebhookInstallResponse extends SlackInstallStartResponse {
-  webhook?: GuildSlackWebhookSettings;
-}
-
 export interface RaidSignupCounts {
   confirmed: number;
   notAttending: number;
@@ -1652,6 +1618,11 @@ export interface InboundWebhookActionConfig {
   discordTemplate?: string;
   slackTemplate?: string;
   slackConnection?: SlackWebhookConnectionSummary;
+  slackCodexHandoffEnabled?: boolean;
+  slackCodexMention?: string;
+  slackCodexRepository?: string;
+  slackCodexBaseBranch?: string;
+  slackCodexInstructions?: string;
   customWebhookUrl?: string;
   crashModel?: string;
   crashMaxInputChars?: number;
@@ -1726,6 +1697,28 @@ export interface DevinCrashWebhookSendResult {
   endpointId: string;
   endpointLabel: string;
   sentAt: string;
+}
+
+export type CodexJobStatus = 'QUEUED' | 'CLAIMED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELED';
+
+export interface CodexJobSummary {
+  id: string;
+  messageId: string | null;
+  status: CodexJobStatus;
+  targetRepository: string;
+  baseBranch: string;
+  branchName: string;
+  runnerId: string | null;
+  statusMessage: string | null;
+  error: string | null;
+  output: string | null;
+  prUrl: string | null;
+  prNumber: number | null;
+  claimedAt: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface InboundWebhookActionRun {
@@ -2687,27 +2680,6 @@ function normalizeSlackConnection(raw: any): SlackWebhookConnectionSummary {
         : typeof raw?.connection?.connectedAt === 'string'
           ? raw.connection.connectedAt
           : null
-  };
-}
-
-function normalizeGuildSlackWebhookSettings(raw: any): GuildSlackWebhookSettings {
-  const connection = normalizeSlackConnection(raw);
-  return {
-    id: typeof raw?.id === 'string' ? raw.id : '',
-    guildId: typeof raw?.guildId === 'string' ? raw.guildId : '',
-    label: typeof raw?.label === 'string' ? raw.label : 'Slack Webhook',
-    isEnabled: Boolean(raw?.isEnabled),
-    hasSlackWebhook: connection.hasSlackWebhook,
-    configurationUrl: connection.configurationUrl,
-    slackTeamId: connection.slackTeamId,
-    slackTeamName: connection.slackTeamName,
-    slackChannelId: connection.slackChannelId,
-    slackChannelName: connection.slackChannelName,
-    eventSubscriptions: normalizeBooleanRecord(raw?.eventSubscriptions),
-    createdById: typeof raw?.createdById === 'string' ? raw.createdById : '',
-    createdAt: normalizeNullableDate(raw?.createdAt),
-    updatedAt: normalizeNullableDate(raw?.updatedAt),
-    lastSentAt: normalizeNullableDate(raw?.lastSentAt)
   };
 }
 
@@ -5279,82 +5251,6 @@ export const api = {
     await axios.delete(`/api/guilds/${guildId}/webhooks/${webhookId}`);
   },
 
-  async fetchGuildSlackWebhooks(guildId: string): Promise<GuildSlackWebhookListResponse> {
-    const response = await axios.get(`/api/guilds/${guildId}/slack-webhooks`);
-    const payload = response.data ?? {};
-    return {
-      webhooks: Array.isArray(payload.webhooks)
-        ? payload.webhooks.map(normalizeGuildSlackWebhookSettings)
-        : [],
-      eventDefinitions: Array.isArray(payload.eventDefinitions) ? payload.eventDefinitions : [],
-      defaultEventSubscriptions:
-        payload.defaultEventSubscriptions && typeof payload.defaultEventSubscriptions === 'object'
-          ? payload.defaultEventSubscriptions
-          : {}
-    };
-  },
-
-  async createGuildSlackWebhook(
-    guildId: string,
-    payload: GuildSlackWebhookInput
-  ): Promise<GuildSlackWebhookSettings> {
-    const response = await axios.post(`/api/guilds/${guildId}/slack-webhooks`, payload);
-    return normalizeGuildSlackWebhookSettings(response.data.webhook);
-  },
-
-  async startGuildSlackWebhookInstall(
-    guildId: string,
-    payload: GuildSlackWebhookInput & { returnPath?: string }
-  ): Promise<GuildSlackWebhookInstallResponse> {
-    const response = await axios.post(`/api/guilds/${guildId}/slack-webhooks/install`, payload);
-    return {
-      authorizeUrl: response.data.authorizeUrl,
-      expiresAt: response.data.expiresAt,
-      webhook: response.data.webhook
-        ? normalizeGuildSlackWebhookSettings(response.data.webhook)
-        : undefined
-    };
-  },
-
-  async updateGuildSlackWebhook(
-    guildId: string,
-    webhookId: string,
-    payload: Partial<GuildSlackWebhookInput>
-  ): Promise<GuildSlackWebhookSettings> {
-    const response = await axios.put(`/api/guilds/${guildId}/slack-webhooks/${webhookId}`, payload);
-    return normalizeGuildSlackWebhookSettings(response.data.webhook);
-  },
-
-  async reconnectGuildSlackWebhook(
-    guildId: string,
-    webhookId: string,
-    returnPath?: string
-  ): Promise<SlackInstallStartResponse> {
-    const response = await axios.post(
-      `/api/guilds/${guildId}/slack-webhooks/${webhookId}/install`,
-      { returnPath }
-    );
-    return response.data;
-  },
-
-  async disconnectGuildSlackWebhook(
-    guildId: string,
-    webhookId: string
-  ): Promise<GuildSlackWebhookSettings> {
-    const response = await axios.post(
-      `/api/guilds/${guildId}/slack-webhooks/${webhookId}/disconnect`
-    );
-    return normalizeGuildSlackWebhookSettings(response.data.webhook);
-  },
-
-  async testGuildSlackWebhook(guildId: string, webhookId: string): Promise<void> {
-    await axios.post(`/api/guilds/${guildId}/slack-webhooks/${webhookId}/test`);
-  },
-
-  async deleteGuildSlackWebhook(guildId: string, webhookId: string) {
-    await axios.delete(`/api/guilds/${guildId}/slack-webhooks/${webhookId}`);
-  },
-
   async fetchWebhookDebugMode(guildId: string): Promise<boolean> {
     const response = await axios.get(`/api/guilds/${guildId}/webhooks/debug`);
     return response.data.debugMode ?? false;
@@ -5782,6 +5678,13 @@ export const api = {
   async sendWebhookCrashToDevin(messageId: string): Promise<DevinCrashWebhookSendResult> {
     const response = await axios.post(`/api/admin/webhook-inbox/${messageId}/fix-with-devin`);
     return response.data.result;
+  },
+
+  async sendWebhookCrashToCodex(
+    messageId: string
+  ): Promise<{ result: CodexJobSummary; message: InboundWebhookMessage }> {
+    const response = await axios.post(`/api/admin/webhook-inbox/${messageId}/fix-with-codex`);
+    return response.data;
   },
 
   // ==================== Webhook Inbox Email-like Features ====================
