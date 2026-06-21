@@ -1561,7 +1561,7 @@ function renderDashboardPage(session) {
     }
     .runner-card {
       display: grid;
-      grid-template-columns: minmax(0, 1.15fr) 170px 150px 130px;
+      grid-template-columns: minmax(0, 1.1fr) 130px 130px 105px minmax(260px, 0.82fr);
       gap: 14px;
       align-items: center;
       width: 100%;
@@ -1570,6 +1570,7 @@ function renderDashboardPage(session) {
       border-color: rgba(172, 187, 205, 0.2);
       position: relative;
       overflow: hidden;
+      cursor: pointer;
     }
     .runner-card::before {
       content: "";
@@ -1592,6 +1593,32 @@ function renderDashboardPage(session) {
     .runner-kpi { display: grid; gap: 3px; min-width: 0; }
     .runner-kpi span { color: var(--muted); font-size: 12px; text-transform: uppercase; font-weight: 900; }
     .runner-kpi strong { font-size: 15px; overflow-wrap: anywhere; }
+    .runner-actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      justify-self: end;
+      width: min(280px, 100%);
+    }
+    .runner-actions button {
+      width: 100%;
+      min-height: 32px;
+      padding: 0 10px;
+    }
+    .runner-actions button.primary {
+      background: linear-gradient(135deg, #147a46, #136f63);
+      border-color: rgba(53, 221, 139, 0.72);
+      color: #ecfdf5;
+      box-shadow: 0 8px 18px rgba(20, 122, 70, 0.22);
+    }
+    .runner-actions button.danger {
+      background: linear-gradient(135deg, #742033, #9f2842);
+      border-color: rgba(255, 113, 133, 0.72);
+    }
+    .runner-actions button.warn {
+      background: linear-gradient(135deg, #735117, #96691a);
+      border-color: rgba(244, 201, 93, 0.78);
+    }
     .detail-shell {
       display: grid;
       grid-template-columns: minmax(0, 1fr) 360px;
@@ -1826,6 +1853,12 @@ function renderDashboardPage(session) {
     }
     @media (max-width: 980px) {
       .runner-card { grid-template-columns: 1fr 1fr; }
+      .runner-actions {
+        grid-column: 1 / -1;
+        justify-self: stretch;
+        width: 100%;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
       .detail-shell { grid-template-columns: 1fr; }
       .health-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .health-layout, .health-section-grid { grid-template-columns: 1fr; }
@@ -1843,6 +1876,7 @@ function renderDashboardPage(session) {
       .ops-stat:nth-child(even) { border-left: 1px solid rgba(172, 187, 205, 0.11); }
       .ops-stat:nth-child(n + 3) { border-top: 1px solid rgba(172, 187, 205, 0.11); }
       .runner-card, .grid, .form-grid { grid-template-columns: 1fr; }
+      .runner-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .health-grid { grid-template-columns: 1fr; }
       .integration-grid { grid-template-columns: 1fr; }
       .control-actions { grid-template-columns: 1fr; }
@@ -2425,6 +2459,22 @@ function renderDashboardPage(session) {
       return ['FAILED', 'CANCELED'].includes(task.status);
     }
 
+    function renderRunnerActions(runner) {
+      const runnerId = escapeHtml(runner.runnerId);
+      const powerAction = runner.active
+        ? '<button class="danger" data-runner-action="stop" data-runner-id="' + runnerId + '">Stop</button>'
+        : '<button class="primary" data-runner-action="start" data-runner-id="' + runnerId + '">Start</button>';
+      const pauseAction = runner.active
+        ? '<button class="ghost" data-runner-action="' + escapeHtml(runner.paused ? 'resume' : 'pause') + '" data-runner-id="' + runnerId + '">' + escapeHtml(runner.paused ? 'Resume' : 'Pause') + '</button>'
+        : '';
+      return '<div class="runner-actions" aria-label="Controls for ' + runnerId + '">' +
+        powerAction +
+        '<button class="warn" data-runner-action="restart" data-runner-id="' + runnerId + '">Restart</button>' +
+        pauseAction +
+        '<button class="ghost" data-runner-open="' + runnerId + '">Details</button>' +
+      '</div>';
+    }
+
     function renderRunner(runner) {
       const activeLabel = runner.paused ? 'Paused' : runner.active ? 'Active' : 'Inactive';
       const stateClass = runnerStateClass(runner);
@@ -2432,7 +2482,7 @@ function renderDashboardPage(session) {
         ? '<div class="mini">Running ' + escapeHtml(runner.currentJob.branchName || runner.currentJob.id) + '</div>' +
           (runner.currentJob.statusMessage ? '<div class="mini">' + escapeHtml(runner.currentJob.statusMessage) + '</div>' : '')
         : '<div class="mini">No current run</div>';
-      return '<button class="runner-card ' + stateClass + '" data-runner-open="' + escapeHtml(runner.runnerId) + '">' +
+      return '<article class="runner-card ' + stateClass + '" data-runner-card-open="' + escapeHtml(runner.runnerId) + '">' +
         '<div class="runner-primary">' +
           '<div class="row"><span class="status-dot ' + stateClass + '"></span><span class="runner-name">' + escapeHtml(runner.runnerId) + '</span>' + renderBadge(activeLabel, stateClass) + '</div>' +
           '<div class="runner-subline"><span>' + escapeHtml(runner.hostname || 'unknown host') + '</span><span>PID ' + escapeHtml(runner.pid || 'n/a') + '</span></div>' +
@@ -2442,7 +2492,8 @@ function renderDashboardPage(session) {
         '<div class="runner-kpi"><span>Status</span><strong>' + escapeHtml(runner.status || 'unknown') + '</strong></div>' +
         '<div class="runner-kpi"><span>Last seen</span><strong>' + escapeHtml(relativeTime(runner.lastSeenAt)) + '</strong></div>' +
         '<div class="runner-kpi"><span>Runs</span><strong>' + escapeHtml(runner.jobsProcessed || '0') + '</strong></div>' +
-      '</button>';
+        renderRunnerActions(runner) +
+      '</article>';
     }
 
     function renderActivity(runner) {
@@ -2806,8 +2857,12 @@ function renderDashboardPage(session) {
 
     document.addEventListener('click', async (event) => {
       const button = event.target.closest('button');
-      if (!button) return;
       try {
+        if (!button) {
+          const runnerCard = event.target.closest('[data-runner-card-open]');
+          if (runnerCard) await openRunner(runnerCard.dataset.runnerCardOpen);
+          return;
+        }
         if (button.hasAttribute('data-refresh')) {
           await refresh();
         } else if (button.hasAttribute('data-open-create')) {
