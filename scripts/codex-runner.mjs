@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from 'child_process';
 import { existsSync, readFileSync } from 'fs';
-import { appendFile, mkdir, readFile, rm, writeFile } from 'fs/promises';
+import { appendFile, mkdir, readFile, rename, rm, writeFile } from 'fs/promises';
 import { hostname } from 'os';
 import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -16,9 +16,14 @@ const config = {
   token: requireEnv('CODEX_RUNNER_TOKEN'),
   runnerId: process.env.CODEX_RUNNER_ID || `${hostname()}-codex-runner`,
   workRoot: resolve(process.env.CODEX_RUNNER_WORK_ROOT || join(process.cwd(), 'work')),
+  registryDir: resolve(
+    process.env.CODEX_RUNNER_REGISTRY_DIR ||
+      join(process.env.CODEX_RUNNER_WORK_ROOT || join(process.cwd(), 'work'), 'runners')
+  ),
   codexBin: process.env.CODEX_BIN || 'codex',
   codexHome: process.env.CODEX_HOME || undefined,
   pollIntervalMs: parsePositiveInt(process.env.CODEX_RUNNER_POLL_INTERVAL_MS, 15_000),
+  heartbeatIntervalMs: parsePositiveInt(process.env.CODEX_RUNNER_HEARTBEAT_INTERVAL_MS, 5_000),
   draftPr: parseBoolean(process.env.CODEX_RUNNER_DRAFT_PR, false),
   verifyCommand: process.env.CODEX_RUNNER_VERIFY_COMMAND || '',
   gitUserName: process.env.GIT_AUTHOR_NAME || 'Nexus Codex Runner',
@@ -28,20 +33,52 @@ const config = {
 const runOnce = process.argv.includes('--once');
 let active = false;
 let shuttingDown = false;
+const runnerStartedAt = new Date().toISOString();
+const heartbeatFile = join(config.registryDir, `${sanitizeFileName(config.runnerId)}.json`);
+const runnerState = {
+  runnerId: config.runnerId,
+  hostname: hostname(),
+  pid: process.pid,
+  status: 'starting',
+  startedAt: runnerStartedAt,
+  lastSeenAt: runnerStartedAt,
+  lastPollAt: null,
+  lastClaimAt: null,
+  lastJobCompletedAt: null,
+  currentJob: null,
+  lastError: null,
+  jobsProcessed: 0,
+  nexusBaseUrl: config.nexusBaseUrl,
+  pollIntervalMs: config.pollIntervalMs,
+  heartbeatIntervalMs: config.heartbeatIntervalMs,
+  workRoot: config.workRoot
+};
 
 process.on('SIGINT', () => {
   shuttingDown = true;
+  runnerState.status = 'stopping';
+  void writeHeartbeat();
 });
 process.on('SIGTERM', () => {
   shuttingDown = true;
+  runnerState.status = 'stopping';
+  void writeHeartbeat();
 });
 
 await mkdir(config.workRoot, { recursive: true });
+await mkdir(config.registryDir, { recursive: true });
+await writeHeartbeat();
 
 if (runOnce) {
   const claimed = await pollOnce();
+  runnerState.status = 'stopped';
+  await writeHeartbeat();
   process.exit(claimed ? 0 : 2);
 }
+
+const heartbeatTimer = setInterval(() => {
+  void writeHeartbeat();
+}, config.heartbeatIntervalMs);
 
 console.log(
   `Nexus Codex runner ${config.runnerId} polling ${config.nexusBaseUrl} every ${config.pollIntervalMs}ms`
@@ -52,21 +89,45 @@ while (!shuttingDown) {
   await sleep(config.pollIntervalMs);
 }
 
+clearInterval(heartbeatTimer);
+runnerState.status = 'stopped';
+await writeHeartbeat();
+
 async function pollOnce() {
   if (active) {
     return false;
   }
 
   active = true;
+  runnerState.status = 'polling';
+  runnerState.lastPollAt = new Date().toISOString();
+  await writeHeartbeat();
   try {
     const job = await claimJob();
     if (!job) {
+      runnerState.status = 'idle';
+      runnerState.currentJob = null;
+      runnerState.lastError = null;
+      await writeHeartbeat();
       return false;
     }
+    runnerState.status = 'processing';
+    runnerState.lastClaimAt = new Date().toISOString();
+    runnerState.currentJob = summarizeJob(job);
+    await writeHeartbeat();
     await processJob(job);
+    runnerState.jobsProcessed += 1;
+    runnerState.lastJobCompletedAt = new Date().toISOString();
+    runnerState.currentJob = null;
+    runnerState.status = 'idle';
+    await writeHeartbeat();
     return true;
   } catch (error) {
-    console.error(error instanceof Error ? error.stack || error.message : error);
+    const message = error instanceof Error ? error.stack || error.message : String(error);
+    runnerState.status = 'error';
+    runnerState.lastError = message;
+    await writeHeartbeat();
+    console.error(message);
     return false;
   } finally {
     active = false;
@@ -343,6 +404,34 @@ function extractPullRequestUrl(stdout) {
 function extractPullRequestNumber(url) {
   const match = url?.match(/\/pull\/(\d+)$/);
   return match ? Number.parseInt(match[1], 10) : null;
+}
+
+async function writeHeartbeat() {
+  const now = new Date().toISOString();
+  const body = {
+    ...runnerState,
+    lastSeenAt: now
+  };
+  runnerState.lastSeenAt = now;
+  const tempFile = `${heartbeatFile}.${process.pid}.tmp`;
+  await writeFile(tempFile, `${JSON.stringify(body, null, 2)}\n`, 'utf8');
+  await rename(tempFile, heartbeatFile);
+}
+
+function summarizeJob(job) {
+  return {
+    id: job.id,
+    messageId: job.messageId,
+    targetRepository: job.targetRepository,
+    baseBranch: job.baseBranch,
+    branchName: job.branchName,
+    status: job.status,
+    createdAt: job.createdAt
+  };
+}
+
+function sanitizeFileName(value) {
+  return value.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'runner';
 }
 
 async function readTextIfExists(path) {
