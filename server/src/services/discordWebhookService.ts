@@ -1,5 +1,9 @@
 import type { CharacterClass, GuildDiscordWebhook, Prisma } from '@prisma/client';
 
+import {
+  convertDiscordWebhookToSlackPayload,
+  sendSlackIncomingWebhook
+} from './slackIntegrationService.js';
 import { prisma } from '../utils/prisma.js';
 import { resolvePublicClientBaseUrl } from '../utils/publicClientUrl.js';
 
@@ -549,17 +553,28 @@ export async function emitDiscordWebhookEvent<K extends DiscordWebhookEvent>(
     const isDebugMode = guild?.webhookDebugMode ?? false;
     const guildName = guild?.name ?? 'Unknown Guild';
 
-    const records = await prisma.guildDiscordWebhook.findMany({
-      where: {
-        guildId,
-        isEnabled: true,
-        webhookUrl: {
-          not: null
+    const [records, slackRecords] = await Promise.all([
+      prisma.guildDiscordWebhook.findMany({
+        where: {
+          guildId,
+          isEnabled: true,
+          webhookUrl: {
+            not: null
+          }
         }
-      }
-    });
+      }),
+      prisma.guildSlackWebhook.findMany({
+        where: {
+          guildId,
+          isEnabled: true,
+          webhookUrl: {
+            not: null
+          }
+        }
+      })
+    ]);
 
-    if (records.length === 0) {
+    if (records.length === 0 && slackRecords.length === 0) {
       return;
     }
 
@@ -597,7 +612,25 @@ export async function emitDiscordWebhookEvent<K extends DiscordWebhookEvent>(
       await sendDiscordWebhook(settings.webhookUrl, body);
     });
 
-    await Promise.allSettled(deliveries);
+    const slackPayload = convertDiscordWebhookToSlackPayload(message);
+    const slackDeliveries = slackRecords.map(async (record) => {
+      const subscriptions = normalizeEventSubscriptions(record.eventSubscriptions);
+      if (!record.webhookUrl || subscriptions[event] !== true) {
+        return;
+      }
+
+      if (isDebugMode) {
+        return;
+      }
+
+      await sendSlackIncomingWebhook(record.webhookUrl, slackPayload);
+      await prisma.guildSlackWebhook.update({
+        where: { id: record.id },
+        data: { lastSentAt: new Date() }
+      });
+    });
+
+    await Promise.allSettled([...deliveries, ...slackDeliveries]);
   } catch (error) {
     console.warn('Failed to emit Discord webhook event.', { guildId, event, error });
   }

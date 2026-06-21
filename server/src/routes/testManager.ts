@@ -1,4 +1,5 @@
 import {
+  SlackInstallTargetType,
   TestAssignmentKind,
   TestChangePriority,
   TestChangeStatus,
@@ -9,6 +10,7 @@ import { z } from 'zod';
 
 import { authenticate } from '../middleware/authenticate.js';
 import { ensureAdmin } from '../services/adminService.js';
+import { createSlackInstallSession } from '../services/slackIntegrationService.js';
 import {
   TEST_MANAGER_DISCORD_EVENT_KEYS,
   TEST_MANAGER_PERMISSION_KEYS,
@@ -55,6 +57,9 @@ import {
   updateTesterChecklistProgress,
   updateTestManagerSettings,
   updateTestManagerUserRole,
+  disconnectTestManagerSlackNotifications,
+  sendTestManagerSlackTest,
+  serializeTestManagerSettingsForClient,
   volunteerForChange
 } from '../services/testManagerService.js';
 
@@ -1060,7 +1065,7 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
     '/settings',
     { preHandler: [authenticate, requireCanView, requireCanManageSettings] },
     async () => {
-      return getTestManagerSettings();
+      return serializeTestManagerSettingsForClient(await getTestManagerSettings());
     }
   );
 
@@ -1085,6 +1090,12 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
               .refine(isDiscordWebhookUrl, 'Must be a valid Discord webhook URL.'),
             events: z.array(z.enum(TEST_MANAGER_DISCORD_EVENT_KEYS)).default([])
           })
+          .optional(),
+        slackNotifications: z
+          .object({
+            enabled: z.boolean(),
+            events: z.array(z.enum(TEST_MANAGER_DISCORD_EVENT_KEYS)).default([])
+          })
           .optional()
       });
       const parsed = bodySchema.safeParse(request.body ?? {});
@@ -1093,10 +1104,68 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
       }
 
       try {
-        return await updateTestManagerSettings(request.user.userId, parsed.data);
+        const settings = await updateTestManagerSettings(request.user.userId, parsed.data);
+        return serializeTestManagerSettingsForClient(settings);
       } catch (error) {
         return reply.badRequest(
           error instanceof Error ? error.message : 'Unable to update role permission settings.'
+        );
+      }
+    }
+  );
+
+  server.post(
+    '/settings/slack/install',
+    { preHandler: [authenticate, requireCanView, requireCanManageSettings] },
+    async (request, reply) => {
+      const bodySchema = z.object({
+        returnPath: z.string().max(512).optional().nullable()
+      });
+      const parsed = bodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        return reply.badRequest('Invalid Slack install payload.');
+      }
+
+      try {
+        const result = await createSlackInstallSession({
+          createdById: request.user.userId,
+          targetType: SlackInstallTargetType.TEST_MANAGER_SETTINGS,
+          returnPath: parsed.data.returnPath ?? '/test-manager'
+        });
+        return reply.code(201).send(result);
+      } catch (error) {
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to start Slack install.'
+        );
+      }
+    }
+  );
+
+  server.post(
+    '/settings/slack/disconnect',
+    { preHandler: [authenticate, requireCanView, requireCanManageSettings] },
+    async (request, reply) => {
+      try {
+        const settings = await disconnectTestManagerSlackNotifications(request.user.userId);
+        return serializeTestManagerSettingsForClient(settings);
+      } catch (error) {
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to disconnect Slack notifications.'
+        );
+      }
+    }
+  );
+
+  server.post(
+    '/settings/slack/test',
+    { preHandler: [authenticate, requireCanView, requireCanManageSettings] },
+    async (request, reply) => {
+      try {
+        await sendTestManagerSlackTest(request.user.userId);
+        return reply.code(204).send();
+      } catch (error) {
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to send Slack test notification.'
         );
       }
     }

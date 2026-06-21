@@ -12,6 +12,14 @@ import {
   type EqemuOracleContextTelemetry
 } from './eqemuOracleContextService.js';
 import { reviewCrashReport, sortCrashReportSegments } from './geminiCrashReviewService.js';
+import {
+  buildSlackPayloadFromText,
+  buildSlackPayloadFromUnknown,
+  getSlackWebhookUrlFromConfig,
+  redactSlackConfig,
+  sendSlackIncomingWebhook,
+  summarizeSlackConnectionFromConfig
+} from './slackIntegrationService.js';
 import { queueUserNotification } from './userNotificationService.js';
 import { appConfig } from '../config/appConfig.js';
 import { staticZoneNameMap } from '../data/zoneNames.js';
@@ -179,6 +187,16 @@ export interface InboundWebhookActionConfig {
   devDiscordWebhookUrl?: string;
   discordMode?: 'RAW' | 'WRAP';
   discordTemplate?: string;
+  slackTemplate?: string;
+  slackWebhookUrl?: string;
+  webhookUrl?: string;
+  configurationUrl?: string | null;
+  slackTeamId?: string | null;
+  slackTeamName?: string | null;
+  slackChannelId?: string | null;
+  slackChannelName?: string | null;
+  connectedAt?: string | null;
+  slackConnection?: ReturnType<typeof summarizeSlackConnectionFromConfig>;
   customWebhookUrl?: string;
   crashModel?: string;
   crashMaxInputChars?: number;
@@ -406,8 +424,50 @@ function compactOracleContextTelemetry(value: unknown) {
   };
 }
 
+type InboundWebhookActionRecord = {
+  id: string;
+  type: InboundWebhookActionType;
+  config: Prisma.JsonValue;
+};
+
+function redactInboundWebhookActionConfig<T extends InboundWebhookActionRecord>(action: T): T {
+  if (action.type !== 'SLACK_RELAY') {
+    return action;
+  }
+
+  return {
+    ...action,
+    config: redactSlackConfig(action.config) as Prisma.JsonValue
+  };
+}
+
+function redactInboundWebhookActions<T extends { actions?: InboundWebhookActionRecord[] }>(
+  webhook: T
+): T {
+  if (!Array.isArray(webhook.actions)) {
+    return webhook;
+  }
+
+  return {
+    ...webhook,
+    actions: webhook.actions.map((action) => redactInboundWebhookActionConfig(action))
+  };
+}
+
+function redactInboundWebhookActionRun<T extends { action?: InboundWebhookActionRecord | null }>(
+  run: T
+): T {
+  if (!run.action) {
+    return run;
+  }
+  return {
+    ...run,
+    action: redactInboundWebhookActionConfig(run.action)
+  };
+}
+
 export async function listInboundWebhooks() {
-  return prisma.inboundWebhook.findMany({
+  const webhooks = await prisma.inboundWebhook.findMany({
     orderBy: { createdAt: 'desc' },
     include: {
       actions: {
@@ -415,13 +475,15 @@ export async function listInboundWebhooks() {
       }
     }
   });
+
+  return webhooks.map((webhook) => redactInboundWebhookActions(webhook));
 }
 
 export async function createInboundWebhook(userId: string, input: CreateInboundWebhookInput) {
   const retentionPolicy = normalizeRetentionPolicy(input.retentionPolicy ?? null);
   const token = generateWebhookToken();
 
-  return prisma.inboundWebhook.create({
+  const webhook = await prisma.inboundWebhook.create({
     data: {
       label: input.label.trim(),
       description: input.description?.trim() || null,
@@ -437,6 +499,8 @@ export async function createInboundWebhook(userId: string, input: CreateInboundW
       }
     }
   });
+
+  return redactInboundWebhookActions(webhook);
 }
 
 export async function updateInboundWebhook(webhookId: string, input: UpdateInboundWebhookInput) {
@@ -466,7 +530,7 @@ export async function updateInboundWebhook(webhookId: string, input: UpdateInbou
     data.devMode = input.devMode;
   }
 
-  return prisma.inboundWebhook.update({
+  const webhook = await prisma.inboundWebhook.update({
     where: { id: webhookId },
     data,
     include: {
@@ -475,6 +539,8 @@ export async function updateInboundWebhook(webhookId: string, input: UpdateInbou
       }
     }
   });
+
+  return redactInboundWebhookActions(webhook);
 }
 
 export async function deleteInboundWebhook(webhookId: string) {
@@ -484,7 +550,7 @@ export async function deleteInboundWebhook(webhookId: string) {
 }
 
 export async function createInboundWebhookAction(webhookId: string, input: CreateInboundWebhookActionInput) {
-  return prisma.inboundWebhookAction.create({
+  const action = await prisma.inboundWebhookAction.create({
     data: {
       webhookId,
       type: input.type,
@@ -494,6 +560,8 @@ export async function createInboundWebhookAction(webhookId: string, input: Creat
       sortOrder: input.sortOrder ?? 0
     }
   });
+
+  return redactInboundWebhookActionConfig(action);
 }
 
 export async function updateInboundWebhookAction(actionId: string, input: UpdateInboundWebhookActionInput) {
@@ -511,14 +579,74 @@ export async function updateInboundWebhookAction(actionId: string, input: Update
     data.sortOrder = input.sortOrder;
   }
 
-  return prisma.inboundWebhookAction.update({
+  const action = await prisma.inboundWebhookAction.update({
     where: { id: actionId },
     data
   });
+
+  return redactInboundWebhookActionConfig(action);
 }
 
 export async function deleteInboundWebhookAction(actionId: string) {
   await prisma.inboundWebhookAction.delete({ where: { id: actionId } });
+}
+
+export async function disconnectInboundWebhookActionSlack(actionId: string) {
+  const action = await prisma.inboundWebhookAction.findUnique({
+    where: { id: actionId },
+    select: { id: true, type: true, config: true }
+  });
+
+  if (!action || action.type !== 'SLACK_RELAY') {
+    throw new Error('Slack relay action not found.');
+  }
+
+  const nextConfig = { ...((action.config && typeof action.config === 'object' && !Array.isArray(action.config))
+    ? (action.config as Record<string, unknown>)
+    : {}) };
+  delete nextConfig.webhookUrl;
+  delete nextConfig.slackWebhookUrl;
+  delete nextConfig.configurationUrl;
+  delete nextConfig.slackTeamId;
+  delete nextConfig.slackTeamName;
+  delete nextConfig.slackChannelId;
+  delete nextConfig.slackChannelName;
+  delete nextConfig.connectedAt;
+
+  const updated = await prisma.inboundWebhookAction.update({
+    where: { id: actionId },
+    data: { config: nextConfig as Prisma.InputJsonValue }
+  });
+
+  return redactInboundWebhookActionConfig(updated);
+}
+
+export async function sendSlackRelayTestForAction(actionId: string) {
+  const action = await prisma.inboundWebhookAction.findUnique({
+    where: { id: actionId },
+    include: { webhook: true }
+  });
+
+  if (!action || action.type !== 'SLACK_RELAY') {
+    throw new Error('Slack relay action not found.');
+  }
+
+  const config = normalizeActionConfig(action.config);
+  const slackUrl = getSlackWebhookUrlFromConfig(config);
+  if (!slackUrl) {
+    throw new Error('Slack incoming webhook is not connected.');
+  }
+
+  await sendSlackIncomingWebhook(
+    slackUrl,
+    buildSlackPayloadFromText({
+      title: 'CW Nexus Slack Relay Test',
+      text: `Slack relay action "${action.name}" is connected for ${action.webhook.label}.`,
+      url: clientBaseUrl ? `${clientBaseUrl}/admin/webhooks` : null
+    })
+  );
+
+  return redactInboundWebhookActionConfig(action);
 }
 
 export async function listInboundWebhookMessages(options: {
@@ -564,7 +692,14 @@ export async function listInboundWebhookMessages(options: {
     prisma.inboundWebhookMessage.count({ where })
   ]);
 
-  return { messages, total };
+  return {
+    messages: messages.map((message) => ({
+      ...message,
+      webhook: message.webhook ? redactInboundWebhookActions(message.webhook) : message.webhook,
+      actionRuns: message.actionRuns.map((run) => redactInboundWebhookActionRun(run))
+    })),
+    total
+  };
 }
 
 export async function getInboundWebhookMessage(messageId: string, userId?: string) {
@@ -617,6 +752,8 @@ export async function getInboundWebhookMessage(messageId: string, userId?: strin
   // Transform to include computed fields for consistency with enhanced list
   return {
     ...message,
+    webhook: message.webhook ? redactInboundWebhookActions(message.webhook) : message.webhook,
+    actionRuns: message.actionRuns.map((run) => redactInboundWebhookActionRun(run)),
     scriptErrorContext,
     labels: message.labelAssignments.map((la) => la.label),
     linkedTestChanges: message.testChangeLinks.map((link) => ({
@@ -1548,6 +1685,25 @@ async function runInboundWebhookActions(
         await queueCrashReportMessengerNotifications(messageId, webhookLabel ?? 'Webhook', payloadForActions).catch((error) => {
           console.error('Failed to queue crash report messenger notifications:', error);
         });
+        await prisma.inboundWebhookActionRun.create({
+          data: {
+            messageId,
+            actionId: action.id,
+            status: 'SUCCESS',
+            durationMs: Date.now() - startedAt
+          }
+        });
+        summary.push({ actionId: action.id, status: 'SUCCESS' });
+        continue;
+      }
+
+      if (action.type === 'SLACK_RELAY') {
+        const config = normalizeActionConfig(action.config);
+        const slackUrl = getSlackWebhookUrlFromConfig(config);
+        if (!slackUrl) {
+          throw new Error('Slack incoming webhook is not connected.');
+        }
+        await sendSlackRelay(slackUrl, payloadForActions, config, messageId);
         await prisma.inboundWebhookActionRun.create({
           data: {
             messageId,
@@ -2862,6 +3018,21 @@ function normalizeActionConfig(config: unknown): InboundWebhookActionConfig {
     devDiscordWebhookUrl: typeof raw.devDiscordWebhookUrl === 'string' ? raw.devDiscordWebhookUrl : undefined,
     discordMode: raw.discordMode === 'RAW' ? 'RAW' : 'WRAP',
     discordTemplate: typeof raw.discordTemplate === 'string' ? raw.discordTemplate : undefined,
+    slackTemplate: typeof raw.slackTemplate === 'string' ? raw.slackTemplate : undefined,
+    slackWebhookUrl:
+      typeof raw.slackWebhookUrl === 'string'
+        ? raw.slackWebhookUrl
+        : typeof raw.webhookUrl === 'string'
+          ? raw.webhookUrl
+          : undefined,
+    webhookUrl: typeof raw.webhookUrl === 'string' ? raw.webhookUrl : undefined,
+    configurationUrl:
+      typeof raw.configurationUrl === 'string' ? raw.configurationUrl : undefined,
+    slackTeamId: typeof raw.slackTeamId === 'string' ? raw.slackTeamId : undefined,
+    slackTeamName: typeof raw.slackTeamName === 'string' ? raw.slackTeamName : undefined,
+    slackChannelId: typeof raw.slackChannelId === 'string' ? raw.slackChannelId : undefined,
+    slackChannelName: typeof raw.slackChannelName === 'string' ? raw.slackChannelName : undefined,
+    connectedAt: typeof raw.connectedAt === 'string' ? raw.connectedAt : undefined,
     customWebhookUrl: typeof raw.customWebhookUrl === 'string' ? raw.customWebhookUrl : undefined,
     crashModel: typeof raw.crashModel === 'string' ? raw.crashModel : undefined,
     crashMaxInputChars: typeof raw.crashMaxInputChars === 'number' ? raw.crashMaxInputChars : undefined,
@@ -2903,6 +3074,57 @@ async function sendDiscordRelay(
     const errorText = await response.text();
     throw new Error(`Discord responded with ${response.status}: ${errorText}`);
   }
+}
+
+async function sendSlackRelay(
+  url: string,
+  payload: unknown,
+  config: InboundWebhookActionConfig,
+  messageId?: string
+) {
+  const messageUrl =
+    clientBaseUrl && messageId
+      ? `${clientBaseUrl}/admin/webhooks?messageId=${encodeURIComponent(messageId)}`
+      : null;
+  const slackPayload = buildSlackRelayPayload(payload, config, messageUrl);
+  await sendSlackIncomingWebhook(url, slackPayload);
+}
+
+function buildSlackRelayPayload(
+  payload: unknown,
+  config: InboundWebhookActionConfig,
+  messageUrl: string | null
+) {
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    const record = payload as Record<string, unknown>;
+    const crashReview = record.crashReview;
+    if (crashReview && typeof crashReview === 'object' && !Array.isArray(crashReview)) {
+      const findings = crashReview as Record<string, unknown>;
+      const title =
+        findings.errorType === 'script_error' ? 'Script Error Review' : 'Crash Review';
+      const lines = [
+        typeof findings.summary === 'string' ? findings.summary : 'AI review completed.',
+        Array.isArray(findings.recommendedNextSteps) && findings.recommendedNextSteps.length > 0
+          ? `Recommended next steps:\n${findings.recommendedNextSteps
+              .slice(0, 5)
+              .map((step, index) => `${index + 1}. ${String(step)}`)
+              .join('\n')}`
+          : null
+      ].filter(Boolean);
+
+      return buildSlackPayloadFromText({
+        title,
+        text: lines.join('\n\n'),
+        url: messageUrl
+      });
+    }
+  }
+
+  return buildSlackPayloadFromUnknown(payload, {
+    title: 'Webhook Payload',
+    template: config.slackTemplate,
+    messageUrl
+  });
 }
 
 async function sendCustomWebhookRelay(url: string, payload: unknown) {
@@ -3998,6 +4220,8 @@ export async function mergeWebhookMessages(messageIds: string[], combinedText: s
     // Transform to match expected response format
     return {
       ...result,
+      webhook: result.webhook ? redactInboundWebhookActions(result.webhook) : result.webhook,
+      actionRuns: result.actionRuns.map((run) => redactInboundWebhookActionRun(run)),
       labels: result.labelAssignments.map((la) => la.label),
       labelAssignments: undefined
     };
@@ -4240,11 +4464,12 @@ export async function listInboundWebhookMessagesEnhanced(options: {
   // Transform to include computed fields
   const enhancedMessages = messages.map((msg) => ({
     ...msg,
+    webhook: msg.webhook ? redactInboundWebhookActions(msg.webhook) : msg.webhook,
     headers: {},
     payload: msg.payload,
     rawBody: msg.rawBody,
     actionRuns: msg.actionRuns.map((run) => ({
-      ...run,
+      ...redactInboundWebhookActionRun(run),
       result: compactActionRunResult(run.result)
     })),
     isRead: msg.readStatuses.length > 0,

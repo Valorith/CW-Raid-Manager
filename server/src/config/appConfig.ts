@@ -49,6 +49,13 @@ const fileConfigSchema = z
             callbackUrl: z.string().url().optional()
           })
           .optional(),
+        slack: z
+          .object({
+            clientId: z.string().min(1).optional(),
+            clientSecret: z.string().min(1).optional(),
+            callbackUrl: z.string().url().optional()
+          })
+          .optional(),
         passkeys: z
           .object({
             rpName: z.string().min(1).optional(),
@@ -294,6 +301,9 @@ const envGoogleCallbackUrl = readOptionalEnv('GOOGLE_CALLBACK_URL', googleCallba
 const envDiscordClientId = readOptionalEnv('DISCORD_CLIENT_ID', z.string().min(1));
 const envDiscordClientSecret = readOptionalEnv('DISCORD_CLIENT_SECRET', z.string().min(1));
 const envDiscordCallbackUrl = readOptionalEnv('DISCORD_CALLBACK_URL', googleCallbackSchema);
+const envSlackClientId = readOptionalEnv('SLACK_CLIENT_ID', z.string().min(1));
+const envSlackClientSecret = readOptionalEnv('SLACK_CLIENT_SECRET', z.string().min(1));
+const envSlackCallbackUrl = readOptionalEnv('SLACK_CALLBACK_URL', googleCallbackSchema);
 const envPasskeyRpName = readOptionalEnv('PASSKEY_RP_NAME', z.string().min(1));
 const envPasskeyRpId = readOptionalEnv('PASSKEY_RP_ID', z.string().min(1));
 const envPasskeyOrigin = readOptionalEnv('PASSKEY_ORIGIN', z.string().url());
@@ -441,6 +451,38 @@ if (envDiscordClientId && envDiscordClientSecret) {
   };
 }
 
+const slackClientId = envSlackClientId ?? fileConfig.auth?.slack?.clientId;
+const slackClientSecret = envSlackClientSecret ?? fileConfig.auth?.slack?.clientSecret;
+const slackCallbackUrl = envSlackCallbackUrl ?? fileConfig.auth?.slack?.callbackUrl;
+
+let slackConfig: {
+  clientId: string;
+  clientSecret: string;
+  callbackUrl: string;
+} | null = null;
+
+if (slackClientId && !slackClientSecret) {
+  console.warn('SLACK_CLIENT_SECRET is missing. Slack incoming webhook installs will be disabled.');
+}
+
+if (slackClientSecret && !slackClientId) {
+  console.warn('SLACK_CLIENT_ID is missing. Slack incoming webhook installs will be disabled.');
+}
+
+if (slackClientId && slackClientSecret) {
+  if (!slackCallbackUrl) {
+    throw new Error(
+      'Slack OAuth requires SLACK_CALLBACK_URL or auth.slack.callbackUrl in config/app.config.json.'
+    );
+  }
+
+  slackConfig = {
+    clientId: slackClientId,
+    clientSecret: slackClientSecret,
+    callbackUrl: slackCallbackUrl
+  };
+}
+
 const telegramBotToken = envTelegramBotToken ?? fileConfig.notifications?.telegram?.botToken;
 const telegramBotUsername =
   envTelegramBotUsername ?? fileConfig.notifications?.telegram?.botUsername;
@@ -530,6 +572,7 @@ export const appConfig = {
   eqDatabase: eqDatabaseConfig,
   google: googleConfig,
   discord: discordConfig,
+  slack: slackConfig,
   passkeys: {
     rpName: passkeyRpName,
     rpId: passkeyRpId,

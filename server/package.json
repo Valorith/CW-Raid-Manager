@@ -9,7 +9,7 @@
     "start": "node ../scripts/run-with-db-url.cjs node --max-old-space-size=1024 --heap-growing-percent=15 build/index.js",
     "cron:snapshot": "node ../scripts/run-with-db-url.cjs node build/cronSnapshot.js",
     "lint": "eslint \"src/**/*.{ts,tsx}\"",
-    "test": "tsx --test src/middleware/cliScope.test.ts",
+    "test": "tsx --test src/middleware/cliScope.test.ts src/services/slackIntegrationService.test.ts",
     "format": "prettier --write \"src/**/*.{ts,tsx,json}\"",
     "preprisma:generate": "node ./scripts/ensurePrismaClient.cjs",
     "prisma:generate": "node ../scripts/run-with-db-url.cjs --allow-missing prisma generate",

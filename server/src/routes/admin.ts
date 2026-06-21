@@ -3,7 +3,8 @@ import {
   InboundWebhookActionType,
   InboundWebhookIntakeType,
   InboundWebhookMessageStatus,
-  OutboundWebhookEndpointService
+  OutboundWebhookEndpointService,
+  SlackInstallTargetType
 } from '@prisma/client';
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -65,6 +66,7 @@ import {
   createInboundWebhookMessageForAdmin,
   deleteInboundWebhook,
   deleteInboundWebhookAction,
+  disconnectInboundWebhookActionSlack,
   getCrashTelemetrySummary,
   getInboundWebhookMessage,
   listInboundWebhookMessagesEnhanced,
@@ -72,6 +74,7 @@ import {
   listInboundWebhooks,
   resolveInboundWebhookMessage,
   retryCrashReviewForMessage,
+  sendSlackRelayTestForAction,
   sendManualDiscordSummaryForMessage,
   updateInboundWebhook,
   updateInboundWebhookAction,
@@ -119,6 +122,7 @@ import {
   getEventTypes,
   getEventLogZones
 } from '../services/playerEventLogsService.js';
+import { createSlackInstallSession } from '../services/slackIntegrationService.js';
 import { prisma } from '../utils/prisma.js';
 
 async function requireAdmin(
@@ -1604,6 +1608,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
     devDiscordWebhookUrl: z.string().url().max(512).optional().nullable(),
     discordMode: z.enum(['RAW', 'WRAP']).optional().nullable(),
     discordTemplate: z.string().max(4000).optional().nullable(),
+    slackTemplate: z.string().max(4000).optional().nullable(),
     customWebhookUrl: z.string().url().max(512).optional().nullable(),
     crashModel: z.string().max(120).optional().nullable(),
     crashMaxInputChars: z.coerce.number().int().positive().optional().nullable(),
@@ -1613,6 +1618,30 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
     useEqemuOracleContext: z.boolean().optional().nullable()
   });
   type ActionConfig = z.infer<typeof actionConfigSchema>;
+
+  function preserveSlackConnectionConfig(
+    existingConfig: unknown,
+    nextConfig: InboundWebhookActionConfig
+  ): InboundWebhookActionConfig {
+    const existing =
+      existingConfig && typeof existingConfig === 'object' && !Array.isArray(existingConfig)
+        ? (existingConfig as Record<string, unknown>)
+        : {};
+    return {
+      ...nextConfig,
+      webhookUrl: typeof existing.webhookUrl === 'string' ? existing.webhookUrl : undefined,
+      configurationUrl:
+        typeof existing.configurationUrl === 'string' ? existing.configurationUrl : undefined,
+      slackTeamId: typeof existing.slackTeamId === 'string' ? existing.slackTeamId : undefined,
+      slackTeamName:
+        typeof existing.slackTeamName === 'string' ? existing.slackTeamName : undefined,
+      slackChannelId:
+        typeof existing.slackChannelId === 'string' ? existing.slackChannelId : undefined,
+      slackChannelName:
+        typeof existing.slackChannelName === 'string' ? existing.slackChannelName : undefined,
+      connectedAt: typeof existing.connectedAt === 'string' ? existing.connectedAt : undefined
+    };
+  }
 
   const outboundEndpointBodySchema = z.object({
     label: z.string().min(2).max(120),
@@ -1882,6 +1911,10 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
           typeof config.discordTemplate === 'string'
             ? config.discordTemplate.trim() || undefined
             : undefined,
+        slackTemplate:
+          typeof config.slackTemplate === 'string'
+            ? config.slackTemplate.trim() || undefined
+            : undefined,
         customWebhookUrl:
           typeof config.customWebhookUrl === 'string'
             ? config.customWebhookUrl.trim() || undefined
@@ -1934,7 +1967,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
 
       const action = await prisma.inboundWebhookAction.findUnique({
         where: { id: actionId },
-        select: { webhookId: true, type: true }
+        select: { webhookId: true, type: true, config: true }
       });
 
       if (!action || action.webhookId !== webhookId) {
@@ -1984,6 +2017,10 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
               typeof config.discordTemplate === 'string'
                 ? config.discordTemplate.trim() || undefined
                 : undefined,
+            slackTemplate:
+              typeof config.slackTemplate === 'string'
+                ? config.slackTemplate.trim() || undefined
+                : undefined,
             customWebhookUrl:
               typeof config.customWebhookUrl === 'string'
                 ? config.customWebhookUrl.trim() || undefined
@@ -2011,6 +2048,11 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
           } satisfies InboundWebhookActionConfig)
         : undefined;
 
+      const configForUpdate =
+        action.type === InboundWebhookActionType.SLACK_RELAY && normalizedConfig
+          ? preserveSlackConnectionConfig(action.config, normalizedConfig)
+          : normalizedConfig;
+
       if (
         action.type === InboundWebhookActionType.CUSTOM_WEBHOOK &&
         config &&
@@ -2021,7 +2063,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
 
       const updated = await updateInboundWebhookAction(actionId, {
         ...parsedData,
-        config: normalizedConfig
+        config: configForUpdate
       });
 
       return { action: updated };
@@ -2048,6 +2090,120 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
 
       await deleteInboundWebhookAction(actionId);
       return reply.code(204).send();
+    }
+  );
+
+  server.post(
+    '/webhooks/:webhookId/actions/:actionId/slack/install',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({ webhookId: z.string(), actionId: z.string() });
+      const { webhookId, actionId } = paramsSchema.parse(request.params);
+      const bodySchema = z.object({
+        returnPath: z.string().max(512).optional().nullable()
+      });
+      const parsed = bodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        return reply.badRequest('Invalid Slack install payload.');
+      }
+
+      const action = await prisma.inboundWebhookAction.findUnique({
+        where: { id: actionId },
+        select: { webhookId: true, type: true }
+      });
+
+      if (
+        !action ||
+        action.webhookId !== webhookId ||
+        action.type !== InboundWebhookActionType.SLACK_RELAY
+      ) {
+        return reply.notFound('Slack relay action not found.');
+      }
+
+      try {
+        const result = await createSlackInstallSession({
+          createdById: request.user.userId,
+          targetType: SlackInstallTargetType.INBOUND_WEBHOOK_ACTION,
+          targetId: actionId,
+          returnPath: parsed.data.returnPath ?? '/admin/webhooks'
+        });
+        return reply.code(201).send(result);
+      } catch (error) {
+        request.log.error({ error }, 'Failed to start Slack install for webhook action.');
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to start Slack install.'
+        );
+      }
+    }
+  );
+
+  server.post(
+    '/webhooks/:webhookId/actions/:actionId/slack/disconnect',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({ webhookId: z.string(), actionId: z.string() });
+      const { webhookId, actionId } = paramsSchema.parse(request.params);
+
+      const action = await prisma.inboundWebhookAction.findUnique({
+        where: { id: actionId },
+        select: { webhookId: true, type: true }
+      });
+
+      if (
+        !action ||
+        action.webhookId !== webhookId ||
+        action.type !== InboundWebhookActionType.SLACK_RELAY
+      ) {
+        return reply.notFound('Slack relay action not found.');
+      }
+
+      try {
+        const updated = await disconnectInboundWebhookActionSlack(actionId);
+        return { action: updated };
+      } catch (error) {
+        request.log.error({ error }, 'Failed to disconnect Slack relay action.');
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to disconnect Slack relay.'
+        );
+      }
+    }
+  );
+
+  server.post(
+    '/webhooks/:webhookId/actions/:actionId/slack/test',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({ webhookId: z.string(), actionId: z.string() });
+      const { webhookId, actionId } = paramsSchema.parse(request.params);
+
+      const action = await prisma.inboundWebhookAction.findUnique({
+        where: { id: actionId },
+        select: { webhookId: true, type: true }
+      });
+
+      if (
+        !action ||
+        action.webhookId !== webhookId ||
+        action.type !== InboundWebhookActionType.SLACK_RELAY
+      ) {
+        return reply.notFound('Slack relay action not found.');
+      }
+
+      try {
+        const updated = await sendSlackRelayTestForAction(actionId);
+        return { action: updated };
+      } catch (error) {
+        request.log.error({ error }, 'Failed to send Slack relay test.');
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to send Slack relay test.'
+        );
+      }
     }
   );
 

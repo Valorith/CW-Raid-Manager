@@ -778,6 +778,40 @@ export interface GuildDiscordWebhookInput {
 
 export interface GuildDiscordWebhookUpdateInput extends Partial<GuildDiscordWebhookInput> {}
 
+export interface GuildSlackWebhookSettings {
+  id: string;
+  guildId: string;
+  label: string;
+  isEnabled: boolean;
+  hasSlackWebhook: boolean;
+  configurationUrl: string | null;
+  slackTeamId: string | null;
+  slackTeamName: string | null;
+  slackChannelId: string | null;
+  slackChannelName: string | null;
+  eventSubscriptions: Record<string, boolean>;
+  createdById: string;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  lastSentAt?: string | null;
+}
+
+export interface GuildSlackWebhookListResponse {
+  webhooks: GuildSlackWebhookSettings[];
+  eventDefinitions: DiscordWebhookEventDefinition[];
+  defaultEventSubscriptions: Record<string, boolean>;
+}
+
+export interface GuildSlackWebhookInput {
+  label: string;
+  isEnabled?: boolean;
+  eventSubscriptions?: Record<string, boolean>;
+}
+
+export interface GuildSlackWebhookInstallResponse extends SlackInstallStartResponse {
+  webhook?: GuildSlackWebhookSettings;
+}
+
 export interface RaidSignupCounts {
   confirmed: number;
   notAttending: number;
@@ -1596,6 +1630,7 @@ export interface AdminRaidDetail extends AdminRaidSummary {
 export type InboundWebhookRetentionMode = 'indefinite' | 'days' | 'maxCount';
 export type InboundWebhookActionType =
   | 'DISCORD_RELAY'
+  | 'SLACK_RELAY'
   | 'CRASH_REVIEW'
   | 'CLAWDBOT_RELAY'
   | 'CUSTOM_WEBHOOK';
@@ -1615,6 +1650,8 @@ export interface InboundWebhookActionConfig {
   devDiscordWebhookUrl?: string;
   discordMode?: 'RAW' | 'WRAP';
   discordTemplate?: string;
+  slackTemplate?: string;
+  slackConnection?: SlackWebhookConnectionSummary;
   customWebhookUrl?: string;
   crashModel?: string;
   crashMaxInputChars?: number;
@@ -1622,6 +1659,21 @@ export interface InboundWebhookActionConfig {
   crashTemperature?: number;
   crashPromptTemplate?: string;
   useEqemuOracleContext?: boolean;
+}
+
+export interface SlackInstallStartResponse {
+  authorizeUrl: string;
+  expiresAt: string;
+}
+
+export interface SlackWebhookConnectionSummary {
+  hasSlackWebhook: boolean;
+  configurationUrl: string | null;
+  slackTeamId: string | null;
+  slackTeamName: string | null;
+  slackChannelId: string | null;
+  slackChannelName: string | null;
+  connectedAt: string | null;
 }
 
 export interface InboundWebhookAction {
@@ -2596,6 +2648,92 @@ function normalizeGuildWebhookSettings(raw: any): GuildDiscordWebhookSettings {
   };
 }
 
+function normalizeSlackConnection(raw: any): SlackWebhookConnectionSummary {
+  return {
+    hasSlackWebhook: Boolean(raw?.hasSlackWebhook ?? raw?.connection?.hasSlackWebhook),
+    configurationUrl:
+      typeof raw?.configurationUrl === 'string'
+        ? raw.configurationUrl
+        : typeof raw?.connection?.configurationUrl === 'string'
+          ? raw.connection.configurationUrl
+          : null,
+    slackTeamId:
+      typeof raw?.slackTeamId === 'string'
+        ? raw.slackTeamId
+        : typeof raw?.connection?.slackTeamId === 'string'
+          ? raw.connection.slackTeamId
+          : null,
+    slackTeamName:
+      typeof raw?.slackTeamName === 'string'
+        ? raw.slackTeamName
+        : typeof raw?.connection?.slackTeamName === 'string'
+          ? raw.connection.slackTeamName
+          : null,
+    slackChannelId:
+      typeof raw?.slackChannelId === 'string'
+        ? raw.slackChannelId
+        : typeof raw?.connection?.slackChannelId === 'string'
+          ? raw.connection.slackChannelId
+          : null,
+    slackChannelName:
+      typeof raw?.slackChannelName === 'string'
+        ? raw.slackChannelName
+        : typeof raw?.connection?.slackChannelName === 'string'
+          ? raw.connection.slackChannelName
+          : null,
+    connectedAt:
+      typeof raw?.connectedAt === 'string'
+        ? raw.connectedAt
+        : typeof raw?.connection?.connectedAt === 'string'
+          ? raw.connection.connectedAt
+          : null
+  };
+}
+
+function normalizeGuildSlackWebhookSettings(raw: any): GuildSlackWebhookSettings {
+  const connection = normalizeSlackConnection(raw);
+  return {
+    id: typeof raw?.id === 'string' ? raw.id : '',
+    guildId: typeof raw?.guildId === 'string' ? raw.guildId : '',
+    label: typeof raw?.label === 'string' ? raw.label : 'Slack Webhook',
+    isEnabled: Boolean(raw?.isEnabled),
+    hasSlackWebhook: connection.hasSlackWebhook,
+    configurationUrl: connection.configurationUrl,
+    slackTeamId: connection.slackTeamId,
+    slackTeamName: connection.slackTeamName,
+    slackChannelId: connection.slackChannelId,
+    slackChannelName: connection.slackChannelName,
+    eventSubscriptions: normalizeBooleanRecord(raw?.eventSubscriptions),
+    createdById: typeof raw?.createdById === 'string' ? raw.createdById : '',
+    createdAt: normalizeNullableDate(raw?.createdAt),
+    updatedAt: normalizeNullableDate(raw?.updatedAt),
+    lastSentAt: normalizeNullableDate(raw?.lastSentAt)
+  };
+}
+
+function normalizeTestManagerSettings(raw: any): TestManagerSettings {
+  return {
+    roles: Array.isArray(raw?.roles) ? raw.roles : [],
+    discordNotifications: {
+      enabled: Boolean(raw?.discordNotifications?.enabled),
+      webhookUrl:
+        typeof raw?.discordNotifications?.webhookUrl === 'string'
+          ? raw.discordNotifications.webhookUrl
+          : '',
+      events: Array.isArray(raw?.discordNotifications?.events)
+        ? raw.discordNotifications.events
+        : []
+    },
+    slackNotifications: {
+      enabled: Boolean(raw?.slackNotifications?.enabled),
+      events: Array.isArray(raw?.slackNotifications?.events)
+        ? raw.slackNotifications.events
+        : [],
+      connection: normalizeSlackConnection(raw?.slackNotifications?.connection ?? raw?.slackNotifications)
+    }
+  };
+}
+
 function normalizeBooleanRecord(raw: any) {
   if (!raw || typeof raw !== 'object') {
     return {} as Record<string, boolean>;
@@ -3320,9 +3458,16 @@ export interface TestManagerDiscordNotificationSettings {
   events: TestManagerDiscordEventKey[];
 }
 
+export interface TestManagerSlackNotificationSettings {
+  enabled: boolean;
+  events: TestManagerDiscordEventKey[];
+  connection: SlackWebhookConnectionSummary;
+}
+
 export interface TestManagerSettings {
   roles: TestManagerRoleSettings[];
   discordNotifications: TestManagerDiscordNotificationSettings;
+  slackNotifications: TestManagerSlackNotificationSettings;
 }
 
 export interface TestManagerServerVersion {
@@ -3940,14 +4085,29 @@ export const api = {
   },
   async fetchTestManagerSettings(): Promise<TestManagerSettings> {
     const response = await axios.get('/api/test-manager/settings');
-    return response.data;
+    return normalizeTestManagerSettings(response.data);
   },
   async updateTestManagerSettings(payload: {
     roles: Array<{ key: string; permissions: string[] }>;
     discordNotifications?: TestManagerDiscordNotificationSettings;
+    slackNotifications?: {
+      enabled: boolean;
+      events: TestManagerDiscordEventKey[];
+    };
   }): Promise<TestManagerSettings> {
     const response = await axios.put('/api/test-manager/settings', payload);
+    return normalizeTestManagerSettings(response.data);
+  },
+  async startTestManagerSlackInstall(returnPath?: string): Promise<SlackInstallStartResponse> {
+    const response = await axios.post('/api/test-manager/settings/slack/install', { returnPath });
     return response.data;
+  },
+  async disconnectTestManagerSlack(): Promise<TestManagerSettings> {
+    const response = await axios.post('/api/test-manager/settings/slack/disconnect');
+    return normalizeTestManagerSettings(response.data);
+  },
+  async testTestManagerSlack(): Promise<void> {
+    await axios.post('/api/test-manager/settings/slack/test');
   },
   async fetchGuilds(): Promise<GuildSummary[]> {
     const response = await axios.get('/api/guilds');
@@ -5119,6 +5279,82 @@ export const api = {
     await axios.delete(`/api/guilds/${guildId}/webhooks/${webhookId}`);
   },
 
+  async fetchGuildSlackWebhooks(guildId: string): Promise<GuildSlackWebhookListResponse> {
+    const response = await axios.get(`/api/guilds/${guildId}/slack-webhooks`);
+    const payload = response.data ?? {};
+    return {
+      webhooks: Array.isArray(payload.webhooks)
+        ? payload.webhooks.map(normalizeGuildSlackWebhookSettings)
+        : [],
+      eventDefinitions: Array.isArray(payload.eventDefinitions) ? payload.eventDefinitions : [],
+      defaultEventSubscriptions:
+        payload.defaultEventSubscriptions && typeof payload.defaultEventSubscriptions === 'object'
+          ? payload.defaultEventSubscriptions
+          : {}
+    };
+  },
+
+  async createGuildSlackWebhook(
+    guildId: string,
+    payload: GuildSlackWebhookInput
+  ): Promise<GuildSlackWebhookSettings> {
+    const response = await axios.post(`/api/guilds/${guildId}/slack-webhooks`, payload);
+    return normalizeGuildSlackWebhookSettings(response.data.webhook);
+  },
+
+  async startGuildSlackWebhookInstall(
+    guildId: string,
+    payload: GuildSlackWebhookInput & { returnPath?: string }
+  ): Promise<GuildSlackWebhookInstallResponse> {
+    const response = await axios.post(`/api/guilds/${guildId}/slack-webhooks/install`, payload);
+    return {
+      authorizeUrl: response.data.authorizeUrl,
+      expiresAt: response.data.expiresAt,
+      webhook: response.data.webhook
+        ? normalizeGuildSlackWebhookSettings(response.data.webhook)
+        : undefined
+    };
+  },
+
+  async updateGuildSlackWebhook(
+    guildId: string,
+    webhookId: string,
+    payload: Partial<GuildSlackWebhookInput>
+  ): Promise<GuildSlackWebhookSettings> {
+    const response = await axios.put(`/api/guilds/${guildId}/slack-webhooks/${webhookId}`, payload);
+    return normalizeGuildSlackWebhookSettings(response.data.webhook);
+  },
+
+  async reconnectGuildSlackWebhook(
+    guildId: string,
+    webhookId: string,
+    returnPath?: string
+  ): Promise<SlackInstallStartResponse> {
+    const response = await axios.post(
+      `/api/guilds/${guildId}/slack-webhooks/${webhookId}/install`,
+      { returnPath }
+    );
+    return response.data;
+  },
+
+  async disconnectGuildSlackWebhook(
+    guildId: string,
+    webhookId: string
+  ): Promise<GuildSlackWebhookSettings> {
+    const response = await axios.post(
+      `/api/guilds/${guildId}/slack-webhooks/${webhookId}/disconnect`
+    );
+    return normalizeGuildSlackWebhookSettings(response.data.webhook);
+  },
+
+  async testGuildSlackWebhook(guildId: string, webhookId: string): Promise<void> {
+    await axios.post(`/api/guilds/${guildId}/slack-webhooks/${webhookId}/test`);
+  },
+
+  async deleteGuildSlackWebhook(guildId: string, webhookId: string) {
+    await axios.delete(`/api/guilds/${guildId}/slack-webhooks/${webhookId}`);
+  },
+
   async fetchWebhookDebugMode(guildId: string): Promise<boolean> {
     const response = await axios.get(`/api/guilds/${guildId}/webhooks/debug`);
     return response.data.debugMode ?? false;
@@ -5426,6 +5662,38 @@ export const api = {
     const response = await axios.put(
       `/api/admin/webhooks/${webhookId}/actions/${actionId}`,
       payload
+    );
+    return response.data.action;
+  },
+
+  async startInboundWebhookActionSlackInstall(
+    webhookId: string,
+    actionId: string,
+    returnPath?: string
+  ): Promise<SlackInstallStartResponse> {
+    const response = await axios.post(
+      `/api/admin/webhooks/${webhookId}/actions/${actionId}/slack/install`,
+      { returnPath }
+    );
+    return response.data;
+  },
+
+  async disconnectInboundWebhookActionSlack(
+    webhookId: string,
+    actionId: string
+  ): Promise<InboundWebhookAction> {
+    const response = await axios.post(
+      `/api/admin/webhooks/${webhookId}/actions/${actionId}/slack/disconnect`
+    );
+    return response.data.action;
+  },
+
+  async testInboundWebhookActionSlack(
+    webhookId: string,
+    actionId: string
+  ): Promise<InboundWebhookAction> {
+    const response = await axios.post(
+      `/api/admin/webhooks/${webhookId}/actions/${actionId}/slack/test`
     );
     return response.data.action;
   },

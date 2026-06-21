@@ -24,6 +24,7 @@ import { npcRespawnRoutes } from './npcRespawn.js';
 import { questShareRoutes } from './questShare.js';
 import { questTrackerRoutes } from './questTracker.js';
 import { raidsRoutes } from './raids.js';
+import { slackRoutes } from './slack.js';
 import { testManagerRoutes } from './testManager.js';
 import { webhookInboxRoutes } from './webhookInbox.js';
 
@@ -41,6 +42,7 @@ export function registerRoutes(server: FastifyInstance): void {
   server.register(guildDonationRoutes, { prefix: '/api/guilds' });
   server.register(charactersRoutes, { prefix: '/api/characters' });
   server.register(raidsRoutes, { prefix: '/api/raids' });
+  server.register(slackRoutes, { prefix: '/api/slack' });
   server.register(testManagerRoutes, { prefix: '/api/test-manager' });
   server.register(lootRoutes, { prefix: '/api' });
   server.register(attendanceRoutes, { prefix: '/api/attendance' });

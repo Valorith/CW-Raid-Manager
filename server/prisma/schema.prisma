@@ -48,6 +48,8 @@ model User {
   characterWatches     CharacterWatch[] @relation("CharacterWatchCreator")
   inboundWebhooks      InboundWebhook[] @relation("InboundWebhookCreator")
   outboundWebhookEndpoints OutboundWebhookEndpoint[] @relation("OutboundWebhookEndpointCreator")
+  slackInstallSessions SlackInstallSession[] @relation("SlackInstallSessionCreator")
+  createdSlackWebhooks GuildSlackWebhook[] @relation("GuildSlackWebhookCreator")
   inboundWebhookAssignments InboundWebhookMessage[] @relation("InboundWebhookAssignee")
   webhookMessageReadStatuses WebhookMessageReadStatus[] @relation("WebhookMessageReadStatus")
   webhookMessageStars WebhookMessageStar[] @relation("WebhookMessageStars")
@@ -91,6 +93,7 @@ model Guild {
   createdBy            User                     @relation("GuildCreator", fields: [createdById], references: [id])
   applications         GuildApplication[]
   discordWebhooks      GuildDiscordWebhook[]
+  slackWebhooks        GuildSlackWebhook[]
   lootParserSettings   GuildLootParserSettings?
   lootLists            GuildLootListEntry[]
   members              GuildMembership[]
@@ -789,6 +792,7 @@ enum QuestNodeType {
 
 enum InboundWebhookActionType {
   DISCORD_RELAY
+  SLACK_RELAY
   CRASH_REVIEW
   CLAWDBOT_RELAY
   CUSTOM_WEBHOOK
@@ -816,6 +820,12 @@ enum InboundWebhookActionRunStatus {
 enum OutboundWebhookEndpointService {
   CUSTOM
   DEVIN
+}
+
+enum SlackInstallTargetType {
+  INBOUND_WEBHOOK_ACTION
+  TEST_MANAGER_SETTINGS
+  GUILD_SLACK_WEBHOOK
 }
 
 model InboundWebhook {
@@ -862,6 +872,49 @@ model OutboundWebhookEndpoint {
   @@index([service])
   @@index([isEnabled])
   @@index([service, isEnabled, autoSendCrashTelemetry], map: "OutboundWebhookEndpoint_auto_crash_idx")
+}
+
+model SlackInstallSession {
+  id            String                 @id @default(cuid())
+  state         String                 @unique @db.VarChar(120)
+  targetType    SlackInstallTargetType
+  targetId      String?                @db.VarChar(191)
+  returnPath    String?                @db.VarChar(512)
+  metadata      Json                   @default(dbgenerated("(json_object())"))
+  createdById   String
+  expiresAt     DateTime
+  completedAt   DateTime?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  createdBy     User                   @relation("SlackInstallSessionCreator", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([targetType, targetId])
+  @@index([createdById])
+  @@index([expiresAt])
+}
+
+model GuildSlackWebhook {
+  id                 String   @id @default(cuid())
+  guildId            String
+  label              String   @db.VarChar(120)
+  webhookUrl         String?  @db.Text
+  configurationUrl   String?  @db.VarChar(1024)
+  isEnabled          Boolean  @default(false)
+  slackTeamId        String?  @db.VarChar(120)
+  slackTeamName      String?  @db.VarChar(191)
+  slackChannelId     String?  @db.VarChar(120)
+  slackChannelName   String?  @db.VarChar(191)
+  eventSubscriptions Json     @default(dbgenerated("(json_object())"))
+  createdById        String
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  lastSentAt         DateTime?
+  guild              Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  createdBy          User     @relation("GuildSlackWebhookCreator", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([guildId])
+  @@index([createdById])
+  @@index([isEnabled])
 }
 
 model InboundWebhookAction {

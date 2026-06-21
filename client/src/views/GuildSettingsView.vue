@@ -35,6 +35,14 @@
             </svg>
             <span>Discord Webhook</span>
           </button>
+          <button
+            v-if="canManageDiscordWebhook"
+            class="discord-button"
+            type="button"
+            @click="showSlackModal = true"
+          >
+            <span>Slack Webhook</span>
+          </button>
         </div>
       </div>
     </header>
@@ -357,6 +365,11 @@
       :guild-id="guildId"
       @close="handleDiscordModalClose"
     />
+    <SlackWebhookModal
+      v-if="showSlackModal && guild"
+      :guild-id="guildId"
+      @close="handleSlackModalClose"
+    />
   </section>
 </template>
 
@@ -374,6 +387,7 @@ import { lootListTypeLabels, lootListTypeOrder } from '../services/types';
 import { normalizeOptionalUrl } from '../utils/urls';
 import ParserSettingsModal from '../components/ParserSettingsModal.vue';
 import DiscordWebhookModal from '../components/DiscordWebhookModal.vue';
+import SlackWebhookModal from '../components/SlackWebhookModal.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -433,12 +447,14 @@ const canManageDiscordWebhook = computed(() => {
 });
 const showParserSettings = ref(false);
 const showDiscordModal = ref(false);
+const showSlackModal = ref(false);
 const blacklistSpells = ref(false);
 const blacklistSpellsSaving = ref(false);
 
 onMounted(async () => {
   try {
     await loadGuild();
+    handleSlackInstallResultQuery();
   } finally {
     loading.value = false;
   }
@@ -457,7 +473,7 @@ watch(
 );
 
 watch(
-  () => showParserSettings.value || showDiscordModal.value,
+  () => showParserSettings.value || showDiscordModal.value || showSlackModal.value,
   (isOpen) => {
     if (typeof document === 'undefined') {
       return;
@@ -572,6 +588,26 @@ function handleParserSettingsSaved(_settings: GuildLootParserSettings) {
 
 function handleDiscordModalClose() {
   showDiscordModal.value = false;
+}
+
+function handleSlackModalClose() {
+  showSlackModal.value = false;
+}
+
+function handleSlackInstallResultQuery() {
+  const result = route.query.slackInstall;
+  if (result !== 'success' && result !== 'error') {
+    return;
+  }
+  window.alert(
+    result === 'success'
+      ? 'Slack webhook connected.'
+      : String(route.query.slackMessage || 'Slack install did not complete.')
+  );
+  const nextQuery = { ...route.query };
+  delete nextQuery.slackInstall;
+  delete nextQuery.slackMessage;
+  router.replace({ query: nextQuery });
 }
 
 function setLootListType(type: LootListType) {

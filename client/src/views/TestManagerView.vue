@@ -2710,6 +2710,101 @@
             </label>
           </div>
         </section>
+
+        <section v-if="settings" class="tm-settings-section tm-discord-settings">
+          <div class="tm-settings-section__header">
+            <div>
+              <h3>Slack Notifications</h3>
+              <p>Send structured Test Manager change activity to a connected Slack channel.</p>
+              <p class="muted small">{{ slackConnectionLabel }}</p>
+            </div>
+            <label
+              class="tm-switch"
+              :class="{
+                'tm-switch--checked': settings.slackNotifications.enabled,
+                'tm-switch--disabled': !authStore.canManageTestManagerSettings || settingsSaving
+              }"
+            >
+              <input
+                v-model="settings.slackNotifications.enabled"
+                type="checkbox"
+                :disabled="
+                  !authStore.canManageTestManagerSettings ||
+                  settingsSaving ||
+                  !settings.slackNotifications.connection.hasSlackWebhook
+                "
+                @change="settingsMessage = ''"
+              />
+              <span aria-hidden="true"></span>
+              <strong>{{ settings.slackNotifications.enabled ? 'Enabled' : 'Disabled' }}</strong>
+            </label>
+          </div>
+
+          <div class="tm-settings-actions">
+            <button
+              type="button"
+              class="tm-btn tm-btn--primary"
+              :disabled="!authStore.canManageTestManagerSettings || settingsSaving || slackBusy"
+              @click="connectSlackNotifications"
+            >
+              {{ settings.slackNotifications.connection.hasSlackWebhook ? 'Reconnect Slack' : 'Connect Slack' }}
+            </button>
+            <button
+              type="button"
+              class="tm-btn"
+              :disabled="
+                !authStore.canManageTestManagerSettings ||
+                settingsSaving ||
+                slackBusy ||
+                !settings.slackNotifications.connection.hasSlackWebhook
+              "
+              @click="testSlackNotifications"
+            >
+              Send Test
+            </button>
+            <button
+              type="button"
+              class="tm-btn"
+              :disabled="
+                !authStore.canManageTestManagerSettings ||
+                settingsSaving ||
+                slackBusy ||
+                !settings.slackNotifications.connection.hasSlackWebhook
+              "
+              @click="disconnectSlackNotifications"
+            >
+              Disconnect
+            </button>
+          </div>
+
+          <div class="tm-discord-events">
+            <label
+              v-for="event in discordNotificationEvents"
+              :key="event.key"
+              class="tm-discord-event"
+              :class="{
+                'tm-discord-event--checked': hasSlackNotificationEvent(event.key),
+                'tm-discord-event--disabled':
+                  !authStore.canManageTestManagerSettings || settingsSaving
+              }"
+            >
+              <input
+                type="checkbox"
+                :checked="hasSlackNotificationEvent(event.key)"
+                :disabled="!authStore.canManageTestManagerSettings || settingsSaving"
+                @change="
+                  setSlackNotificationEvent(
+                    event.key,
+                    ($event.target as HTMLInputElement).checked
+                  )
+                "
+              />
+              <span aria-hidden="true"></span>
+              <strong>{{ event.label }}</strong>
+              <small>{{ event.description }}</small>
+            </label>
+          </div>
+        </section>
       </section>
     </Transition>
 
@@ -5736,6 +5831,7 @@ const users = ref<TestManagerUserSummary[]>([]);
 const settings = ref<TestManagerSettings | null>(null);
 const savedSettings = ref<TestManagerSettings | null>(null);
 const settingsSaving = ref(false);
+const slackBusy = ref(false);
 const settingsMessage = ref('');
 const currentTestServerVersion = ref<string | null>(null);
 const currentTestServerVersionDraft = ref('');
@@ -6337,6 +6433,19 @@ function cloneSettings(value: TestManagerSettings): TestManagerSettings {
       enabled: value.discordNotifications?.enabled ?? false,
       webhookUrl: value.discordNotifications?.webhookUrl ?? '',
       events: [...(value.discordNotifications?.events ?? [])]
+    },
+    slackNotifications: {
+      enabled: value.slackNotifications?.enabled ?? false,
+      events: [...(value.slackNotifications?.events ?? [])],
+      connection: {
+        hasSlackWebhook: value.slackNotifications?.connection?.hasSlackWebhook ?? false,
+        configurationUrl: value.slackNotifications?.connection?.configurationUrl ?? null,
+        slackTeamId: value.slackNotifications?.connection?.slackTeamId ?? null,
+        slackTeamName: value.slackNotifications?.connection?.slackTeamName ?? null,
+        slackChannelId: value.slackNotifications?.connection?.slackChannelId ?? null,
+        slackChannelName: value.slackNotifications?.connection?.slackChannelName ?? null,
+        connectedAt: value.slackNotifications?.connection?.connectedAt ?? null
+      }
     }
   };
 }
@@ -6678,6 +6787,15 @@ const editAutoCloseProgress = computed(() => {
 const settingsDirty = computed(
   () => JSON.stringify(settings.value) !== JSON.stringify(savedSettings.value)
 );
+const slackConnectionLabel = computed(() => {
+  const connection = settings.value?.slackNotifications.connection;
+  if (!connection?.hasSlackWebhook) {
+    return 'No Slack channel connected.';
+  }
+  const workspace = connection.slackTeamName || 'Slack workspace';
+  const channel = connection.slackChannelName || connection.slackChannelId || 'selected channel';
+  return `${workspace} / ${channel}`;
+});
 const canManageCurrentTestServerVersion = computed(() => authStore.canManageTestManagerSettings);
 const canManageCurrentLiveServerVersion = computed(() => authStore.canManageTestManagerSettings);
 const currentTestServerVersionLabel = computed(() =>
@@ -8592,6 +8710,24 @@ async function loadSettings() {
   settings.value = cloneSettings(result);
   savedSettings.value = cloneSettings(result);
   settingsMessage.value = '';
+  handleSlackInstallResultQuery();
+}
+
+function handleSlackInstallResultQuery() {
+  const result = route.query.slackInstall;
+  if (result !== 'success' && result !== 'error') {
+    return;
+  }
+
+  settingsMessage.value =
+    result === 'success'
+      ? 'Slack notifications connected.'
+      : String(route.query.slackMessage || 'Slack install did not complete.');
+
+  const url = new URL(window.location.href);
+  url.searchParams.delete('slackInstall');
+  url.searchParams.delete('slackMessage');
+  window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
 }
 
 async function loadCurrentTestServerVersion() {
@@ -8890,6 +9026,88 @@ function setDiscordNotificationEvent(eventKey: TestManagerDiscordEventKey, check
     .map((event) => event.key);
 }
 
+function hasSlackNotificationEvent(eventKey: TestManagerDiscordEventKey): boolean {
+  return Boolean(settings.value?.slackNotifications.events.includes(eventKey));
+}
+
+function setSlackNotificationEvent(eventKey: TestManagerDiscordEventKey, checked: boolean) {
+  if (!authStore.canManageTestManagerSettings || !settings.value) {
+    return;
+  }
+
+  settingsMessage.value = '';
+  const events = new Set(settings.value.slackNotifications.events);
+  if (checked) {
+    events.add(eventKey);
+  } else {
+    events.delete(eventKey);
+  }
+  settings.value.slackNotifications.events = discordNotificationEvents
+    .filter((event) => events.has(event.key))
+    .map((event) => event.key);
+}
+
+function getSettingsReturnPath() {
+  return `${window.location.pathname}${window.location.search}`;
+}
+
+async function connectSlackNotifications() {
+  if (!authStore.canManageTestManagerSettings || slackBusy.value) {
+    return;
+  }
+
+  slackBusy.value = true;
+  settingsMessage.value = '';
+  try {
+    const result = await api.startTestManagerSlackInstall(getSettingsReturnPath());
+    window.location.href = result.authorizeUrl;
+  } catch (error) {
+    settingsMessage.value = getApiErrorMessage(error, 'Unable to start Slack install.');
+  } finally {
+    slackBusy.value = false;
+  }
+}
+
+async function disconnectSlackNotifications() {
+  if (!authStore.canManageTestManagerSettings || slackBusy.value || !settings.value) {
+    return;
+  }
+
+  if (!confirm('Disconnect Slack notifications from Test Manager?')) {
+    return;
+  }
+
+  slackBusy.value = true;
+  settingsMessage.value = '';
+  try {
+    const result = await api.disconnectTestManagerSlack();
+    settings.value = cloneSettings(result);
+    savedSettings.value = cloneSettings(result);
+    settingsMessage.value = 'Slack notifications disconnected.';
+  } catch (error) {
+    settingsMessage.value = getApiErrorMessage(error, 'Unable to disconnect Slack notifications.');
+  } finally {
+    slackBusy.value = false;
+  }
+}
+
+async function testSlackNotifications() {
+  if (!authStore.canManageTestManagerSettings || slackBusy.value) {
+    return;
+  }
+
+  slackBusy.value = true;
+  settingsMessage.value = '';
+  try {
+    await api.testTestManagerSlack();
+    addToast({ title: 'Slack Test Sent', message: 'Check the connected Slack channel.' });
+  } catch (error) {
+    settingsMessage.value = getApiErrorMessage(error, 'Unable to send Slack test notification.');
+  } finally {
+    slackBusy.value = false;
+  }
+}
+
 function resetSettings() {
   if (!authStore.canManageTestManagerSettings || !savedSettings.value || settingsSaving.value) {
     return;
@@ -8927,6 +9145,10 @@ async function saveSettings() {
         enabled: settings.value.discordNotifications.enabled,
         webhookUrl: settings.value.discordNotifications.webhookUrl.trim(),
         events: settings.value.discordNotifications.events
+      },
+      slackNotifications: {
+        enabled: settings.value.slackNotifications.enabled,
+        events: settings.value.slackNotifications.events
       }
     });
     settings.value = cloneSettings(result);

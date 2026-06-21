@@ -14,6 +14,13 @@ import {
 import { ensureAdmin } from './adminService.js';
 import { generatePatchNotesForChanges } from './geminiPatchNotesService.js';
 import { buildCrashReviewInput } from './inboundWebhookService.js';
+import {
+  buildSlackPayloadFromText,
+  convertDiscordWebhookToSlackPayload,
+  sendSlackIncomingWebhook,
+  summarizeSlackConnectionFromConfig,
+  type SlackWebhookConnectionSummary
+} from './slackIntegrationService.js';
 import { prisma } from '../utils/prisma.js';
 import { resolvePublicClientBaseUrl } from '../utils/publicClientUrl.js';
 
@@ -128,12 +135,32 @@ type TestManagerSettings = {
     webhookUrl: string;
     events: TestManagerDiscordEventKey[];
   };
+  slackNotifications: {
+    enabled: boolean;
+    webhookUrl: string;
+    configurationUrl: string | null;
+    slackTeamId: string | null;
+    slackTeamName: string | null;
+    slackChannelId: string | null;
+    slackChannelName: string | null;
+    connectedAt: string | null;
+    events: TestManagerDiscordEventKey[];
+  };
+};
+
+export type PublicTestManagerSettings = Omit<TestManagerSettings, 'slackNotifications'> & {
+  slackNotifications: {
+    enabled: boolean;
+    events: TestManagerDiscordEventKey[];
+    connection: SlackWebhookConnectionSummary;
+  };
 };
 
 const TEST_MANAGER_SETTINGS_KEY = 'testManager.rolePermissions';
 const TEST_MANAGER_CURRENT_VERSION_KEY = 'testManager.currentTestServerVersion';
 const TEST_MANAGER_CURRENT_LIVE_VERSION_KEY = 'testManager.currentLiveServerVersion';
-const TEST_MANAGER_SETTINGS_SCHEMA_VERSION = 2;
+export const TEST_MANAGER_SETTINGS_SCHEMA_KEY = TEST_MANAGER_SETTINGS_KEY;
+const TEST_MANAGER_SETTINGS_SCHEMA_VERSION = 3;
 const DISCORD_COLORS = {
   primary: 0x55b7ff,
   success: 0x72d66f,
@@ -171,6 +198,17 @@ const DEFAULT_TEST_MANAGER_SETTINGS: TestManagerSettings = {
   discordNotifications: {
     enabled: false,
     webhookUrl: '',
+    events: [...TEST_MANAGER_DISCORD_EVENT_KEYS]
+  },
+  slackNotifications: {
+    enabled: false,
+    webhookUrl: '',
+    configurationUrl: null,
+    slackTeamId: null,
+    slackTeamName: null,
+    slackChannelId: null,
+    slackChannelName: null,
+    connectedAt: null,
     events: [...TEST_MANAGER_DISCORD_EVENT_KEYS]
   }
 };
@@ -1495,6 +1533,10 @@ function cloneDefaultTestManagerSettings(): TestManagerSettings {
     discordNotifications: {
       ...DEFAULT_TEST_MANAGER_SETTINGS.discordNotifications,
       events: [...DEFAULT_TEST_MANAGER_SETTINGS.discordNotifications.events]
+    },
+    slackNotifications: {
+      ...DEFAULT_TEST_MANAGER_SETTINGS.slackNotifications,
+      events: [...DEFAULT_TEST_MANAGER_SETTINGS.slackNotifications.events]
     }
   };
 }
@@ -1596,9 +1638,48 @@ function normalizeDiscordNotificationSettings(
   };
 }
 
+function normalizeSlackNotificationSettings(
+  value: unknown,
+  existing?: TestManagerSettings['slackNotifications']
+): TestManagerSettings['slackNotifications'] {
+  const defaults = cloneDefaultTestManagerSettings().slackNotifications;
+  const fallback = existing ?? defaults;
+  if (!value || typeof value !== 'object') {
+    return {
+      ...fallback,
+      events: [...fallback.events]
+    };
+  }
+
+  const record = value as Record<string, unknown>;
+  const eventSource = Array.isArray(record.events) ? record.events : fallback.events;
+  const selectedEvents = new Set(eventSource.filter(isDiscordEventKey));
+
+  return {
+    enabled: typeof record.enabled === 'boolean' ? record.enabled : fallback.enabled,
+    webhookUrl: typeof record.webhookUrl === 'string' ? record.webhookUrl.trim() : fallback.webhookUrl,
+    configurationUrl:
+      typeof record.configurationUrl === 'string' ? record.configurationUrl : fallback.configurationUrl,
+    slackTeamId: typeof record.slackTeamId === 'string' ? record.slackTeamId : fallback.slackTeamId,
+    slackTeamName:
+      typeof record.slackTeamName === 'string' ? record.slackTeamName : fallback.slackTeamName,
+    slackChannelId:
+      typeof record.slackChannelId === 'string' ? record.slackChannelId : fallback.slackChannelId,
+    slackChannelName:
+      typeof record.slackChannelName === 'string'
+        ? record.slackChannelName
+        : fallback.slackChannelName,
+    connectedAt: typeof record.connectedAt === 'string' ? record.connectedAt : fallback.connectedAt,
+    events: TEST_MANAGER_DISCORD_EVENT_KEYS.filter((event) => selectedEvents.has(event))
+  };
+}
+
 function normalizeTestManagerSettings(
   value: unknown,
-  options: { preserveNoteForPass?: boolean } = {}
+  options: {
+    preserveNoteForPass?: boolean;
+    existingSlackNotifications?: TestManagerSettings['slackNotifications'];
+  } = {}
 ): TestManagerSettings {
   const defaults = cloneDefaultTestManagerSettings();
   const canPreserveNoteForPass =
@@ -1613,6 +1694,12 @@ function normalizeTestManagerSettings(
         value && typeof value === 'object' && 'discordNotifications' in value
           ? (value as Record<string, unknown>).discordNotifications
           : undefined
+      ),
+      slackNotifications: normalizeSlackNotificationSettings(
+        value && typeof value === 'object' && 'slackNotifications' in value
+          ? (value as Record<string, unknown>).slackNotifications
+          : undefined,
+        options.existingSlackNotifications
       )
     };
   }
@@ -1644,6 +1731,10 @@ function normalizeTestManagerSettings(
     })),
     discordNotifications: normalizeDiscordNotificationSettings(
       'discordNotifications' in value ? value.discordNotifications : undefined
+    ),
+    slackNotifications: normalizeSlackNotificationSettings(
+      'slackNotifications' in value ? value.slackNotifications : undefined,
+      options.existingSlackNotifications
     )
   };
 }
@@ -2656,22 +2747,42 @@ async function notifyTestManagerDiscord(input: TestManagerDiscordNotificationInp
   try {
     const settings = await getTestManagerSettings();
     const discordSettings = settings.discordNotifications;
+    const actor = input.actorUserId ? await getCurrentUser(input.actorUserId) : null;
+
     if (
-      !discordSettings.enabled ||
-      !discordSettings.webhookUrl ||
-      !discordSettings.events.includes(input.event) ||
-      !isConfiguredDiscordWebhookUrl(discordSettings.webhookUrl)
+      discordSettings.enabled &&
+      discordSettings.webhookUrl &&
+      discordSettings.events.includes(input.event) &&
+      isConfiguredDiscordWebhookUrl(discordSettings.webhookUrl)
     ) {
-      return;
+      try {
+        await sendConfiguredDiscordWebhook(
+          discordSettings.webhookUrl,
+          buildTestManagerDiscordPayload(input, actor)
+        );
+      } catch (error) {
+        console.error('[TestManager] Failed to send Discord notification:', error);
+      }
     }
 
-    const actor = input.actorUserId ? await getCurrentUser(input.actorUserId) : null;
-    await sendConfiguredDiscordWebhook(
-      discordSettings.webhookUrl,
-      buildTestManagerDiscordPayload(input, actor)
-    );
+    const slackSettings = settings.slackNotifications;
+    if (
+      slackSettings.enabled &&
+      slackSettings.webhookUrl &&
+      slackSettings.events.includes(input.event)
+    ) {
+      try {
+        const discordPayload = buildTestManagerDiscordPayload(input, actor);
+        await sendSlackIncomingWebhook(
+          slackSettings.webhookUrl,
+          convertDiscordWebhookToSlackPayload(discordPayload)
+        );
+      } catch (error) {
+        console.error('[TestManager] Failed to send Slack notification:', error);
+      }
+    }
   } catch (error) {
-    console.error('[TestManager] Failed to send Discord notification:', error);
+    console.error('[TestManager] Failed to prepare notification:', error);
   }
 }
 
@@ -5743,6 +5854,19 @@ export async function getTestManagerSettings(): Promise<TestManagerSettings> {
   }
 }
 
+export function serializeTestManagerSettingsForClient(
+  settings: TestManagerSettings
+): PublicTestManagerSettings {
+  return {
+    ...settings,
+    slackNotifications: {
+      enabled: settings.slackNotifications.enabled,
+      events: [...settings.slackNotifications.events],
+      connection: summarizeSlackConnectionFromConfig(settings.slackNotifications)
+    }
+  };
+}
+
 export async function getCurrentTestServerVersion(): Promise<{
   currentTestServerVersion: string | null;
   currentLiveServerVersion: string | null;
@@ -5851,11 +5975,19 @@ export async function updateTestManagerSettings(
       webhookUrl: string;
       events: TestManagerDiscordEventKey[];
     };
+    slackNotifications?: {
+      enabled: boolean;
+      events: TestManagerDiscordEventKey[];
+    };
   }
 ): Promise<TestManagerSettings> {
   await ensureCanManageTestManagerSettings(actorUserId);
 
-  const normalized = normalizeTestManagerSettings(input, { preserveNoteForPass: true });
+  const existing = await getTestManagerSettings();
+  const normalized = normalizeTestManagerSettings(input, {
+    preserveNoteForPass: true,
+    existingSlackNotifications: existing.slackNotifications
+  });
   await prisma.systemSetting.upsert({
     where: { key: TEST_MANAGER_SETTINGS_KEY },
     create: {
@@ -5868,4 +6000,56 @@ export async function updateTestManagerSettings(
   });
 
   return normalized;
+}
+
+export async function disconnectTestManagerSlackNotifications(
+  actorUserId: string
+): Promise<TestManagerSettings> {
+  await ensureCanManageTestManagerSettings(actorUserId);
+
+  const settings = await getTestManagerSettings();
+  const next: TestManagerSettings = {
+    ...settings,
+    slackNotifications: {
+      ...settings.slackNotifications,
+      enabled: false,
+      webhookUrl: '',
+      configurationUrl: null,
+      slackTeamId: null,
+      slackTeamName: null,
+      slackChannelId: null,
+      slackChannelName: null,
+      connectedAt: null
+    }
+  };
+
+  await prisma.systemSetting.upsert({
+    where: { key: TEST_MANAGER_SETTINGS_KEY },
+    create: {
+      key: TEST_MANAGER_SETTINGS_KEY,
+      value: JSON.stringify(next)
+    },
+    update: {
+      value: JSON.stringify(next)
+    }
+  });
+
+  return next;
+}
+
+export async function sendTestManagerSlackTest(actorUserId: string): Promise<void> {
+  await ensureCanManageTestManagerSettings(actorUserId);
+  const settings = await getTestManagerSettings();
+  if (!settings.slackNotifications.webhookUrl) {
+    throw new Error('Slack incoming webhook is not connected.');
+  }
+
+  await sendSlackIncomingWebhook(
+    settings.slackNotifications.webhookUrl,
+    buildSlackPayloadFromText({
+      title: 'CW Nexus Test Manager Slack Test',
+      text: 'Test Manager Slack notifications are connected.',
+      url: testManagerDiscordClientBaseUrl ? `${testManagerDiscordClientBaseUrl}/test-manager` : null
+    })
+  );
 }

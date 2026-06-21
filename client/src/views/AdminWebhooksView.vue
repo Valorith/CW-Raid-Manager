@@ -1116,6 +1116,36 @@
                         placeholder="https://example.com/webhook"
                       />
                     </label>
+                    <div v-if="action.type === 'SLACK_RELAY'" class="form-field endpoint-field-wide">
+                      <span>Slack Connection</span>
+                      <div class="endpoint-control-row">
+                        <span class="muted small">{{ getSlackConnectionLabel(action) }}</span>
+                        <button
+                          class="btn btn--outline btn--small"
+                          type="button"
+                          :disabled="isSlackActionBusy(action.id)"
+                          @click="connectSlackAction(selectedWebhook, action)"
+                        >
+                          {{ action.config.slackConnection?.hasSlackWebhook ? 'Reconnect' : 'Connect Slack' }}
+                        </button>
+                        <button
+                          class="btn btn--outline btn--small"
+                          type="button"
+                          :disabled="isSlackActionBusy(action.id) || !action.config.slackConnection?.hasSlackWebhook"
+                          @click="testSlackAction(selectedWebhook, action)"
+                        >
+                          Test
+                        </button>
+                        <button
+                          class="btn btn--danger btn--small"
+                          type="button"
+                          :disabled="isSlackActionBusy(action.id) || !action.config.slackConnection?.hasSlackWebhook"
+                          @click="disconnectSlackAction(selectedWebhook, action)"
+                        >
+                          Disconnect
+                        </button>
+                      </div>
+                    </div>
                     <label v-if="action.type === 'DISCORD_RELAY'" class="form-field">
                       <span>Relay Mode</span>
                       <select v-model="action.config.discordMode" class="select">
@@ -1129,6 +1159,16 @@
                       class="endpoint-field-wide"
                       label="Wrap Template"
                       language="Discord template"
+                      :placeholders="discordTemplatePlaceholders"
+                      placeholder="Use {{json}} for pretty JSON or {{raw}} for full JSON"
+                      :rows="7"
+                    />
+                    <CodeTemplateEditor
+                      v-if="action.type === 'SLACK_RELAY'"
+                      v-model="action.config.slackTemplate"
+                      class="endpoint-field-wide"
+                      label="Slack Template"
+                      language="Slack template"
                       :placeholders="discordTemplatePlaceholders"
                       placeholder="Use {{json}} for pretty JSON or {{raw}} for full JSON"
                       :rows="7"
@@ -1246,6 +1286,7 @@
                     <span>Action Type</span>
                     <select v-model="actionDrafts[selectedWebhook.id].type" class="select">
                       <option value="DISCORD_RELAY">Discord Relay</option>
+                      <option value="SLACK_RELAY">Slack Relay</option>
                       <option value="CUSTOM_WEBHOOK">Custom Webhook</option>
                       <option value="CRASH_REVIEW">Crash Review</option>
                     </select>
@@ -1314,6 +1355,16 @@
                     class="endpoint-field-wide"
                     label="Wrap Template"
                     language="Discord template"
+                    :placeholders="discordTemplatePlaceholders"
+                    placeholder="Use {{json}} for pretty JSON or {{raw}} for full JSON"
+                    :rows="7"
+                  />
+                  <CodeTemplateEditor
+                    v-if="actionDrafts[selectedWebhook.id].type === 'SLACK_RELAY'"
+                    v-model="actionDrafts[selectedWebhook.id].slackTemplate"
+                    class="endpoint-field-wide"
+                    label="Slack Template"
+                    language="Slack template"
                     :placeholders="discordTemplatePlaceholders"
                     placeholder="Use {{json}} for pretty JSON or {{raw}} for full JSON"
                     :rows="7"
@@ -4120,6 +4171,7 @@ const crashModelOptions = [
   'gemini-1.5-flash-8b'
 ];
 const DEFAULT_DISCORD_TEMPLATE = 'Webhook payload:\n\n```json\n{{json}}\n```';
+const DEFAULT_SLACK_TEMPLATE = 'Webhook payload:\n\n```json\n{{json}}\n```';
 const discordTemplatePlaceholders = ['{{json}}', '{{raw}}'];
 const crashTemplatePlaceholders = ['{{crashReport}}'];
 const ORACLE_LOGO_SRC = '/assets/eqemu-oracle-logo.webp';
@@ -4143,6 +4195,7 @@ const endpointNameModalWebhookId = ref<string | null>(null);
 const endpointNameDraft = ref('');
 const retryingCrashId = ref<string | null>(null);
 const sendingDiscordSummaryIds = ref<Set<string>>(new Set());
+const sendingSlackActionIds = ref<Set<string>>(new Set());
 const sendingDevinMessageIds = ref<Set<string>>(new Set());
 const resolvingMessageIds = ref<Set<string>>(new Set());
 const activeMessageActionMenuId = ref<string | null>(null);
@@ -4481,6 +4534,7 @@ interface PipelineStageStatus {
 function isSupportedWebhookAction(action?: InboundWebhookAction | null): boolean {
   return (
     action?.type === 'DISCORD_RELAY' ||
+    action?.type === 'SLACK_RELAY' ||
     action?.type === 'CUSTOM_WEBHOOK' ||
     action?.type === 'CRASH_REVIEW'
   );
@@ -5315,6 +5369,7 @@ function buildActionDraft() {
     devDiscordWebhookUrl: '',
     discordMode: 'WRAP',
     discordTemplate: DEFAULT_DISCORD_TEMPLATE,
+    slackTemplate: DEFAULT_SLACK_TEMPLATE,
     customWebhookUrl: '',
     crashModel: 'gemini-2.5-flash-lite',
     crashMaxInputChars: 250000,
@@ -5333,6 +5388,16 @@ function normalizeClientActionConfig(
     devDiscordWebhookUrl: config?.devDiscordWebhookUrl ?? '',
     discordMode: config?.discordMode ?? 'WRAP',
     discordTemplate: config?.discordTemplate ?? DEFAULT_DISCORD_TEMPLATE,
+    slackTemplate: config?.slackTemplate ?? DEFAULT_SLACK_TEMPLATE,
+    slackConnection: config?.slackConnection ?? {
+      hasSlackWebhook: false,
+      configurationUrl: null,
+      slackTeamId: null,
+      slackTeamName: null,
+      slackChannelId: null,
+      slackChannelName: null,
+      connectedAt: null
+    },
     customWebhookUrl: config?.customWebhookUrl ?? '',
     crashModel: config?.crashModel ?? 'gemini-2.5-flash-lite',
     crashMaxInputChars: config?.crashMaxInputChars ?? 250000,
@@ -5357,6 +5422,12 @@ function buildActionConfigFromDraft(draft: any): InboundWebhookActionConfig {
   if (draft.type === 'CUSTOM_WEBHOOK') {
     return {
       customWebhookUrl: draft.customWebhookUrl?.trim() || undefined
+    };
+  }
+
+  if (draft.type === 'SLACK_RELAY') {
+    return {
+      slackTemplate: draft.slackTemplate?.trim() || undefined
     };
   }
 
@@ -5390,6 +5461,12 @@ function buildActionConfigFromAction(action: InboundWebhookAction): InboundWebho
   if (action.type === 'CUSTOM_WEBHOOK') {
     return {
       customWebhookUrl: action.config.customWebhookUrl?.trim() || undefined
+    };
+  }
+
+  if (action.type === 'SLACK_RELAY') {
+    return {
+      slackTemplate: action.config.slackTemplate?.trim() || undefined
     };
   }
 
@@ -6328,6 +6405,95 @@ async function saveAction(webhook: InboundWebhook, action: InboundWebhookAction)
   }
 }
 
+function replaceWebhookAction(webhook: InboundWebhook, updated: InboundWebhookAction) {
+  webhook.actions = (webhook.actions ?? []).map((item) =>
+    item.id === updated.id
+      ? {
+          ...updated,
+          config: normalizeClientActionConfig(updated.config)
+        }
+      : item
+  );
+}
+
+function getCurrentReturnPath() {
+  return `${window.location.pathname}${window.location.search}`;
+}
+
+function isSlackActionBusy(actionId: string) {
+  return sendingSlackActionIds.value.has(actionId);
+}
+
+function getSlackConnectionLabel(action: InboundWebhookAction) {
+  const connection = action.config.slackConnection;
+  if (!connection?.hasSlackWebhook) {
+    return 'No Slack channel connected.';
+  }
+  const workspace = connection.slackTeamName || 'Slack workspace';
+  const channel = connection.slackChannelName || connection.slackChannelId || 'selected channel';
+  return `${workspace} / ${channel}`;
+}
+
+async function connectSlackAction(webhook: InboundWebhook, action: InboundWebhookAction) {
+  sendingSlackActionIds.value.add(action.id);
+  sendingSlackActionIds.value = new Set(sendingSlackActionIds.value);
+  try {
+    const result = await api.startInboundWebhookActionSlackInstall(
+      webhook.id,
+      action.id,
+      getCurrentReturnPath()
+    );
+    window.location.href = result.authorizeUrl;
+  } catch (error) {
+    addToast({
+      title: 'Slack Connect Failed',
+      message: getActionErrorMessage(error, 'Unable to start Slack install.')
+    });
+  } finally {
+    sendingSlackActionIds.value.delete(action.id);
+    sendingSlackActionIds.value = new Set(sendingSlackActionIds.value);
+  }
+}
+
+async function disconnectSlackAction(webhook: InboundWebhook, action: InboundWebhookAction) {
+  if (!confirm(`Disconnect Slack from ${action.name}?`)) {
+    return;
+  }
+  sendingSlackActionIds.value.add(action.id);
+  sendingSlackActionIds.value = new Set(sendingSlackActionIds.value);
+  try {
+    const updated = await api.disconnectInboundWebhookActionSlack(webhook.id, action.id);
+    replaceWebhookAction(webhook, updated);
+    addToast({ title: 'Slack Disconnected', message: 'Slack relay connection removed.' });
+  } catch (error) {
+    addToast({
+      title: 'Slack Disconnect Failed',
+      message: getActionErrorMessage(error, 'Unable to disconnect Slack.')
+    });
+  } finally {
+    sendingSlackActionIds.value.delete(action.id);
+    sendingSlackActionIds.value = new Set(sendingSlackActionIds.value);
+  }
+}
+
+async function testSlackAction(webhook: InboundWebhook, action: InboundWebhookAction) {
+  sendingSlackActionIds.value.add(action.id);
+  sendingSlackActionIds.value = new Set(sendingSlackActionIds.value);
+  try {
+    const updated = await api.testInboundWebhookActionSlack(webhook.id, action.id);
+    replaceWebhookAction(webhook, updated);
+    addToast({ title: 'Slack Test Sent', message: 'Check the connected Slack channel.' });
+  } catch (error) {
+    addToast({
+      title: 'Slack Test Failed',
+      message: getActionErrorMessage(error, 'Unable to send Slack test.')
+    });
+  } finally {
+    sendingSlackActionIds.value.delete(action.id);
+    sendingSlackActionIds.value = new Set(sendingSlackActionIds.value);
+  }
+}
+
 async function deleteAction(webhook: InboundWebhook, action: InboundWebhookAction) {
   const confirmed = window.confirm(`Remove action "${action.name}"?`);
   if (!confirmed) return;
@@ -6707,6 +6873,8 @@ function getActionLabel(type?: string | null): string {
       return 'AI Review';
     case 'DISCORD_RELAY':
       return 'Discord';
+    case 'SLACK_RELAY':
+      return 'Slack';
     case 'CUSTOM_WEBHOOK':
       return 'Custom Webhook';
     default:
@@ -7967,6 +8135,26 @@ function closeMessageActionMenu() {
   activeMessageActionMenuId.value = null;
 }
 
+function handleSlackInstallResultQuery() {
+  const result = route.query.slackInstall;
+  if (result !== 'success' && result !== 'error') {
+    return;
+  }
+
+  addToast({
+    title: result === 'success' ? 'Slack Connected' : 'Slack Connect Failed',
+    message:
+      result === 'success'
+        ? 'Slack incoming webhook connection saved.'
+        : String(route.query.slackMessage || 'Slack install did not complete.')
+  });
+
+  const url = new URL(window.location.href);
+  url.searchParams.delete('slackInstall');
+  url.searchParams.delete('slackMessage');
+  window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
 function runMessageMenuAction(action: () => void | Promise<void>) {
   closeMessageActionMenu();
   void action();
@@ -8682,6 +8870,7 @@ watch(
 
 onMounted(async () => {
   await refreshAll();
+  handleSlackInstallResultQuery();
   nowTimer = setInterval(() => {
     nowTs.value = Date.now();
   }, 1000);
