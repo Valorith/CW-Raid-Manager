@@ -4,7 +4,17 @@ import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { existsSync, readFileSync } from 'fs';
 import { mkdir, readdir, readFile, stat, writeFile } from 'fs/promises';
 import { createServer } from 'http';
-import { hostname } from 'os';
+import {
+  cpus,
+  freemem,
+  hostname,
+  loadavg,
+  networkInterfaces,
+  platform,
+  release,
+  totalmem,
+  uptime
+} from 'os';
 import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -51,6 +61,8 @@ const config = {
   runnerPoolStateFile: resolve(
     process.env.CODEX_RUNNER_POOL_STATE_FILE || join(workRoot, 'runner-pool.json')
   ),
+  dashboardServiceName:
+    process.env.CODEX_RUNNER_DASHBOARD_SERVICE_NAME || 'nexus-codex-runner-dashboard.service',
   githubCliBin: process.env.GITHUB_CLI_BIN || process.env.GH_BIN || 'gh',
   githubHost: process.env.GITHUB_HOST || 'github.com',
   workRoot,
@@ -132,6 +144,12 @@ async function routeRequest(request, response) {
   if (path === '/api/overview') {
     requireMethod(request, 'GET');
     await sendOverview(response, url);
+    return;
+  }
+
+  if (path === '/api/vps-health') {
+    requireMethod(request, 'GET');
+    await sendVpsHealth(response);
     return;
   }
 
@@ -353,6 +371,303 @@ async function sendOverview(response, url) {
       github
     }
   });
+}
+
+async function sendVpsHealth(response) {
+  sendJson(response, 200, await collectVpsHealth());
+}
+
+async function collectVpsHealth() {
+  const cpuList = cpus();
+  const memTotal = totalmem();
+  const memFree = freemem();
+  const memUsed = Math.max(0, memTotal - memFree);
+  const [osRelease, swap, disks, inodes, network, defaultRoute, services, probes] =
+    await Promise.all([
+      readOsRelease(),
+      readSwapSummary(),
+      readDiskSummary(false),
+      readDiskSummary(true),
+      readNetworkSummary(),
+      readDefaultRoute(),
+      readHealthServices(),
+      readConnectivityProbes()
+    ]);
+
+  return {
+    generatedAt: new Date().toISOString(),
+    host: {
+      hostname: hostname(),
+      platform: platform(),
+      kernel: release(),
+      os: osRelease.prettyName,
+      uptimeSeconds: uptime(),
+      nodeVersion: process.version,
+      pid: process.pid
+    },
+    cpu: {
+      model: cpuList[0]?.model || 'unknown',
+      cores: cpuList.length,
+      loadAverage: loadavg(),
+      loadPercent1m:
+        cpuList.length > 0 ? Math.min(100, Math.max(0, (loadavg()[0] / cpuList.length) * 100)) : null
+    },
+    memory: {
+      totalBytes: memTotal,
+      freeBytes: memFree,
+      usedBytes: memUsed,
+      usedPercent: memTotal > 0 ? (memUsed / memTotal) * 100 : null
+    },
+    swap,
+    disks,
+    inodes,
+    network: {
+      defaultRoute,
+      interfaces: network
+    },
+    services,
+    probes,
+    process: {
+      uptimeSeconds: process.uptime(),
+      memory: process.memoryUsage()
+    },
+    paths: {
+      workRoot: config.workRoot,
+      registryDir: config.registryDir,
+      controlDir: config.controlDir
+    }
+  };
+}
+
+async function readOsRelease() {
+  const raw = await readTextIfExists('/etc/os-release');
+  const values = {};
+  for (const line of raw.split(/\r?\n/)) {
+    const separator = line.indexOf('=');
+    if (separator === -1) {
+      continue;
+    }
+    const key = line.slice(0, separator);
+    const value = line.slice(separator + 1).replace(/^"|"$/g, '');
+    values[key] = value;
+  }
+  return {
+    prettyName: values.PRETTY_NAME || `${platform()} ${release()}`
+  };
+}
+
+async function readSwapSummary() {
+  const meminfo = parseKeyValueBytes(await readTextIfExists('/proc/meminfo'));
+  const total = meminfo.SwapTotal || 0;
+  const free = meminfo.SwapFree || 0;
+  const used = Math.max(0, total - free);
+  return {
+    totalBytes: total,
+    freeBytes: free,
+    usedBytes: used,
+    usedPercent: total > 0 ? (used / total) * 100 : 0
+  };
+}
+
+async function readDiskSummary(inodeMode) {
+  const paths = uniqueExistingPaths([
+    '/',
+    '/home',
+    config.workRoot,
+    config.registryDir
+  ]);
+  const rows = [];
+
+  for (const targetPath of paths) {
+    const result = await runExecFile('df', [inodeMode ? '-iP' : '-kP', targetPath], {
+      allowNonZero: true,
+      timeoutMs: 10_000
+    });
+    if (result.code !== 0 || !result.stdout.trim()) {
+      rows.push({
+        path: targetPath,
+        ok: false,
+        error: (result.stderr || result.stdout || 'df returned no output').trim()
+      });
+      continue;
+    }
+    const parsed = parseDfOutput(result.stdout, targetPath, inodeMode);
+    if (parsed) {
+      rows.push(parsed);
+    }
+  }
+
+  return rows;
+}
+
+function uniqueExistingPaths(paths) {
+  const seen = new Set();
+  const result = [];
+  for (const item of paths) {
+    const value = resolve(item);
+    if (seen.has(value) || !existsSync(value)) {
+      continue;
+    }
+    seen.add(value);
+    result.push(value);
+  }
+  return result;
+}
+
+function parseDfOutput(output, targetPath, inodeMode) {
+  const lines = output.trim().split(/\r?\n/);
+  const line = lines[lines.length - 1];
+  const parts = line.split(/\s+/);
+  if (parts.length < 6) {
+    return null;
+  }
+  const total = Number(parts[1]);
+  const used = Number(parts[2]);
+  const available = Number(parts[3]);
+  const usedPercent = Number(String(parts[4]).replace('%', ''));
+  return {
+    path: targetPath,
+    ok: true,
+    filesystem: parts[0],
+    mount: parts.slice(5).join(' '),
+    total: inodeMode ? total : total * 1024,
+    used: inodeMode ? used : used * 1024,
+    available: inodeMode ? available : available * 1024,
+    usedPercent: Number.isFinite(usedPercent) ? usedPercent : null,
+    unit: inodeMode ? 'inodes' : 'bytes'
+  };
+}
+
+async function readNetworkSummary() {
+  const interfaces = networkInterfaces();
+  const rows = [];
+  for (const [name, addresses] of Object.entries(interfaces)) {
+    const stats = await readNetworkInterfaceStats(name);
+    rows.push({
+      name,
+      state: await readTrimmedSysFile(`/sys/class/net/${name}/operstate`),
+      speedMbps: parseSysNumber(await readTrimmedSysFile(`/sys/class/net/${name}/speed`)),
+      addresses: (addresses || []).map((address) => ({
+        family: address.family,
+        address: address.address,
+        internal: address.internal
+      })),
+      stats
+    });
+  }
+  return rows.sort((left, right) => {
+    if (left.name === 'lo') return 1;
+    if (right.name === 'lo') return -1;
+    return left.name.localeCompare(right.name);
+  });
+}
+
+async function readNetworkInterfaceStats(name) {
+  const base = `/sys/class/net/${name}/statistics`;
+  const [
+    rxBytes,
+    txBytes,
+    rxPackets,
+    txPackets,
+    rxErrors,
+    txErrors,
+    rxDropped,
+    txDropped
+  ] = await Promise.all([
+    readSysNumber(`${base}/rx_bytes`),
+    readSysNumber(`${base}/tx_bytes`),
+    readSysNumber(`${base}/rx_packets`),
+    readSysNumber(`${base}/tx_packets`),
+    readSysNumber(`${base}/rx_errors`),
+    readSysNumber(`${base}/tx_errors`),
+    readSysNumber(`${base}/rx_dropped`),
+    readSysNumber(`${base}/tx_dropped`)
+  ]);
+
+  return {
+    rxBytes,
+    txBytes,
+    rxPackets,
+    txPackets,
+    rxErrors,
+    txErrors,
+    rxDropped,
+    txDropped
+  };
+}
+
+async function readDefaultRoute() {
+  const result = await runExecFile('ip', ['route', 'show', 'default'], {
+    allowNonZero: true,
+    timeoutMs: 10_000
+  });
+  const line = result.stdout.trim().split(/\r?\n/)[0] || '';
+  return {
+    interface: stringOrNull(line.match(/\bdev\s+(\S+)/)?.[1]),
+    source: stringOrNull(line.match(/\bsrc\s+(\S+)/)?.[1]),
+    metric: stringOrNull(line.match(/\bmetric\s+(\S+)/)?.[1])
+  };
+}
+
+async function readHealthServices() {
+  const [runner, poolManager, dashboard] = await Promise.all([
+    getRunnerServiceStatus(),
+    getRunnerPoolServiceStatus(),
+    getServiceStatus(config.dashboardServiceName)
+  ]);
+  return {
+    runner,
+    poolManager,
+    dashboard
+  };
+}
+
+async function readConnectivityProbes() {
+  const targets = [
+    {
+      name: 'Nexus API',
+      url: `${config.nexusBaseUrl}/api/codex-runner/health`
+    },
+    {
+      name: 'GitHub API',
+      url: 'https://api.github.com/rate_limit'
+    }
+  ];
+  return Promise.all(targets.map((target) => probeUrl(target)));
+}
+
+async function probeUrl(target) {
+  const startedAt = Date.now();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5_000);
+  try {
+    const response = await fetch(target.url, {
+      method: 'GET',
+      signal: controller.signal,
+      headers: {
+        'user-agent': 'nexus-runner-dashboard-health'
+      }
+    });
+    await response.arrayBuffer().catch(() => null);
+    return {
+      name: target.name,
+      url: target.url,
+      ok: response.ok,
+      status: response.status,
+      durationMs: Date.now() - startedAt
+    };
+  } catch (error) {
+    return {
+      name: target.name,
+      url: target.url,
+      ok: false,
+      status: null,
+      durationMs: Date.now() - startedAt,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function sendTaskList(response, url) {
@@ -983,6 +1298,104 @@ function renderDashboardPage(session) {
     .mini { font-size: 12px; color: var(--muted); }
     .view-stack { display: grid; gap: 16px; }
     .form-grid { display: grid; grid-template-columns: 1fr 160px; gap: 10px; }
+    .health-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .health-card {
+      min-width: 0;
+      display: grid;
+      gap: 9px;
+      border: 1px solid rgba(172, 187, 205, 0.18);
+      border-radius: 8px;
+      background: rgba(18, 24, 33, 0.86);
+      padding: 14px;
+      box-shadow: 0 12px 26px rgba(0, 0, 0, 0.24);
+    }
+    .health-card span {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+    .health-card strong {
+      color: var(--text);
+      font-size: 24px;
+      line-height: 1.05;
+      overflow-wrap: anywhere;
+    }
+    .health-card small {
+      color: var(--muted);
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }
+    .health-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(320px, 0.48fr);
+      gap: 14px;
+      align-items: start;
+    }
+    .health-section-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .meter-stack { display: grid; gap: 11px; }
+    .meter-row { display: grid; gap: 6px; }
+    .meter-row > div:first-child {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--soft);
+      font-weight: 850;
+    }
+    .meter-track {
+      height: 9px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: rgba(172, 187, 205, 0.13);
+      border: 1px solid rgba(172, 187, 205, 0.12);
+    }
+    .meter-fill {
+      height: 100%;
+      width: var(--meter-value, 0%);
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--blue), var(--teal));
+    }
+    .meter-fill.warn { background: linear-gradient(90deg, var(--amber), #fb923c); }
+    .meter-fill.danger { background: linear-gradient(90deg, var(--red), #f43f5e); }
+    .health-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+    .health-table th,
+    .health-table td {
+      border-bottom: 1px solid rgba(172, 187, 205, 0.13);
+      padding: 9px 8px;
+      text-align: left;
+      vertical-align: top;
+      overflow-wrap: anywhere;
+    }
+    .health-table th {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 950;
+      text-transform: uppercase;
+    }
+    .health-table td { color: var(--soft); }
+    .health-list { display: grid; gap: 10px; }
+    .health-item {
+      display: grid;
+      gap: 7px;
+      border: 1px solid rgba(172, 187, 205, 0.16);
+      border-radius: 8px;
+      background: rgba(2, 6, 23, 0.22);
+      padding: 11px;
+    }
+    .health-item strong { overflow-wrap: anywhere; }
+    .health-item .metric-row { min-height: 24px; }
     .runner-list {
       display: grid;
       gap: 12px;
@@ -1147,6 +1560,8 @@ function renderDashboardPage(session) {
     .badge.paused, .badge.queued, .badge.claimed { color: #422006; background: var(--amber); border-color: transparent; }
     .badge.running { color: #042f2e; background: var(--teal); border-color: transparent; }
     .badge.idle { color: #dbeafe; background: rgba(116, 168, 255, 0.16); border-color: rgba(116, 168, 255, 0.34); }
+    .badge.warn { color: #422006; background: var(--amber); border-color: transparent; }
+    .badge.danger { color: #fff1f2; background: rgba(251, 113, 133, 0.2); border-color: rgba(251, 113, 133, 0.5); }
     .status-dot {
       width: 9px;
       height: 9px;
@@ -1247,6 +1662,8 @@ function renderDashboardPage(session) {
     @media (max-width: 980px) {
       .runner-card { grid-template-columns: 1fr 1fr; }
       .detail-shell { grid-template-columns: 1fr; }
+      .health-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .health-layout, .health-section-grid { grid-template-columns: 1fr; }
       .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .history-row { grid-template-columns: 1fr; }
       .history-actions { justify-content: flex-start; }
@@ -1256,6 +1673,7 @@ function renderDashboardPage(session) {
       .topbar { align-items: flex-start; flex-direction: column; padding: 16px 0; }
       .command-bar, .toolbar, .detail-head { align-items: flex-start; flex-direction: column; }
       .runner-card, .grid, .form-grid { grid-template-columns: 1fr; }
+      .health-grid { grid-template-columns: 1fr; }
       .integration-grid { grid-template-columns: 1fr; }
       .control-actions { grid-template-columns: 1fr; }
       .detail-controls { justify-content: flex-start; }
@@ -1283,6 +1701,7 @@ function renderDashboardPage(session) {
       <div class="summary-strip" id="summary-strip"></div>
       <div class="row">
         <button class="ghost" data-refresh>Refresh</button>
+        <button class="ghost" data-open-health>VPS Health</button>
         <button class="ghost" data-open-create>New run</button>
       </div>
     </section>
@@ -1294,6 +1713,21 @@ function renderDashboardPage(session) {
         </div>
       </div>
       <div class="runner-list" id="runners"></div>
+    </section>
+    <section class="view-stack hidden" id="health-view">
+      <div class="detail-head">
+        <div class="detail-title">
+          <button class="ghost" data-back-to-runners>Back to runners</button>
+          <h2>VPS Health</h2>
+          <div class="runner-subline" id="health-meta"></div>
+        </div>
+        <div class="detail-controls">
+          <button class="ghost" data-health-refresh>Refresh</button>
+        </div>
+      </div>
+      <div class="view-stack" id="health-content">
+        <div class="empty">Loading VPS health...</div>
+      </div>
     </section>
     <section class="view-stack hidden" id="detail-view">
       <div class="detail-head">
@@ -1396,15 +1830,19 @@ function renderDashboardPage(session) {
   <script>
     const API = {
       overview: '${escapeJsString(withBasePath('/api/overview'))}',
+      vpsHealth: '${escapeJsString(withBasePath('/api/vps-health'))}',
       tasks: '${escapeJsString(withBasePath('/api/tasks'))}',
       runners: '${escapeJsString(withBasePath('/api/runners'))}',
       poolControl: '${escapeJsString(withBasePath('/api/pool/control'))}'
     };
     const landingViewEl = document.getElementById('landing-view');
+    const healthViewEl = document.getElementById('health-view');
     const detailViewEl = document.getElementById('detail-view');
     const runnersEl = document.getElementById('runners');
     const summaryStripEl = document.getElementById('summary-strip');
     const generatedEl = document.getElementById('generated');
+    const healthMetaEl = document.getElementById('health-meta');
+    const healthContentEl = document.getElementById('health-content');
     const detailRunnerTitleEl = document.getElementById('detail-runner-title');
     const detailRunnerMetaEl = document.getElementById('detail-runner-meta');
     const detailControlsEl = document.getElementById('detail-controls');
@@ -1427,6 +1865,8 @@ function renderDashboardPage(session) {
     let latestPoolService = {};
     let latestPool = null;
     let latestIntegrations = {};
+    let latestHealth = null;
+    let currentView = 'landing';
     let selectedRunnerId = null;
     let runnerHistory = [];
 
@@ -1475,6 +1915,50 @@ function renderDashboardPage(session) {
       if (seconds || parts.length === 0) parts.push(seconds + ' sec');
 
       return parts.slice(0, 2).join(' ');
+    }
+
+    function formatBytes(value) {
+      const bytes = Number(value);
+      if (!Number.isFinite(bytes) || bytes < 0) return 'unknown';
+      const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+      let current = bytes;
+      let index = 0;
+      while (current >= 1024 && index < units.length - 1) {
+        current /= 1024;
+        index += 1;
+      }
+      const precision = current >= 10 || index === 0 ? 0 : 1;
+      return current.toFixed(precision) + ' ' + units[index];
+    }
+
+    function formatCount(value) {
+      const number = Number(value);
+      if (!Number.isFinite(number)) return 'unknown';
+      return new Intl.NumberFormat().format(number);
+    }
+
+    function formatPercent(value) {
+      const number = Number(value);
+      if (!Number.isFinite(number)) return 'unknown';
+      return Math.round(number) + '%';
+    }
+
+    function formatUptime(seconds) {
+      const totalSeconds = Number(seconds);
+      if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return 'unknown';
+      return formatDurationMs(totalSeconds * 1000);
+    }
+
+    function usageClass(percent) {
+      const value = Number(percent);
+      if (!Number.isFinite(value)) return '';
+      if (value >= 90) return 'danger';
+      if (value >= 75) return 'warn';
+      return '';
+    }
+
+    function healthStateClass(ok) {
+      return ok ? 'active' : 'inactive';
     }
 
     function renderField(label, value, code = false) {
@@ -1585,6 +2069,167 @@ function renderDashboardPage(session) {
         '</div>' +
         (pool?.error ? '<div class="error">' + escapeHtml(pool.error) + '</div>' : '') +
       '</section>';
+    }
+
+    function renderHealthCard(label, value, detail) {
+      return '<div class="health-card">' +
+        '<span>' + escapeHtml(label) + '</span>' +
+        '<strong>' + escapeHtml(value || 'unknown') + '</strong>' +
+        '<small>' + escapeHtml(detail || '') + '</small>' +
+      '</div>';
+    }
+
+    function renderMeter(label, percent, detail) {
+      const value = Number(percent);
+      const safePercent = Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0;
+      return '<div class="meter-row">' +
+        '<div><span>' + escapeHtml(label) + '</span><strong>' + escapeHtml(formatPercent(value)) + '</strong></div>' +
+        '<div class="meter-track"><div class="meter-fill ' + escapeHtml(usageClass(value)) + '" style="--meter-value:' + safePercent.toFixed(0) + '%"></div></div>' +
+        '<div class="mini">' + escapeHtml(detail || '') + '</div>' +
+      '</div>';
+    }
+
+    function renderHealthService(name, service) {
+      const active = service?.active === 'active';
+      return '<div class="health-item">' +
+        '<div class="row"><strong>' + escapeHtml(name) + '</strong>' + renderBadge(service?.active || 'unknown', active ? 'active' : 'inactive') + '</div>' +
+        '<div class="metric-list">' +
+          renderMetricRow('Unit', service?.name || 'unknown') +
+          renderMetricRow('Enabled', service?.enabled || 'unknown') +
+        '</div>' +
+        (service?.error ? '<div class="error">' + escapeHtml(service.error) + '</div>' : '') +
+      '</div>';
+    }
+
+    function renderDiskTable(rows, unit) {
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return '<div class="empty">No filesystem data available.</div>';
+      }
+      return '<table class="health-table"><thead><tr>' +
+        '<th>Path</th><th>Mount</th><th>Used</th><th>Available</th><th>Use</th>' +
+        '</tr></thead><tbody>' +
+        rows.map((row) => {
+          if (!row.ok) {
+            return '<tr><td>' + escapeHtml(row.path) + '</td><td colspan="4">' + escapeHtml(row.error || 'Unavailable') + '</td></tr>';
+          }
+          const used = unit === 'bytes' ? formatBytes(row.used) : formatCount(row.used);
+          const available = unit === 'bytes' ? formatBytes(row.available) : formatCount(row.available);
+          return '<tr>' +
+            '<td><code>' + escapeHtml(row.path) + '</code></td>' +
+            '<td>' + escapeHtml(row.mount || row.filesystem || 'unknown') + '</td>' +
+            '<td>' + escapeHtml(used) + '</td>' +
+            '<td>' + escapeHtml(available) + '</td>' +
+            '<td>' + renderBadge(formatPercent(row.usedPercent), usageClass(row.usedPercent) || 'idle') + '</td>' +
+          '</tr>';
+        }).join('') +
+        '</tbody></table>';
+    }
+
+    function renderProbe(probe) {
+      return '<div class="health-item">' +
+        '<div class="row"><strong>' + escapeHtml(probe.name || 'Probe') + '</strong>' + renderBadge(probe.ok ? 'OK' : 'Issue', healthStateClass(probe.ok)) + '</div>' +
+        '<div class="metric-list">' +
+          renderMetricRow('Status', probe.status || 'none') +
+          renderMetricRow('Latency', probe.durationMs !== undefined ? formatDurationMs(probe.durationMs) : 'unknown') +
+          renderMetricRow('URL', probe.url || 'unknown') +
+        '</div>' +
+        (probe.error ? '<div class="error">' + escapeHtml(probe.error) + '</div>' : '') +
+      '</div>';
+    }
+
+    function renderNetworkInterface(item) {
+      const addresses = (item.addresses || [])
+        .filter((address) => !address.internal)
+        .map((address) => address.family + ' ' + address.address)
+        .join(', ') || 'no external address';
+      return '<div class="health-item">' +
+        '<div class="row"><strong>' + escapeHtml(item.name) + '</strong>' + renderBadge(item.state || 'unknown', item.state === 'up' ? 'active' : 'idle') + '</div>' +
+        '<div class="metric-list">' +
+          renderMetricRow('Addresses', addresses) +
+          renderMetricRow('Speed', item.speedMbps ? item.speedMbps + ' Mbps' : 'unknown') +
+          renderMetricRow('Received', formatBytes(item.stats?.rxBytes)) +
+          renderMetricRow('Sent', formatBytes(item.stats?.txBytes)) +
+          renderMetricRow('Packets', formatCount((item.stats?.rxPackets || 0) + (item.stats?.txPackets || 0))) +
+          renderMetricRow('Errors', formatCount((item.stats?.rxErrors || 0) + (item.stats?.txErrors || 0))) +
+          renderMetricRow('Dropped', formatCount((item.stats?.rxDropped || 0) + (item.stats?.txDropped || 0))) +
+        '</div>' +
+      '</div>';
+    }
+
+    function renderVpsHealth() {
+      const health = latestHealth;
+      if (!health) {
+        healthContentEl.innerHTML = '<div class="empty">Loading VPS health...</div>';
+        return;
+      }
+
+      const memory = health.memory || {};
+      const swap = health.swap || {};
+      const cpu = health.cpu || {};
+      const host = health.host || {};
+      const processInfo = health.process || {};
+      const services = health.services || {};
+      const network = health.network || {};
+      const probes = Array.isArray(health.probes) ? health.probes : [];
+      const loadText = Array.isArray(cpu.loadAverage)
+        ? cpu.loadAverage.map((value) => Number(value).toFixed(2)).join(' / ')
+        : 'unknown';
+      const primaryDisk = Array.isArray(health.disks) ? health.disks.find((disk) => disk.path === '/') || health.disks[0] : null;
+
+      healthMetaEl.innerHTML =
+        '<span>' + escapeHtml(host.hostname || 'unknown host') + '</span>' +
+        '<span>' + escapeHtml(host.os || host.platform || 'unknown OS') + '</span>' +
+        '<span>Updated ' + escapeHtml(new Date(health.generatedAt).toLocaleTimeString()) + '</span>';
+
+      healthContentEl.innerHTML =
+        '<section class="health-grid">' +
+          renderHealthCard('Memory', formatPercent(memory.usedPercent), formatBytes(memory.usedBytes) + ' used of ' + formatBytes(memory.totalBytes)) +
+          renderHealthCard('Root Disk', primaryDisk ? formatPercent(primaryDisk.usedPercent) : 'unknown', primaryDisk ? formatBytes(primaryDisk.available) + ' available' : 'No disk data') +
+          renderHealthCard('CPU Load', formatPercent(cpu.loadPercent1m), (cpu.cores || 'unknown') + ' cores · ' + loadText) +
+          renderHealthCard('Uptime', formatUptime(host.uptimeSeconds), host.kernel || '') +
+        '</section>' +
+        '<section class="health-layout">' +
+          '<div class="view-stack">' +
+            '<article class="panel"><div class="panel-head"><h2>Resource Usage</h2><span class="mini">Live host counters</span></div><div class="panel-body">' +
+              '<div class="meter-stack">' +
+                renderMeter('Memory', memory.usedPercent, formatBytes(memory.usedBytes) + ' used · ' + formatBytes(memory.freeBytes) + ' free') +
+                renderMeter('Swap', swap.usedPercent, formatBytes(swap.usedBytes) + ' used · ' + formatBytes(swap.totalBytes) + ' total') +
+                renderMeter('CPU load', cpu.loadPercent1m, 'Load average ' + loadText) +
+              '</div>' +
+            '</div></article>' +
+            '<article class="panel"><div class="panel-head"><h2>Disk Usage</h2><span class="mini">Capacity by mounted path</span></div><div class="panel-body">' +
+              renderDiskTable(health.disks, 'bytes') +
+            '</div></article>' +
+            '<article class="panel"><div class="panel-head"><h2>Inodes</h2><span class="mini">Filesystem object pressure</span></div><div class="panel-body">' +
+              renderDiskTable(health.inodes, 'inodes') +
+            '</div></article>' +
+            '<article class="panel"><div class="panel-head"><h2>Network Interfaces</h2><span class="mini">Traffic totals since boot</span></div><div class="panel-body"><div class="health-section-grid">' +
+              (Array.isArray(network.interfaces) && network.interfaces.length ? network.interfaces.map(renderNetworkInterface).join('') : '<div class="empty">No network interfaces found.</div>') +
+            '</div></div></article>' +
+          '</div>' +
+          '<aside class="view-stack">' +
+            '<article class="panel"><div class="panel-head"><h2>Services</h2><span class="mini">systemd</span></div><div class="panel-body"><div class="health-list">' +
+              renderHealthService('Runner', services.runner) +
+              renderHealthService('Pool Manager', services.poolManager) +
+              renderHealthService('Dashboard', services.dashboard) +
+            '</div></div></article>' +
+            '<article class="panel"><div class="panel-head"><h2>Process</h2><span class="mini">Dashboard runtime</span></div><div class="panel-body"><div class="metric-list">' +
+              renderMetricRow('PID', host.pid || 'unknown') +
+              renderMetricRow('Node', host.nodeVersion || 'unknown') +
+              renderMetricRow('Runtime uptime', formatUptime(processInfo.uptimeSeconds)) +
+              renderMetricRow('RSS', formatBytes(processInfo.memory?.rss)) +
+              renderMetricRow('Heap used', formatBytes(processInfo.memory?.heapUsed)) +
+            '</div></div></article>' +
+            '<article class="panel"><div class="panel-head"><h2>Network Route</h2><span class="mini">Default egress</span></div><div class="panel-body"><div class="metric-list">' +
+              renderMetricRow('Interface', network.defaultRoute?.interface || 'unknown') +
+              renderMetricRow('Source', network.defaultRoute?.source || 'unknown') +
+              renderMetricRow('Metric', network.defaultRoute?.metric || 'default') +
+            '</div></div></article>' +
+            '<article class="panel"><div class="panel-head"><h2>Connectivity</h2><span class="mini">Outbound probes</span></div><div class="panel-body"><div class="health-list">' +
+              (probes.length ? probes.map(renderProbe).join('') : '<div class="empty">No probes configured.</div>') +
+            '</div></div></article>' +
+          '</aside>' +
+        '</section>';
     }
 
     function taskCanCancel(task) {
@@ -1779,6 +2424,7 @@ function renderDashboardPage(session) {
         '</section>';
       historyEl.innerHTML = runnerHistory.length ? runnerHistory.map(renderHistoryTask).join('') : '<div class="empty">No run history for this runner yet.</div>';
       detailViewEl.classList.remove('hidden');
+      healthViewEl.classList.add('hidden');
       landingViewEl.classList.add('hidden');
     }
 
@@ -1821,11 +2467,21 @@ function renderDashboardPage(session) {
         if (selectedRunnerId) {
           await loadRunnerHistory(selectedRunnerId, false);
           renderSelectedRunner();
+        } else if (currentView === 'health') {
+          await loadVpsHealth(false);
+          renderVpsHealth();
         }
       } catch (error) {
         generatedEl.textContent = 'Unable to refresh';
         runnersEl.innerHTML = '<div class="error">' + escapeHtml(error.message || error) + '</div>';
       }
+    }
+
+    async function loadVpsHealth(render = true) {
+      const data = await requestJson(API.vpsHealth);
+      if (!data) return;
+      latestHealth = data;
+      if (render) renderVpsHealth();
     }
 
     async function loadRunnerHistory(runnerId, render = true) {
@@ -1840,6 +2496,7 @@ function renderDashboardPage(session) {
     }
 
     async function openRunner(runnerId) {
+      currentView = 'runner';
       selectedRunnerId = runnerId;
       window.location.hash = 'runner=' + encodeURIComponent(runnerId);
       logsEl.textContent = 'Select Refresh to load runner service logs.';
@@ -1848,11 +2505,25 @@ function renderDashboardPage(session) {
       renderSelectedRunner();
     }
 
+    async function openHealth() {
+      currentView = 'health';
+      selectedRunnerId = null;
+      runnerHistory = [];
+      window.location.hash = 'health';
+      landingViewEl.classList.add('hidden');
+      detailViewEl.classList.add('hidden');
+      healthViewEl.classList.remove('hidden');
+      healthContentEl.innerHTML = '<div class="empty">Loading VPS health...</div>';
+      await loadVpsHealth();
+    }
+
     function closeRunner() {
+      currentView = 'landing';
       selectedRunnerId = null;
       runnerHistory = [];
       window.location.hash = '';
       detailViewEl.classList.add('hidden');
+      healthViewEl.classList.add('hidden');
       landingViewEl.classList.remove('hidden');
     }
 
@@ -1916,6 +2587,10 @@ function renderDashboardPage(session) {
         } else if (button.hasAttribute('data-open-create')) {
           createStatusEl.textContent = '';
           createModalEl.hidden = false;
+        } else if (button.hasAttribute('data-open-health')) {
+          await openHealth();
+        } else if (button.hasAttribute('data-health-refresh')) {
+          await loadVpsHealth();
         } else if (button.hasAttribute('data-create-close')) {
           createModalEl.hidden = true;
         } else if (button.hasAttribute('data-back-to-runners')) {
@@ -1988,7 +2663,11 @@ function renderDashboardPage(session) {
 
     refresh().then(() => {
       const hashMatch = window.location.hash.match(/^#runner=(.+)$/);
-      if (hashMatch) openRunner(decodeURIComponent(hashMatch[1]));
+      if (hashMatch) {
+        openRunner(decodeURIComponent(hashMatch[1]));
+      } else if (window.location.hash === '#health') {
+        openHealth();
+      }
     });
     setInterval(refresh, 15000);
   </script>
@@ -2260,6 +2939,42 @@ function parseJsonObject(value) {
   } catch {
     return null;
   }
+}
+
+async function readTextIfExists(path) {
+  if (!existsSync(path)) {
+    return '';
+  }
+  try {
+    return await readFile(path, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+async function readTrimmedSysFile(path) {
+  const value = await readTextIfExists(path);
+  return value.trim() || null;
+}
+
+async function readSysNumber(path) {
+  return parseSysNumber(await readTrimmedSysFile(path));
+}
+
+function parseSysNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function parseKeyValueBytes(value) {
+  const result = {};
+  for (const line of String(value || '').split(/\r?\n/)) {
+    const match = line.match(/^([^:]+):\s+(\d+)\s*kB/i);
+    if (match) {
+      result[match[1]] = Number(match[2]) * 1024;
+    }
+  }
+  return result;
 }
 
 function parseDateMs(value) {
