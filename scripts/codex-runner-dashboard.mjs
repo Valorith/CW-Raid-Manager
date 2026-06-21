@@ -432,6 +432,8 @@ async function listRunners() {
         lastError: stringOrNull(data.lastError),
         jobsProcessed: numberOrZero(data.jobsProcessed),
         nexusBaseUrl: stringOrNull(data.nexusBaseUrl),
+        executionMode: stringOrNull(data.executionMode),
+        codexCloudConfigured: data.codexCloudConfigured === true,
         pollIntervalMs: numberOrNull(data.pollIntervalMs),
         heartbeatIntervalMs: numberOrNull(data.heartbeatIntervalMs),
         cancelCheckIntervalMs: numberOrNull(data.cancelCheckIntervalMs),
@@ -1231,6 +1233,30 @@ function renderDashboardPage(session) {
       return Math.round(hours / 24) + 'd ago';
     }
 
+    function formatDurationMs(value) {
+      const ms = Number(value);
+      if (!Number.isFinite(ms) || ms < 0) {
+        return null;
+      }
+      if (ms < 1000) {
+        return ms + ' ms';
+      }
+
+      const totalSeconds = Math.round(ms / 1000);
+      const days = Math.floor(totalSeconds / 86400);
+      const hours = Math.floor((totalSeconds % 86400) / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+      const parts = [];
+
+      if (days) parts.push(days + ' day' + (days === 1 ? '' : 's'));
+      if (hours) parts.push(hours + ' hr');
+      if (minutes) parts.push(minutes + ' min');
+      if (seconds || parts.length === 0) parts.push(seconds + ' sec');
+
+      return parts.slice(0, 2).join(' ');
+    }
+
     function renderField(label, value, code = false) {
       const body = code
         ? '<code>' + escapeHtml(value || 'none') + '</code>'
@@ -1401,9 +1427,9 @@ function renderDashboardPage(session) {
           '<div class="metric-list">' +
             renderMetricRow('Mode', runner.executionMode || 'local') +
             renderMetricRow('Cloud ready', runner.codexCloudConfigured ? 'yes' : 'no') +
-            renderMetricRow('Poll interval', runner.pollIntervalMs ? runner.pollIntervalMs + ' ms' : null) +
-            renderMetricRow('Cancel check', runner.cancelCheckIntervalMs ? runner.cancelCheckIntervalMs + ' ms' : null) +
-            renderMetricRow('Heartbeat', runner.heartbeatIntervalMs ? runner.heartbeatIntervalMs + ' ms' : null) +
+            renderMetricRow('Poll interval', formatDurationMs(runner.pollIntervalMs)) +
+            renderMetricRow('Cancel check', formatDurationMs(runner.cancelCheckIntervalMs)) +
+            renderMetricRow('Heartbeat', formatDurationMs(runner.heartbeatIntervalMs)) +
             renderMetricRow('Runs processed', runner.jobsProcessed || '0') +
           '</div>' +
         '</section>' +
@@ -1825,7 +1851,29 @@ function normalizeCurrentJob(value) {
     baseBranch: stringOrNull(value.baseBranch),
     branchName: stringOrNull(value.branchName),
     status: stringOrNull(value.status),
+    statusMessage: stringOrNull(value.statusMessage),
+    executionMode: stringOrNull(value.executionMode),
+    codexCloud: normalizeCodexCloud(value.codexCloud),
     createdAt: stringOrNull(value.createdAt)
+  };
+}
+
+function normalizeCodexCloud(value) {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  return {
+    taskId: stringOrNull(value.taskId),
+    taskUrl: stringOrNull(value.taskUrl),
+    envId: stringOrNull(value.envId),
+    attempts: numberOrNull(value.attempts),
+    status: stringOrNull(value.status),
+    normalizedStatus: stringOrNull(value.normalizedStatus),
+    submittedAt: stringOrNull(value.submittedAt),
+    lastCheckedAt: stringOrNull(value.lastCheckedAt),
+    completedAt: stringOrNull(value.completedAt),
+    applyingAt: stringOrNull(value.applyingAt),
+    appliedAt: stringOrNull(value.appliedAt)
   };
 }
 
