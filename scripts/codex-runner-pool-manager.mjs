@@ -136,6 +136,20 @@ async function scaleOnce() {
       continue;
     }
     const heartbeat = unit.heartbeat;
+    if (!heartbeat || heartbeat.stale) {
+      const result = await runSystemctl('stop', unit.unit);
+      actions.push({
+        action: 'stop',
+        runnerId: unit.runnerId,
+        unit: unit.unit,
+        dryRun: config.dryRun,
+        ok: result.ok,
+        output: trimCommandOutput(result.output),
+        reason: heartbeat ? 'stale-heartbeat' : 'missing-heartbeat',
+        at: new Date().toISOString()
+      });
+      continue;
+    }
     if (!isIdleHeartbeat(heartbeat)) {
       continue;
     }
