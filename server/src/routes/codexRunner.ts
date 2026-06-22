@@ -9,6 +9,7 @@ import {
   claimNextCodexJob,
   cancelCodexJob,
   createAdHocCodexJob,
+  getCodexJobMetrics,
   getCodexJob,
   isCodexRunnerConfigured,
   listCodexJobs,
@@ -41,6 +42,13 @@ const listJobsQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(200).optional()
 });
 
+const metricsQuerySchema = z.object({
+  days: z.coerce.number().int().positive().max(180).optional(),
+  bucketHours: z.coerce.number().int().positive().max(168).optional(),
+  runnerId: z.string().min(1).max(120).optional(),
+  repository: z.string().min(3).max(120).optional()
+});
+
 const jobDetailQuerySchema = z.object({
   detail: z.string().optional()
 });
@@ -60,6 +68,26 @@ export async function codexRunnerRoutes(server: FastifyInstance): Promise<void> 
   server.get('/health', async () => ({
     configured: isCodexRunnerConfigured()
   }));
+
+  server.get('/metrics', async (request, reply) => {
+    if (!authenticateRunner(request, reply)) {
+      return;
+    }
+
+    const queryResult = metricsQuerySchema.safeParse(request.query);
+    if (!queryResult.success) {
+      return reply.badRequest('Invalid Codex runner metrics query.');
+    }
+
+    try {
+      return reply.send(await getCodexJobMetrics(queryResult.data));
+    } catch (error) {
+      request.log.error({ error }, 'Failed to read Codex runner metrics.');
+      return reply.badRequest(
+        error instanceof Error ? error.message : 'Unable to read Codex runner metrics.'
+      );
+    }
+  });
 
   server.get('/jobs', async (request, reply) => {
     if (!authenticateRunner(request, reply)) {

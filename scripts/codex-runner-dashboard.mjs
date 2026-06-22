@@ -2,7 +2,7 @@
 import { execFile } from 'child_process';
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { existsSync, readFileSync } from 'fs';
-import { mkdir, readdir, readFile, stat, writeFile } from 'fs/promises';
+import { appendFile, mkdir, readdir, readFile, stat, writeFile } from 'fs/promises';
 import { createServer } from 'http';
 import {
   cpus,
@@ -70,6 +70,17 @@ const config = {
   workRoot,
   registryDir,
   controlDir,
+  metricsHistoryFile: resolve(
+    process.env.CODEX_RUNNER_METRICS_HISTORY_FILE || join(workRoot, 'dashboard-metrics.jsonl')
+  ),
+  metricsSnapshotIntervalMs: parsePositiveInt(
+    process.env.CODEX_RUNNER_METRICS_SNAPSHOT_INTERVAL_MS,
+    300_000
+  ),
+  metricsSnapshotMinIntervalMs: parsePositiveInt(
+    process.env.CODEX_RUNNER_METRICS_SNAPSHOT_MIN_INTERVAL_MS,
+    60_000
+  ),
   staleAfterMs: parsePositiveInt(process.env.DASHBOARD_STALE_AFTER_MS, 45_000),
   sessionTtlSeconds: parsePositiveInt(process.env.DASHBOARD_SESSION_TTL_SECONDS, 86_400),
   logLines: parsePositiveInt(process.env.DASHBOARD_LOG_LINES, 240)
@@ -81,8 +92,18 @@ if (config.allowedEmails.length === 0 && config.allowedDomains.length === 0) {
 
 const redirectUri = `${config.baseUrl}${config.oauthBasePath}/auth/google/callback`;
 
+await mkdir(config.workRoot, { recursive: true });
 await mkdir(config.registryDir, { recursive: true });
 await mkdir(config.controlDir, { recursive: true });
+
+recordMetricsSnapshot().catch((error) => {
+  console.error('Initial metrics snapshot failed:', error instanceof Error ? error.message : error);
+});
+setInterval(() => {
+  recordMetricsSnapshot().catch((error) => {
+    console.error('Scheduled metrics snapshot failed:', error instanceof Error ? error.message : error);
+  });
+}, config.metricsSnapshotIntervalMs).unref();
 
 const server = createServer(async (request, response) => {
   try {
@@ -158,6 +179,12 @@ async function routeRequest(request, response) {
   if (path === '/api/vps-health') {
     requireMethod(request, 'GET');
     await sendVpsHealth(response);
+    return;
+  }
+
+  if (path === '/api/metrics') {
+    requireMethod(request, 'GET');
+    await sendMetrics(response, url);
     return;
   }
 
@@ -397,8 +424,175 @@ async function sendVpsHealth(response) {
   sendJson(response, 200, await collectVpsHealth());
 }
 
+async function sendMetrics(response, url) {
+  const days = clampDashboardNumber(Number(url.searchParams.get('days') || 30), 1, 180, 30);
+  const bucketHours = clampDashboardNumber(
+    Number(url.searchParams.get('bucketHours') || chooseDashboardBucketHours(days)),
+    1,
+    168,
+    chooseDashboardBucketHours(days)
+  );
+  const params = new URLSearchParams({
+    days: String(days),
+    bucketHours: String(bucketHours)
+  });
+  if (url.searchParams.get('runnerId')) {
+    params.set('runnerId', url.searchParams.get('runnerId'));
+  }
+  if (url.searchParams.get('repository')) {
+    params.set('repository', url.searchParams.get('repository'));
+  }
+
+  await recordMetricsSnapshotIfDue();
+  const [jobs, history] = await Promise.all([
+    nexusGet(`/metrics?${params.toString()}`),
+    readMetricsHistory(days)
+  ]);
+
+  sendJson(response, 200, {
+    generatedAt: new Date().toISOString(),
+    jobs,
+    dashboard: {
+      historyFile: config.metricsHistoryFile,
+      snapshotIntervalMs: config.metricsSnapshotIntervalMs,
+      history,
+      latest: history[history.length - 1] || null
+    }
+  });
+}
+
 async function sendPreflight(response) {
   sendJson(response, 200, await collectPreflight());
+}
+
+async function recordMetricsSnapshotIfDue() {
+  const stats = await stat(config.metricsHistoryFile).catch(() => null);
+  if (stats && Date.now() - stats.mtimeMs < config.metricsSnapshotMinIntervalMs) {
+    return null;
+  }
+  return recordMetricsSnapshot();
+}
+
+async function recordMetricsSnapshot() {
+  const snapshot = await collectMetricsSnapshot();
+  await appendFile(config.metricsHistoryFile, `${JSON.stringify(snapshot)}\n`, 'utf8');
+  return snapshot;
+}
+
+async function collectMetricsSnapshot() {
+  const capturedAt = new Date().toISOString();
+  const [runners, pool, service, poolService, health] = await Promise.all([
+    listRunners(),
+    readRunnerPoolState(),
+    getRunnerServiceStatus(),
+    getRunnerPoolServiceStatus(),
+    collectVpsHealth()
+  ]);
+  const activeRunners = runners.filter((runner) => runner.active && !runner.paused).length;
+  const pausedRunners = runners.filter((runner) => runner.paused).length;
+  const busyRunners = runners.filter((runner) => runner.currentJob).length;
+  const staleRunners = runners.filter((runner) => !runner.active).length;
+  const primaryDisk =
+    Array.isArray(health.disks) && health.disks.length
+      ? health.disks.find((disk) => disk.path === '/') || health.disks[0]
+      : null;
+  const networkTotals = summarizeNetworkTotals(health.network?.interfaces || []);
+  const probes = Array.isArray(health.probes) ? health.probes : [];
+  const successfulProbes = probes.filter((probe) => probe.ok).length;
+
+  return {
+    capturedAt,
+    runners: {
+      total: runners.length,
+      active: activeRunners,
+      paused: pausedRunners,
+      busy: busyRunners,
+      stale: staleRunners,
+      jobsProcessed: runners.reduce((sum, runner) => sum + (Number(runner.jobsProcessed) || 0), 0)
+    },
+    pool: {
+      target: numberOrNull(pool?.pool?.target),
+      active: numberOrNull(pool?.pool?.active),
+      busy: numberOrNull(pool?.pool?.busy),
+      queued: numberOrNull(pool?.queue?.queued),
+      max: numberOrNull(pool?.config?.maxRunners)
+    },
+    services: {
+      runner: service?.active || 'unknown',
+      poolManager: poolService?.active || 'unknown',
+      dashboard: health.services?.dashboard?.active || 'unknown'
+    },
+    vps: {
+      cpuLoadPercent1m: numberOrNull(health.cpu?.loadPercent1m),
+      memoryUsedPercent: numberOrNull(health.memory?.usedPercent),
+      swapUsedPercent: numberOrNull(health.swap?.usedPercent),
+      rootDiskUsedPercent: numberOrNull(primaryDisk?.usedPercent),
+      diskAvailableBytes: numberOrNull(primaryDisk?.available),
+      rxBytes: networkTotals.rxBytes,
+      txBytes: networkTotals.txBytes,
+      networkErrors: networkTotals.errors,
+      probeOk: probes.length > 0 ? successfulProbes / probes.length : null,
+      uptimeSeconds: numberOrNull(health.host?.uptimeSeconds)
+    }
+  };
+}
+
+async function readMetricsHistory(days) {
+  const raw = await readTextIfExists(config.metricsHistoryFile);
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  const rows = [];
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+    try {
+      const row = JSON.parse(trimmed);
+      const capturedAt = Date.parse(row.capturedAt || '');
+      if (!Number.isFinite(capturedAt) || capturedAt < cutoff) {
+        continue;
+      }
+      rows.push(row);
+    } catch {
+      // Ignore partial or corrupt JSONL rows; the next snapshot will be valid.
+    }
+  }
+  return rows.slice(-2_000);
+}
+
+function summarizeNetworkTotals(interfaces) {
+  return interfaces
+    .filter((item) => item?.name !== 'lo')
+    .reduce(
+      (summary, item) => {
+        summary.rxBytes += Number(item?.stats?.rxBytes) || 0;
+        summary.txBytes += Number(item?.stats?.txBytes) || 0;
+        summary.errors +=
+          (Number(item?.stats?.rxErrors) || 0) +
+          (Number(item?.stats?.txErrors) || 0) +
+          (Number(item?.stats?.rxDropped) || 0) +
+          (Number(item?.stats?.txDropped) || 0);
+        return summary;
+      },
+      { rxBytes: 0, txBytes: 0, errors: 0 }
+    );
+}
+
+function clampDashboardNumber(value, min, max, fallback) {
+  if (!Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.min(Math.max(Math.floor(value), min), max);
+}
+
+function chooseDashboardBucketHours(days) {
+  if (days <= 2) {
+    return 1;
+  }
+  if (days <= 14) {
+    return 6;
+  }
+  return 24;
 }
 
 async function collectPreflight() {
@@ -1514,11 +1708,14 @@ function renderDashboardPage(session) {
       --muted: #9ca9b8;
       --soft: #c9d4e2;
       --green: #35dd8b;
+      --good: #35dd8b;
       --red: #ff7185;
       --amber: #f4c95d;
       --teal: #2dd4bf;
+      --accent: #2dd4bf;
       --violet: #a78bfa;
       --blue: #74a8ff;
+      --surface: #121821;
       --shadow: rgba(0, 0, 0, 0.38);
     }
     * { box-sizing: border-box; }
@@ -2122,6 +2319,213 @@ function renderDashboardPage(session) {
     }
     .health-item strong { overflow-wrap: anywhere; }
     .health-item .metric-row { min-height: 24px; }
+    .metrics-control {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .metrics-control select {
+      min-width: 132px;
+      height: 34px;
+      padding: 0 10px;
+    }
+    .metrics-kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .metrics-kpi {
+      position: relative;
+      min-width: 0;
+      display: grid;
+      gap: 8px;
+      border: 1px solid rgba(172, 187, 205, 0.18);
+      border-radius: 8px;
+      background:
+        linear-gradient(145deg, rgba(23, 31, 42, 0.94), rgba(12, 18, 28, 0.86)),
+        rgba(18, 24, 33, 0.86);
+      padding: 14px;
+      overflow: hidden;
+      box-shadow: 0 14px 28px rgba(0, 0, 0, 0.24);
+    }
+    .metrics-kpi::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 auto;
+      height: 2px;
+      background: linear-gradient(90deg, var(--blue), var(--teal));
+      opacity: 0.76;
+    }
+    .metrics-kpi span {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 950;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .metrics-kpi strong {
+      color: var(--text);
+      font-size: 26px;
+      line-height: 1;
+      overflow-wrap: anywhere;
+    }
+    .metrics-kpi small {
+      color: var(--muted);
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }
+    .metrics-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.55fr);
+      gap: 14px;
+      align-items: start;
+    }
+    .chart-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .chart-card {
+      min-width: 0;
+      display: grid;
+      gap: 12px;
+      border: 1px solid rgba(172, 187, 205, 0.18);
+      border-radius: 8px;
+      background: rgba(18, 24, 33, 0.9);
+      padding: 14px;
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.25);
+    }
+    .chart-card.wide { grid-column: 1 / -1; }
+    .chart-title {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .chart-title span {
+      display: block;
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .bar-chart {
+      display: flex;
+      align-items: end;
+      gap: 5px;
+      min-height: 190px;
+      padding: 12px 4px 0;
+      border-bottom: 1px solid rgba(172, 187, 205, 0.14);
+    }
+    .bar-column {
+      flex: 1 1 0;
+      min-width: 5px;
+      display: flex;
+      align-items: end;
+      height: 170px;
+    }
+    .bar-stack {
+      width: 100%;
+      min-height: 2px;
+      display: flex;
+      flex-direction: column-reverse;
+      overflow: hidden;
+      border-radius: 5px 5px 0 0;
+      background: rgba(172, 187, 205, 0.1);
+    }
+    .bar-segment { width: 100%; min-height: 1px; }
+    .bar-segment.succeeded { background: var(--green); }
+    .bar-segment.failed { background: var(--red); }
+    .bar-segment.canceled { background: rgba(255, 113, 133, 0.42); }
+    .bar-segment.active { background: var(--amber); }
+    .bar-segment.pr { background: var(--blue); }
+    .chart-legend {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .legend-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      margin-right: 5px;
+      border-radius: 999px;
+      background: var(--muted);
+    }
+    .legend-dot.succeeded { background: var(--green); }
+    .legend-dot.failed { background: var(--red); }
+    .legend-dot.active { background: var(--amber); }
+    .legend-dot.pr { background: var(--blue); }
+    .line-chart {
+      width: 100%;
+      height: 180px;
+      border: 1px solid rgba(172, 187, 205, 0.12);
+      border-radius: 8px;
+      background:
+        linear-gradient(rgba(172, 187, 205, 0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(172, 187, 205, 0.05) 1px, transparent 1px),
+        rgba(2, 6, 23, 0.24);
+      background-size: 100% 25%, 12.5% 100%, auto;
+    }
+    .distribution-list {
+      display: grid;
+      gap: 10px;
+    }
+    .distribution-row {
+      display: grid;
+      grid-template-columns: 112px minmax(0, 1fr) 42px;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+    .distribution-row span:first-child {
+      color: var(--soft);
+      font-weight: 850;
+      overflow-wrap: anywhere;
+    }
+    .distribution-track {
+      height: 8px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: rgba(172, 187, 205, 0.13);
+    }
+    .distribution-fill {
+      height: 100%;
+      width: var(--fill, 0%);
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--blue), var(--teal));
+    }
+    .distribution-row strong {
+      color: var(--text);
+      text-align: right;
+      font-size: 13px;
+    }
+    .metrics-aside {
+      display: grid;
+      gap: 14px;
+    }
+    .dedupe-list {
+      display: grid;
+      gap: 8px;
+    }
+    .dedupe-row {
+      display: grid;
+      gap: 5px;
+      border: 1px solid rgba(172, 187, 205, 0.14);
+      border-radius: 8px;
+      background: rgba(2, 6, 23, 0.2);
+      padding: 10px;
+    }
+    .dedupe-row code {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
     .runner-list {
       display: grid;
       gap: 12px;
@@ -2524,6 +2928,8 @@ function renderDashboardPage(session) {
       .task-link-grid { grid-template-columns: 1fr; }
       .health-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .health-layout, .health-section-grid { grid-template-columns: 1fr; }
+      .metrics-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .metrics-layout, .chart-grid { grid-template-columns: 1fr; }
       .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .history-row { grid-template-columns: 1fr; }
       .history-actions { justify-content: flex-start; }
@@ -2542,10 +2948,12 @@ function renderDashboardPage(session) {
       .preflight-grid { grid-template-columns: 1fr; }
       .runner-card, .grid, .form-grid { grid-template-columns: 1fr; }
       .runner-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .health-grid { grid-template-columns: 1fr; }
+      .health-grid, .metrics-kpi-grid { grid-template-columns: 1fr; }
       .integration-grid { grid-template-columns: 1fr; }
       .control-actions { grid-template-columns: 1fr; }
       .detail-controls { justify-content: flex-start; }
+      .metrics-control { justify-content: flex-start; }
+      .distribution-row { grid-template-columns: 1fr; gap: 5px; }
     }
   </style>
 </head>
@@ -2575,6 +2983,7 @@ function renderDashboardPage(session) {
           <span id="preflight-toolbar-label">Readiness</span>
         </button>
         <button class="ghost" data-open-health>VPS Health</button>
+        <button class="ghost" data-open-metrics>Metrics</button>
         <button class="ghost" data-open-create>New run</button>
       </div>
     </section>
@@ -2600,6 +3009,26 @@ function renderDashboardPage(session) {
       </div>
       <div class="view-stack" id="health-content">
         <div class="empty">Loading VPS health...</div>
+      </div>
+    </section>
+    <section class="view-stack hidden" id="metrics-view">
+      <div class="detail-head">
+        <div class="detail-title">
+          <button class="ghost" data-back-to-runners>Back to runners</button>
+          <h2>Runner Metrics</h2>
+          <div class="runner-subline" id="metrics-meta"></div>
+        </div>
+        <div class="metrics-control">
+          <select id="metrics-range" aria-label="Metrics history range">
+            <option value="7">Last 7 days</option>
+            <option value="30" selected>Last 30 days</option>
+            <option value="90">Last 90 days</option>
+          </select>
+          <button class="ghost" data-metrics-refresh>Refresh</button>
+        </div>
+      </div>
+      <div class="view-stack" id="metrics-content">
+        <div class="empty">Loading runner metrics...</div>
       </div>
     </section>
     <section class="view-stack hidden" id="detail-view">
@@ -2721,6 +3150,7 @@ function renderDashboardPage(session) {
       overview: '${escapeJsString(withBasePath('/api/overview'))}',
       preflight: '${escapeJsString(withBasePath('/api/preflight'))}',
       vpsHealth: '${escapeJsString(withBasePath('/api/vps-health'))}',
+      metrics: '${escapeJsString(withBasePath('/api/metrics'))}',
       tasks: '${escapeJsString(withBasePath('/api/tasks'))}',
       smokeTest: '${escapeJsString(withBasePath('/api/tasks/smoke-test'))}',
       runners: '${escapeJsString(withBasePath('/api/runners'))}',
@@ -2730,6 +3160,7 @@ function renderDashboardPage(session) {
     const NEXUS_BASE_URL = '${escapeJsString(config.nexusBaseUrl)}';
     const landingViewEl = document.getElementById('landing-view');
     const healthViewEl = document.getElementById('health-view');
+    const metricsViewEl = document.getElementById('metrics-view');
     const detailViewEl = document.getElementById('detail-view');
     const runnersEl = document.getElementById('runners');
     const summaryStripEl = document.getElementById('summary-strip');
@@ -2742,6 +3173,9 @@ function renderDashboardPage(session) {
     const generatedEl = document.getElementById('generated');
     const healthMetaEl = document.getElementById('health-meta');
     const healthContentEl = document.getElementById('health-content');
+    const metricsMetaEl = document.getElementById('metrics-meta');
+    const metricsContentEl = document.getElementById('metrics-content');
+    const metricsRangeEl = document.getElementById('metrics-range');
     const detailRunnerTitleEl = document.getElementById('detail-runner-title');
     const detailRunnerMetaEl = document.getElementById('detail-runner-meta');
     const detailControlsEl = document.getElementById('detail-controls');
@@ -2767,6 +3201,7 @@ function renderDashboardPage(session) {
     let latestHealth = null;
     let latestPreflight = null;
     let latestPoolSelfTest = null;
+    let latestMetrics = null;
     let currentView = 'landing';
     let selectedRunnerId = null;
     let runnerHistory = [];
@@ -2872,6 +3307,148 @@ function renderDashboardPage(session) {
     function renderMetricRow(label, value) {
       const normalized = value === 0 ? '0' : value;
       return '<div class="metric-row"><span>' + escapeHtml(label) + '</span><strong>' + escapeHtml(normalized || 'none') + '</strong></div>';
+    }
+
+    function renderMetricsKpi(label, value, detail) {
+      const normalized = value === 0 ? '0' : value;
+      return '<div class="metrics-kpi">' +
+        '<span>' + escapeHtml(label) + '</span>' +
+        '<strong>' + escapeHtml(normalized || '0') + '</strong>' +
+        '<small>' + escapeHtml(detail || '') + '</small>' +
+      '</div>';
+    }
+
+    function formatRatioPercent(value) {
+      const number = Number(value);
+      if (!Number.isFinite(number)) return 'n/a';
+      return Math.round(number * 100) + '%';
+    }
+
+    function formatMetricDate(value) {
+      const date = new Date(value);
+      if (!Number.isFinite(date.getTime())) return 'unknown';
+      return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    }
+
+    function renderChartShell(title, detail, body, legend, wide = false) {
+      return '<article class="chart-card' + (wide ? ' wide' : '') + '">' +
+        '<div class="chart-title"><div><h3>' + escapeHtml(title) + '</h3><span>' + escapeHtml(detail || '') + '</span></div></div>' +
+        body +
+        (legend ? '<div class="chart-legend">' + legend + '</div>' : '') +
+      '</article>';
+    }
+
+    function renderLegend(items) {
+      return items.map((item) => '<span><i class="legend-dot ' + escapeHtml(item.className || '') + '"></i>' + escapeHtml(item.label) + '</span>').join('');
+    }
+
+    function renderJobThroughputChart(buckets) {
+      const rows = Array.isArray(buckets) ? buckets : [];
+      const visible = rows.slice(-60);
+      const maxTotal = Math.max(1, ...visible.map((bucket) => Number(bucket.total) || 0));
+      if (!visible.length) return '<div class="empty">No job history in this range.</div>';
+      return '<div class="bar-chart">' + visible.map((bucket) => {
+        const total = Number(bucket.total) || 0;
+        const active = (Number(bucket.queued) || 0) + (Number(bucket.claimed) || 0) + (Number(bucket.running) || 0);
+        const succeeded = Number(bucket.succeeded) || 0;
+        const failed = Number(bucket.failed) || 0;
+        const canceled = Number(bucket.canceled) || 0;
+        const height = Math.max(total > 0 ? 8 : 2, Math.round((total / maxTotal) * 170));
+        const title = formatMetricDate(bucket.start) + ': ' + total + ' job' + (total === 1 ? '' : 's');
+        const segment = (className, count) => {
+          if (!count || total <= 0) return '';
+          return '<span class="bar-segment ' + className + '" style="height:' + Math.max(2, Math.round((count / total) * 100)) + '%"></span>';
+        };
+        return '<div class="bar-column" title="' + escapeHtml(title) + '">' +
+          '<div class="bar-stack" style="height:' + height + 'px">' +
+            segment('succeeded', succeeded) +
+            segment('failed', failed) +
+            segment('canceled', canceled) +
+            segment('active', active) +
+          '</div>' +
+        '</div>';
+      }).join('') + '</div>';
+    }
+
+    function renderLineChart(seriesList, options = {}) {
+      const width = 640;
+      const height = 180;
+      const pad = 18;
+      const series = seriesList
+        .map((item) => ({
+          ...item,
+          values: (item.values || []).map((value) => Number(value)).map((value) => Number.isFinite(value) ? value : null)
+        }))
+        .filter((item) => item.values.some((value) => value !== null));
+      if (!series.length) return '<div class="empty">Not enough history for this chart yet.</div>';
+      const maxLength = Math.max(...series.map((item) => item.values.length));
+      const values = series.flatMap((item) => item.values).filter((value) => value !== null);
+      const maxValue = Math.max(Number(options.maxValue || 0), ...values, 1);
+      const minValue = Number(options.minValue || 0);
+      const span = Math.max(1, maxValue - minValue);
+      const pointFor = (value, index) => {
+        const x = maxLength <= 1 ? width / 2 : pad + (index / (maxLength - 1)) * (width - pad * 2);
+        const y = height - pad - ((value - minValue) / span) * (height - pad * 2);
+        return [Math.round(x * 10) / 10, Math.round(y * 10) / 10];
+      };
+      const paths = series.map((item) => {
+        const points = item.values
+          .map((value, index) => value === null ? null : pointFor(value, index).join(','))
+          .filter(Boolean)
+          .join(' ');
+        return '<polyline points="' + escapeHtml(points) + '" fill="none" stroke="' + escapeHtml(item.color || '#74a8ff') + '" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"></polyline>';
+      }).join('');
+      return '<svg class="line-chart" viewBox="0 0 ' + width + ' ' + height + '" role="img" aria-label="' + escapeHtml(options.label || 'Metric trend') + '">' +
+        '<line x1="' + pad + '" y1="' + (height - pad) + '" x2="' + (width - pad) + '" y2="' + (height - pad) + '" stroke="rgba(172,187,205,.22)"></line>' +
+        '<line x1="' + pad + '" y1="' + pad + '" x2="' + pad + '" y2="' + (height - pad) + '" stroke="rgba(172,187,205,.18)"></line>' +
+        paths +
+      '</svg>';
+    }
+
+    function renderDistribution(rows, labelKey) {
+      const items = Array.isArray(rows) ? rows.filter((row) => Number(row.count) > 0) : [];
+      const maxCount = Math.max(1, ...items.map((row) => Number(row.count) || 0));
+      if (!items.length) return '<div class="empty">No data in this range.</div>';
+      return '<div class="distribution-list">' + items.slice(0, 8).map((row) => {
+        const count = Number(row.count) || 0;
+        const width = Math.round((count / maxCount) * 100);
+        return '<div class="distribution-row">' +
+          '<span>' + escapeHtml(row[labelKey] || 'unknown') + '</span>' +
+          '<div class="distribution-track"><div class="distribution-fill" style="--fill:' + width + '%"></div></div>' +
+          '<strong>' + escapeHtml(count) + '</strong>' +
+        '</div>';
+      }).join('') + '</div>';
+    }
+
+    function getSnapshotSeries(history, path) {
+      return (Array.isArray(history) ? history : []).map((row) => {
+        const value = path.split('.').reduce((current, key) => current && current[key] !== undefined ? current[key] : null, row);
+        const number = Number(value);
+        return Number.isFinite(number) ? number : null;
+      });
+    }
+
+    function renderDedupeRows(dedupe) {
+      const rows = Array.isArray(dedupe?.topKeys) ? dedupe.topKeys : [];
+      if (!rows.length) return '<div class="empty">No dedupe activity in this range.</div>';
+      return '<div class="dedupe-list">' + rows.slice(0, 5).map((row) => {
+        return '<div class="dedupe-row">' +
+          '<code title="' + escapeHtml(row.dedupeKey) + '">' + escapeHtml(row.dedupeKey) + '</code>' +
+          '<div class="mini">' + escapeHtml((row.jobs || 0) + ' job records · ' + (row.duplicateMessages || 0) + ' duplicate messages') + '</div>' +
+        '</div>';
+      }).join('') + '</div>';
+    }
+
+    function renderRecentFailures(failures) {
+      const rows = Array.isArray(failures) ? failures : [];
+      if (!rows.length) return '<div class="empty">No recent failures in this range.</div>';
+      return '<div class="health-list">' + rows.slice(0, 5).map((row) => {
+        return '<div class="health-item">' +
+          '<div class="row">' + renderBadge(row.status || 'FAILED', 'failed') + '<code>' + escapeHtml(row.id) + '</code></div>' +
+          '<div class="mini">' + escapeHtml(row.targetRepository + ':' + row.baseBranch + ' · ' + relativeTime(row.updatedAt)) + '</div>' +
+          '<div class="mini">' + escapeHtml(row.statusMessage || 'No failure summary captured.') + '</div>' +
+        '</div>';
+      }).join('') + '</div>';
     }
 
     function renderOpsStat(label, value, detail) {
@@ -3256,6 +3833,121 @@ function renderDashboardPage(session) {
         '</section>';
     }
 
+    function renderMetrics() {
+      const metrics = latestMetrics;
+      if (!metrics) {
+        metricsContentEl.innerHTML = '<div class="empty">Loading runner metrics...</div>';
+        return;
+      }
+      if (metrics.error) {
+        metricsContentEl.innerHTML = '<div class="error">' + escapeHtml(metrics.error) + '</div>';
+        return;
+      }
+
+      const jobs = metrics.jobs || {};
+      const totals = jobs.totals || {};
+      const history = metrics.dashboard?.history || [];
+      const latestSnapshot = metrics.dashboard?.latest || history[history.length - 1] || {};
+      const windowInfo = jobs.window || {};
+      const buckets = jobs.buckets || [];
+      const completionSeries = buckets.map((bucket) => {
+        const value = Number(bucket.avgCompletionMs);
+        return Number.isFinite(value) ? Math.round(value / 60000) : null;
+      });
+      const healthHistory = history.slice(-96);
+      const runnerHistory = history.slice(-96);
+      const activeRunnerSeries = getSnapshotSeries(runnerHistory, 'runners.active');
+      const busyRunnerSeries = getSnapshotSeries(runnerHistory, 'runners.busy');
+      const queuedSeries = getSnapshotSeries(runnerHistory, 'pool.queued');
+      const runnerMax = Math.max(1, ...activeRunnerSeries, ...busyRunnerSeries, ...queuedSeries);
+      const startedAt = windowInfo.start ? formatMetricDate(windowInfo.start) : 'unknown';
+      const endedAt = windowInfo.end ? formatMetricDate(windowInfo.end) : 'now';
+
+      metricsMetaEl.innerHTML =
+        '<span>Updated ' + escapeHtml(new Date(metrics.generatedAt).toLocaleString()) + '</span>' +
+        '<span>Window ' + escapeHtml(startedAt + ' to ' + endedAt) + '</span>' +
+        '<span>' + escapeHtml(history.length + ' VPS snapshots') + '</span>';
+
+      const kpis = '<section class="metrics-kpi-grid">' +
+        renderMetricsKpi('Jobs', formatCount(totals.jobs || 0), (totals.active || 0) + ' active now') +
+        renderMetricsKpi('Success rate', formatRatioPercent(totals.successRate), (totals.succeeded || 0) + ' succeeded · ' + (totals.failed || 0) + ' failed') +
+        renderMetricsKpi('GitHub PRs', formatCount(totals.prOpened || 0), formatRatioPercent(totals.prRate) + ' of runner jobs') +
+        renderMetricsKpi('Avg completion', formatDurationMs(totals.avgCompletionMs) || 'n/a', 'Queue ' + (formatDurationMs(totals.avgQueueWaitMs) || 'n/a') + ' · run ' + (formatDurationMs(totals.avgRunMs) || 'n/a')) +
+        renderMetricsKpi('Fleet now', (latestSnapshot.runners?.active ?? 0) + ' / ' + (latestSnapshot.runners?.total ?? 0), (latestSnapshot.pool?.queued ?? 0) + ' queued · pool ' + (latestSnapshot.pool?.active ?? 0) + '/' + (latestSnapshot.pool?.max ?? 0)) +
+      '</section>';
+
+      const throughput = renderChartShell(
+        'Job Throughput',
+        'Queued, active, completed, failed, and canceled work by time bucket.',
+        renderJobThroughputChart(buckets),
+        renderLegend([
+          { label: 'Succeeded', className: 'succeeded' },
+          { label: 'Failed', className: 'failed' },
+          { label: 'Queued or running', className: 'active' }
+        ]),
+        true
+      );
+      const completionTrend = renderChartShell(
+        'Completion Time',
+        'Average completed-job duration per bucket, in minutes.',
+        renderLineChart([
+          { label: 'Avg completion', color: '#74a8ff', values: completionSeries }
+        ], {
+          label: 'Average completion time'
+        }),
+        '<span><i class="legend-dot pr"></i>Average minutes</span>'
+      );
+      const vpsTrend = renderChartShell(
+        'VPS Pressure',
+        'CPU load, memory, and root disk utilization from local snapshots.',
+        renderLineChart([
+          { label: 'CPU', color: '#74a8ff', values: getSnapshotSeries(healthHistory, 'vps.cpuLoadPercent1m') },
+          { label: 'Memory', color: '#2dd4bf', values: getSnapshotSeries(healthHistory, 'vps.memoryUsedPercent') },
+          { label: 'Disk', color: '#f4c95d', values: getSnapshotSeries(healthHistory, 'vps.rootDiskUsedPercent') }
+        ], {
+          maxValue: 100,
+          label: 'VPS pressure'
+        }),
+        '<span><i class="legend-dot pr"></i>CPU</span><span><i class="legend-dot succeeded"></i>Memory</span><span><i class="legend-dot active"></i>Disk</span>'
+      );
+      const runnerTrend = renderChartShell(
+        'Runner Availability',
+        'Active workers, busy workers, and queued pool work from VPS snapshots.',
+        renderLineChart([
+          { label: 'Active', color: '#35dd8b', values: activeRunnerSeries },
+          { label: 'Busy', color: '#a78bfa', values: busyRunnerSeries },
+          { label: 'Queued', color: '#f4c95d', values: queuedSeries }
+        ], {
+          maxValue: runnerMax,
+          label: 'Runner availability'
+        }),
+        '<span><i class="legend-dot succeeded"></i>Active</span><span><i class="legend-dot"></i>Busy</span><span><i class="legend-dot active"></i>Queued</span>'
+      );
+
+      metricsContentEl.innerHTML =
+        kpis +
+        '<section class="metrics-layout">' +
+          '<div class="chart-grid">' +
+            throughput +
+            completionTrend +
+            vpsTrend +
+            runnerTrend +
+          '</div>' +
+          '<aside class="metrics-aside">' +
+            renderChartShell('Status Mix', 'Job outcomes in this window.', renderDistribution(jobs.byStatus, 'status'), '') +
+            renderChartShell('Runner Workload', 'Jobs grouped by runner ID.', renderDistribution(jobs.byRunner, 'runnerId'), '') +
+            renderChartShell('Sources', 'Where runner jobs originated.', renderDistribution(jobs.bySource, 'source'), '') +
+            renderChartShell(
+              'Crash Dedupe',
+              (jobs.dedupe?.duplicateMessages || 0) + ' duplicate crash reports linked to existing work.',
+              renderDedupeRows(jobs.dedupe),
+              ''
+            ) +
+            renderChartShell('Recent Failures', 'Most recent failed runner jobs.', renderRecentFailures(jobs.recentFailures), '') +
+          '</aside>' +
+        '</section>';
+    }
+
     function taskCanCancel(task) {
       return ['QUEUED', 'CLAIMED', 'RUNNING'].includes(task.status);
     }
@@ -3635,6 +4327,7 @@ function renderDashboardPage(session) {
       historyEl.innerHTML = runnerHistory.length ? runnerHistory.map(renderHistoryTask).join('') : '<div class="empty">No run history for this runner yet.</div>';
       detailViewEl.classList.remove('hidden');
       healthViewEl.classList.add('hidden');
+      metricsViewEl.classList.add('hidden');
       landingViewEl.classList.add('hidden');
     }
 
@@ -3687,6 +4380,9 @@ function renderDashboardPage(session) {
         } else if (currentView === 'health') {
           await loadVpsHealth(false);
           renderVpsHealth();
+        } else if (currentView === 'metrics') {
+          await loadMetrics(false);
+          renderMetrics();
         }
       } catch (error) {
         generatedEl.textContent = 'Unable to refresh';
@@ -3701,6 +4397,15 @@ function renderDashboardPage(session) {
       if (!data) return;
       latestHealth = data;
       if (render) renderVpsHealth();
+    }
+
+    async function loadMetrics(render = true) {
+      const params = new URLSearchParams();
+      params.set('days', metricsRangeEl.value || '30');
+      const data = await requestJson(API.metrics + '?' + params.toString());
+      if (!data) return;
+      latestMetrics = data;
+      if (render) renderMetrics();
     }
 
     async function loadRunnerHistory(runnerId, render = true) {
@@ -3731,9 +4436,23 @@ function renderDashboardPage(session) {
       window.location.hash = 'health';
       landingViewEl.classList.add('hidden');
       detailViewEl.classList.add('hidden');
+      metricsViewEl.classList.add('hidden');
       healthViewEl.classList.remove('hidden');
       healthContentEl.innerHTML = '<div class="empty">Loading VPS health...</div>';
       await loadVpsHealth();
+    }
+
+    async function openMetrics() {
+      currentView = 'metrics';
+      selectedRunnerId = null;
+      runnerHistory = [];
+      window.location.hash = 'metrics';
+      landingViewEl.classList.add('hidden');
+      detailViewEl.classList.add('hidden');
+      healthViewEl.classList.add('hidden');
+      metricsViewEl.classList.remove('hidden');
+      metricsContentEl.innerHTML = '<div class="empty">Loading runner metrics...</div>';
+      await loadMetrics();
     }
 
     function closeRunner() {
@@ -3743,6 +4462,7 @@ function renderDashboardPage(session) {
       window.location.hash = '';
       detailViewEl.classList.add('hidden');
       healthViewEl.classList.add('hidden');
+      metricsViewEl.classList.add('hidden');
       landingViewEl.classList.remove('hidden');
     }
 
@@ -3843,8 +4563,12 @@ function renderDashboardPage(session) {
           createModalEl.hidden = false;
         } else if (button.hasAttribute('data-open-health')) {
           await openHealth();
+        } else if (button.hasAttribute('data-open-metrics')) {
+          await openMetrics();
         } else if (button.hasAttribute('data-health-refresh')) {
           await loadVpsHealth();
+        } else if (button.hasAttribute('data-metrics-refresh')) {
+          await loadMetrics();
         } else if (button.hasAttribute('data-create-close')) {
           createModalEl.hidden = true;
         } else if (button.hasAttribute('data-preflight-close')) {
@@ -3919,6 +4643,9 @@ function renderDashboardPage(session) {
     detailStatusFilterEl.addEventListener('change', () => {
       if (selectedRunnerId) loadRunnerHistory(selectedRunnerId);
     });
+    metricsRangeEl.addEventListener('change', () => {
+      if (currentView === 'metrics') loadMetrics();
+    });
 
     refresh().then(() => {
       const hashMatch = window.location.hash.match(/^#runner=(.+)$/);
@@ -3926,6 +4653,8 @@ function renderDashboardPage(session) {
         openRunner(decodeURIComponent(hashMatch[1]));
       } else if (window.location.hash === '#health') {
         openHealth();
+      } else if (window.location.hash === '#metrics') {
+        openMetrics();
       }
     });
     setInterval(refresh, 15000);

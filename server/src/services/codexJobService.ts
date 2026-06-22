@@ -108,6 +108,219 @@ export async function listCodexJobs(options: {
   );
 }
 
+export async function getCodexJobMetrics(options: {
+  days?: number;
+  bucketHours?: number;
+  runnerId?: string;
+  repository?: string;
+} = {}) {
+  const days = clampNumber(options.days ?? 30, 1, 180);
+  const bucketHours = clampNumber(options.bucketHours ?? chooseBucketHours(days), 1, 168);
+  const now = new Date();
+  const start = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+  const where: Prisma.CodexJobWhereInput = {
+    createdAt: { gte: start }
+  };
+
+  if (options.runnerId) {
+    where.runnerId = options.runnerId;
+  }
+  if (options.repository) {
+    where.targetRepository = options.repository;
+  }
+
+  const jobs = await prisma.codexJob.findMany({
+    where,
+    select: {
+      id: true,
+      status: true,
+      sourceType: true,
+      dedupeKey: true,
+      targetRepository: true,
+      baseBranch: true,
+      runnerId: true,
+      statusMessage: true,
+      error: true,
+      prUrl: true,
+      messageId: true,
+      context: true,
+      claimedAt: true,
+      startedAt: true,
+      completedAt: true,
+      createdAt: true,
+      updatedAt: true
+    },
+    orderBy: { createdAt: 'asc' },
+    take: 10_000
+  });
+
+  const bucketMs = bucketHours * 60 * 60 * 1000;
+  const buckets = buildMetricBuckets(start, now, bucketMs);
+  const statusCounts = new Map<CodexJobStatus, number>();
+  const sourceCounts = new Map<string, number>();
+  const runnerCounts = new Map<string, number>();
+  const repositoryCounts = new Map<string, number>();
+  const dedupeCounts = new Map<
+    string,
+    {
+      dedupeKey: string;
+      jobs: number;
+      duplicateMessages: number;
+      latestAt: string;
+    }
+  >();
+  const queueWaitDurations: number[] = [];
+  const runDurations: number[] = [];
+  const completionDurations: number[] = [];
+  const recentFailures: Array<{
+    id: string;
+    status: CodexJobStatus;
+    runnerId: string | null;
+    targetRepository: string;
+    baseBranch: string;
+    statusMessage: string | null;
+    createdAt: string;
+    updatedAt: string;
+  }> = [];
+
+  for (const status of Object.values(CodexJobStatus)) {
+    statusCounts.set(status, 0);
+  }
+
+  for (const job of jobs) {
+    statusCounts.set(job.status, (statusCounts.get(job.status) ?? 0) + 1);
+    incrementCount(sourceCounts, normalizeJobSource(job.sourceType, job.messageId));
+    incrementCount(runnerCounts, job.runnerId || 'unassigned');
+    incrementCount(repositoryCounts, `${job.targetRepository}:${job.baseBranch}`);
+
+    const bucket = buckets.find(
+      (entry) => job.createdAt.getTime() >= entry.startMs && job.createdAt.getTime() < entry.endMs
+    );
+    if (bucket) {
+      bucket.total += 1;
+      bucket.statuses[job.status] += 1;
+      if (job.prUrl) {
+        bucket.prOpened += 1;
+      }
+      const completedMs = elapsedMs(job.createdAt, job.completedAt);
+      if (completedMs !== null) {
+        bucket.completionDurations.push(completedMs);
+      }
+    }
+
+    const queueMs = elapsedMs(job.createdAt, job.claimedAt);
+    const runMs = elapsedMs(job.startedAt, job.completedAt);
+    const completionMs = elapsedMs(job.createdAt, job.completedAt);
+    if (queueMs !== null) {
+      queueWaitDurations.push(queueMs);
+    }
+    if (runMs !== null) {
+      runDurations.push(runMs);
+    }
+    if (completionMs !== null) {
+      completionDurations.push(completionMs);
+    }
+
+    if (job.dedupeKey) {
+      const duplicateMessages = countDedupeRelatedMessages(job.context);
+      const existing = dedupeCounts.get(job.dedupeKey);
+      dedupeCounts.set(job.dedupeKey, {
+        dedupeKey: job.dedupeKey,
+        jobs: (existing?.jobs ?? 0) + 1,
+        duplicateMessages: (existing?.duplicateMessages ?? 0) + duplicateMessages,
+        latestAt:
+          existing && existing.latestAt > job.createdAt.toISOString()
+            ? existing.latestAt
+            : job.createdAt.toISOString()
+      });
+    }
+
+    if (job.status === CodexJobStatus.FAILED) {
+      recentFailures.push({
+        id: job.id,
+        status: job.status,
+        runnerId: job.runnerId,
+        targetRepository: job.targetRepository,
+        baseBranch: job.baseBranch,
+        statusMessage: job.statusMessage || truncateMetricText(job.error || ''),
+        createdAt: job.createdAt.toISOString(),
+        updatedAt: job.updatedAt.toISOString()
+      });
+    }
+  }
+
+  const activeStatuses = [
+    CodexJobStatus.QUEUED,
+    CodexJobStatus.CLAIMED,
+    CodexJobStatus.RUNNING
+  ];
+  const total = jobs.length;
+  const succeeded = statusCounts.get(CodexJobStatus.SUCCEEDED) ?? 0;
+  const failed = statusCounts.get(CodexJobStatus.FAILED) ?? 0;
+  const terminal = succeeded + failed + (statusCounts.get(CodexJobStatus.CANCELED) ?? 0);
+  const prOpened = jobs.filter((job) => Boolean(job.prUrl)).length;
+  const dedupeRows = Array.from(dedupeCounts.values()).sort(
+    (left, right) =>
+      right.duplicateMessages - left.duplicateMessages ||
+      right.jobs - left.jobs ||
+      right.latestAt.localeCompare(left.latestAt)
+  );
+
+  return {
+    generatedAt: now.toISOString(),
+    window: {
+      start: start.toISOString(),
+      end: now.toISOString(),
+      days,
+      bucketHours
+    },
+    totals: {
+      jobs: total,
+      active: activeStatuses.reduce((sum, status) => sum + (statusCounts.get(status) ?? 0), 0),
+      queued: statusCounts.get(CodexJobStatus.QUEUED) ?? 0,
+      claimed: statusCounts.get(CodexJobStatus.CLAIMED) ?? 0,
+      running: statusCounts.get(CodexJobStatus.RUNNING) ?? 0,
+      succeeded,
+      failed,
+      canceled: statusCounts.get(CodexJobStatus.CANCELED) ?? 0,
+      prOpened,
+      successRate: terminal > 0 ? succeeded / terminal : null,
+      prRate: total > 0 ? prOpened / total : null,
+      avgQueueWaitMs: averageNumber(queueWaitDurations),
+      avgRunMs: averageNumber(runDurations),
+      avgCompletionMs: averageNumber(completionDurations)
+    },
+    byStatus: Object.values(CodexJobStatus).map((status) => ({
+      status,
+      count: statusCounts.get(status) ?? 0
+    })),
+    bySource: mapToRows(sourceCounts, 'source'),
+    byRunner: mapToRows(runnerCounts, 'runnerId'),
+    byRepository: mapToRows(repositoryCounts, 'repository'),
+    buckets: buckets.map((bucket) => ({
+      start: new Date(bucket.startMs).toISOString(),
+      end: new Date(bucket.endMs).toISOString(),
+      total: bucket.total,
+      queued: bucket.statuses.QUEUED,
+      claimed: bucket.statuses.CLAIMED,
+      running: bucket.statuses.RUNNING,
+      succeeded: bucket.statuses.SUCCEEDED,
+      failed: bucket.statuses.FAILED,
+      canceled: bucket.statuses.CANCELED,
+      prOpened: bucket.prOpened,
+      avgCompletionMs: averageNumber(bucket.completionDurations)
+    })),
+    dedupe: {
+      uniqueKeys: dedupeRows.length,
+      duplicateMessages: dedupeRows.reduce((sum, row) => sum + row.duplicateMessages, 0),
+      topKeys: dedupeRows.slice(0, 10)
+    },
+    recentFailures: recentFailures
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .slice(0, 8)
+  };
+}
+
 export async function getCodexJob(
   jobId: string,
   options: {
@@ -873,4 +1086,110 @@ function truncateForPrompt(value: string) {
     return value;
   }
   return `${value.slice(0, MAX_PROMPT_CONTEXT_CHARS)}\n... truncated by Nexus ...`;
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+  return Math.min(Math.max(Math.floor(value), min), max);
+}
+
+function chooseBucketHours(days: number) {
+  if (days <= 2) {
+    return 1;
+  }
+  if (days <= 14) {
+    return 6;
+  }
+  return 24;
+}
+
+function incrementCount(map: Map<string, number>, key: string) {
+  map.set(key, (map.get(key) ?? 0) + 1);
+}
+
+function normalizeJobSource(sourceType: string | null, messageId: string | null) {
+  if (sourceType?.trim()) {
+    return sourceType.trim();
+  }
+  return messageId ? 'webhook' : 'dashboard';
+}
+
+function buildMetricBuckets(start: Date, end: Date, bucketMs: number) {
+  const first = Math.floor(start.getTime() / bucketMs) * bucketMs;
+  const last = Math.ceil(end.getTime() / bucketMs) * bucketMs;
+  const buckets: Array<{
+    startMs: number;
+    endMs: number;
+    total: number;
+    statuses: Record<CodexJobStatus, number>;
+    prOpened: number;
+    completionDurations: number[];
+  }> = [];
+
+  for (let startMs = first; startMs < last; startMs += bucketMs) {
+    buckets.push({
+      startMs,
+      endMs: startMs + bucketMs,
+      total: 0,
+      statuses: {
+        QUEUED: 0,
+        CLAIMED: 0,
+        RUNNING: 0,
+        SUCCEEDED: 0,
+        FAILED: 0,
+        CANCELED: 0
+      },
+      prOpened: 0,
+      completionDurations: []
+    });
+  }
+
+  return buckets;
+}
+
+function elapsedMs(start: Date | null, end: Date | null) {
+  if (!start || !end) {
+    return null;
+  }
+  const duration = end.getTime() - start.getTime();
+  return duration >= 0 ? duration : null;
+}
+
+function averageNumber(values: number[]) {
+  if (values.length === 0) {
+    return null;
+  }
+  return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
+}
+
+function mapToRows(map: Map<string, number>, keyName: string) {
+  return Array.from(map.entries())
+    .map(([key, count]) => ({
+      [keyName]: key,
+      count
+    }))
+    .sort((left, right) => {
+      const leftCount = typeof left.count === 'number' ? left.count : 0;
+      const rightCount = typeof right.count === 'number' ? right.count : 0;
+      return rightCount - leftCount;
+    });
+}
+
+function countDedupeRelatedMessages(context: Prisma.JsonValue | null) {
+  if (!context || typeof context !== 'object' || Array.isArray(context)) {
+    return 0;
+  }
+  const dedupe = (context as Prisma.JsonObject).dedupe;
+  if (!dedupe || typeof dedupe !== 'object' || Array.isArray(dedupe)) {
+    return 0;
+  }
+  const relatedMessages = (dedupe as Prisma.JsonObject).relatedMessages;
+  return Array.isArray(relatedMessages) ? relatedMessages.length : 0;
+}
+
+function truncateMetricText(value: string) {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  return normalized.length > 280 ? `${normalized.slice(0, 280)}...` : normalized || null;
 }
