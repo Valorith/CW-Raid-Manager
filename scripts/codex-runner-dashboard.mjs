@@ -2,7 +2,7 @@
 import { execFile } from 'child_process';
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { existsSync, readFileSync } from 'fs';
-import { appendFile, mkdir, readdir, readFile, stat, writeFile } from 'fs/promises';
+import { appendFile, mkdir, readdir, readFile, rm, stat, writeFile } from 'fs/promises';
 import { createServer } from 'http';
 import {
   cpus,
@@ -909,19 +909,151 @@ async function sendRunnerPoolSelfTest(response) {
         : 'No pool state file exists yet.'
     )
   ];
+  const launch = await runPausedRunnerLaunchSelfTest(runnerId, unit);
+  checks.push(
+    preflightCheck(
+      'launch-start',
+      'Paused launch',
+      launch.startOk ? 'ok' : 'fail',
+      launch.startOk
+        ? `${unit} accepted a start request.`
+        : launch.startOutput || 'The runner instance could not be started.'
+    ),
+    preflightCheck(
+      'launch-heartbeat',
+      'Launch heartbeat',
+      launch.heartbeatOk ? 'ok' : 'fail',
+      launch.heartbeatOk
+        ? `${runnerId} reported ${launch.heartbeat?.status || 'unknown'} without claiming a job.`
+        : launch.heartbeatError || 'The launched runner did not write a paused heartbeat.'
+    ),
+    preflightCheck(
+      'launch-stop',
+      'Launch cleanup',
+      launch.stopOk ? 'ok' : 'warn',
+      launch.stopOk
+        ? `${unit} was stopped after the self-test.`
+        : launch.stopOutput || 'The runner instance did not stop cleanly after the self-test.'
+    )
+  );
 
   sendJson(response, 200, {
     generatedAt: new Date().toISOString(),
     ok: checks.every((check) => check.status === 'ok'),
-    dryRun: true,
+    dryRun: false,
+    safeLaunch: true,
     runnerId,
     unit,
     checks,
+    launch,
     systemd: {
       templateOutput: truncateOutput(templateResult.stdout || templateResult.stderr || ''),
       instanceOutput: truncateOutput(instanceOutput)
     }
   });
+}
+
+async function runPausedRunnerLaunchSelfTest(runnerId, unit) {
+  const controlFile = join(config.controlDir, `${sanitizeFileName(runnerId)}.json`);
+  const heartbeatFile = join(config.registryDir, `${sanitizeFileName(runnerId)}.json`);
+  const control = {
+    paused: true,
+    reason: 'Safe Nexus runner pool launch self-test; do not claim jobs.',
+    updatedAt: new Date().toISOString(),
+    updatedBy: 'dashboard-self-test'
+  };
+  const result = {
+    runnerId,
+    unit,
+    controlFile,
+    heartbeatFile,
+    startedAt: new Date().toISOString(),
+    startOk: false,
+    startOutput: null,
+    heartbeatOk: false,
+    heartbeatError: null,
+    heartbeat: null,
+    activeAfterStart: null,
+    stopOk: false,
+    stopOutput: null,
+    activeAfterStop: null,
+    finishedAt: null
+  };
+
+  await mkdir(config.controlDir, { recursive: true });
+  await mkdir(config.registryDir, { recursive: true });
+  await runExecFile('sudo', ['-n', 'systemctl', 'stop', unit], {
+    allowNonZero: true,
+    timeoutMs: 45_000
+  });
+  await rm(heartbeatFile, { force: true });
+  await writeFile(controlFile, `${JSON.stringify(control, null, 2)}\n`, 'utf8');
+
+  try {
+    try {
+      const start = await runExecFile('sudo', ['-n', 'systemctl', 'start', unit], {
+        allowNonZero: true,
+        timeoutMs: 45_000
+      });
+      result.startOk = start.code === 0;
+      result.startOutput = truncateOutput(start.stdout || start.stderr || '');
+    } catch (error) {
+      result.startOutput = error instanceof Error ? error.message : String(error);
+    }
+
+    if (result.startOk) {
+      const deadline = Date.now() + 15_000;
+      while (Date.now() < deadline) {
+        const heartbeat = parseJsonObject(await readTextIfExists(heartbeatFile));
+        if (heartbeat) {
+          result.heartbeat = {
+            runnerId: stringOrNull(heartbeat.runnerId),
+            status: stringOrNull(heartbeat.status),
+            pid: numberOrNull(heartbeat.pid),
+            currentJob: heartbeat.currentJob || null,
+            paused: heartbeat.control?.paused === true,
+            executionMode: stringOrNull(heartbeat.executionMode),
+            codexCloudConfigured: heartbeat.codexCloudConfigured === true,
+            lastSeenAt: stringOrNull(heartbeat.lastSeenAt)
+          };
+          result.heartbeatOk =
+            result.heartbeat.runnerId === runnerId &&
+            result.heartbeat.status === 'paused' &&
+            result.heartbeat.paused &&
+            !result.heartbeat.currentJob;
+          if (result.heartbeatOk) {
+            break;
+          }
+        }
+        await sleep(500);
+      }
+    }
+
+    if (!result.heartbeatOk && !result.heartbeatError) {
+      result.heartbeatError = result.heartbeat
+        ? `${result.heartbeat.runnerId || 'unknown runner'} reported ${result.heartbeat.status || 'unknown'} instead of ${runnerId} paused.`
+        : 'No heartbeat file was written within 15 seconds.';
+    }
+    result.activeAfterStart = await getServiceStatus(unit);
+  } finally {
+    try {
+      const stop = await runExecFile('sudo', ['-n', 'systemctl', 'stop', unit], {
+        allowNonZero: true,
+        timeoutMs: 45_000
+      });
+      result.stopOk = stop.code === 0;
+      result.stopOutput = truncateOutput(stop.stdout || stop.stderr || '');
+    } catch (error) {
+      result.stopOutput = error instanceof Error ? error.message : String(error);
+    }
+    await rm(controlFile, { force: true });
+    await sleep(1_000);
+    result.activeAfterStop = await getServiceStatus(unit);
+    await rm(heartbeatFile, { force: true });
+    result.finishedAt = new Date().toISOString();
+  }
+
+  return result;
 }
 
 function preflightCheck(id, label, status, detail, meta = {}) {
@@ -3638,9 +3770,9 @@ function renderDashboardPage(session) {
               ? renderPreflightNote(
                   'Last self-test',
                   preflightStatusLabel(selfTestStatus),
-                  (selfTest.dryRun ? 'Dry run · ' : '') + (selfTest.unit || 'no unit reported')
+                  (selfTest.safeLaunch ? 'Safe launch · ' : selfTest.dryRun ? 'Dry run · ' : '') + (selfTest.unit || 'no unit reported')
                 )
-              : renderPreflightNote('Pool self-test', 'Not run yet', 'Validates template rendering and control permissions without starting a worker.')) +
+              : renderPreflightNote('Pool self-test', 'Not run yet', 'Starts one paused template runner, verifies heartbeat, then stops it.')) +
           '</aside>' +
         '</div>';
     }
@@ -4624,7 +4756,7 @@ function renderDashboardPage(session) {
           latestPreflight = await requestJson(API.preflight);
           renderPreflight();
         } else if (button.hasAttribute('data-pool-self-test')) {
-          if (!window.confirm('Run a dry-run pool self-test? This validates the systemd template and control permissions without starting a worker.')) return;
+          if (!window.confirm('Run a safe pool launch self-test? This starts one paused template runner, verifies its heartbeat, then stops it without allowing it to claim jobs.')) return;
           latestPoolSelfTest = await requestJson(API.poolSelfTest, {
             method: 'POST',
             body: JSON.stringify({})
@@ -5233,6 +5365,10 @@ function runExecFile(command, args, options = {}) {
     );
     child.stdin?.end();
   });
+}
+
+function sleep(ms) {
+  return new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
 }
 
 class HttpError extends Error {

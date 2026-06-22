@@ -8,8 +8,8 @@ Type=simple
 User=ubuntu
 WorkingDirectory=/home/ubuntu/nexus-codex-runner
 EnvironmentFile=/home/ubuntu/nexus-codex-runner/.env
-Environment=CODEX_RUNNER_ID=%i
-ExecStart=/usr/bin/node /home/ubuntu/nexus-codex-runner/codex-runner.mjs
+# Set the runner id in ExecStart so it wins over a shared CODEX_RUNNER_ID in .env.
+ExecStart=/usr/bin/env CODEX_RUNNER_ID=%i /usr/bin/node /home/ubuntu/nexus-codex-runner/codex-runner.mjs
 Restart=always
 RestartSec=10
 
