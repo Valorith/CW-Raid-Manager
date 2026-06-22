@@ -4265,15 +4265,21 @@ function renderDashboardPage(session) {
       const runnerServiceActive = service?.active === 'active';
       const poolActive = pool?.pool?.active ?? 0;
       const succeededTasks = tasks.filter((task) => task.status === 'SUCCEEDED').length;
+      const latestTask = tasks.reduce((latest, task) => {
+        if (!latest) return task;
+        const latestTime = new Date(latest.createdAt || 0).getTime();
+        const taskTime = new Date(task.createdAt || 0).getTime();
+        return taskTime > latestTime ? task : latest;
+      }, null);
       const hasServiceIssue = !runnerServiceActive || !poolManagerActive;
-      const hasFailedWork = failedTasks > 0;
-      const fleetState = hasServiceIssue || hasFailedWork
+      const latestTaskFailed = latestTask?.status === 'FAILED';
+      const fleetState = hasServiceIssue || latestTaskFailed
         ? 'Attention Needed'
         : activeTasks > 0 || queuedWork > 0
           ? 'Work in Progress'
           : 'Operational';
-      const fleetClass = hasServiceIssue || hasFailedWork ? 'alert' : activeTasks > 0 || queuedWork > 0 ? 'warning' : '';
-      const fleetDotClass = hasServiceIssue || hasFailedWork ? 'inactive' : activeTasks > 0 || queuedWork > 0 ? 'paused' : 'active';
+      const fleetClass = hasServiceIssue || latestTaskFailed ? 'alert' : activeTasks > 0 || queuedWork > 0 ? 'warning' : '';
+      const fleetDotClass = hasServiceIssue || latestTaskFailed ? 'inactive' : activeTasks > 0 || queuedWork > 0 ? 'paused' : 'active';
       const poolUtilization = poolMax > 0
         ? Math.max(0, Math.min(100, Math.round((poolActive / poolMax) * 100)))
         : 0;
