@@ -42,6 +42,32 @@ export interface SlackWebhookBody {
   blocks?: Array<Record<string, unknown>>;
 }
 
+interface DiscordWebhookEmbed {
+  title?: string;
+  description?: string;
+  fields?: Array<{ name: string; value: string; inline?: boolean }>;
+  footer?: { text: string };
+  timestamp?: string;
+  url?: string;
+}
+
+interface DiscordWebhookPayload {
+  content?: string;
+  username?: string;
+  embeds?: DiscordWebhookEmbed[];
+  files?: unknown[];
+  attachments?: unknown[];
+}
+
+interface ParsedAlertContent {
+  title: string | null;
+  category: string | null;
+  zone: string | null;
+  tokens: string[];
+  body: string;
+  bodyIsTechnical: boolean;
+}
+
 type SlackAccessResponse = {
   ok?: boolean;
   error?: string;
@@ -357,66 +383,89 @@ export function buildSlackPayloadFromText(input: {
   };
 }
 
-export function convertDiscordWebhookToSlackPayload(payload: {
-  content?: string;
-  embeds?: Array<{
-    title?: string;
-    description?: string;
-    fields?: Array<{ name: string; value: string; inline?: boolean }>;
-    footer?: { text: string };
-    timestamp?: string;
-    url?: string;
-  }>;
-}): SlackWebhookBody {
-  const embed = payload.embeds?.[0];
-  const title = embed?.title ?? 'CW Nexus Notification';
-  const description = embed?.description ?? payload.content ?? '';
+export function convertDiscordWebhookToSlackPayload(
+  payload: unknown,
+  options: { messageUrl?: string | null; fallbackTitle?: string } = {}
+): SlackWebhookBody {
+  const record = asObject(payload) as DiscordWebhookPayload;
+  const embed = record.embeds?.find((candidate) => candidate && typeof candidate === 'object');
+  const content = readString(record.content) ?? '';
+  const parsedContent = parseNexusAlertContent(content);
+  const title =
+    readString(embed?.title) ??
+    parsedContent.title ??
+    options.fallbackTitle ??
+    'CW Nexus Notification';
+  const description = readString(embed?.description) ?? parsedContent.body ?? content;
+  const plainDescription = stripDiscordFormatting(description);
   const blocks: Array<Record<string, unknown>> = [
     {
-      type: 'section',
+      type: 'header',
       text: {
-        type: 'mrkdwn',
-        text: embed?.url
-          ? `<${embed.url}|${escapeSlackText(title)}>`
-          : `*${escapeSlackText(title)}*`
+        type: 'plain_text',
+        text: truncateSlackText(title, 150),
+        emoji: true
       }
     }
   ];
 
-  if (description.trim()) {
-    blocks.push({
-      type: 'section',
-      text: {
-        type: 'mrkdwn',
-        text: escapeSlackText(truncateSlackText(description, 2900))
-      }
-    });
-  }
+  const fields = [
+    ...buildAlertFields(parsedContent),
+    ...buildEmbedFields(embed),
+    ...buildAttachmentFields(record)
+  ].slice(0, 10);
 
-  const fields = embed?.fields
-    ?.slice(0, 10)
-    .map((field) => ({
-      type: 'mrkdwn',
-      text: `*${escapeSlackText(field.name)}*\n${escapeSlackText(
-        truncateSlackText(field.value, 900)
-      )}`
-    }));
-
-  if (fields?.length) {
+  if (fields.length) {
     blocks.push({
       type: 'section',
       fields
     });
   }
 
-  if (embed?.footer?.text || embed?.timestamp) {
+  if (description.trim()) {
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: formatSlackMessageBody(description, parsedContent.bodyIsTechnical)
+      }
+    });
+  }
+
+  if (embed?.url || options.messageUrl) {
+    blocks.push({
+      type: 'actions',
+      elements: [
+        embed?.url
+          ? {
+              type: 'button',
+              text: { type: 'plain_text', text: 'Open source', emoji: true },
+              url: embed.url
+            }
+          : null,
+        options.messageUrl
+          ? {
+              type: 'button',
+              text: { type: 'plain_text', text: 'Open in Nexus', emoji: true },
+              url: options.messageUrl
+            }
+          : null
+      ].filter(Boolean)
+    });
+  }
+
+  if (embed?.footer?.text || embed?.timestamp || record.username) {
     blocks.push({
       type: 'context',
       elements: [
         {
           type: 'mrkdwn',
           text: escapeSlackText(
-            [embed.footer?.text, embed.timestamp ? new Date(embed.timestamp).toLocaleString() : null]
+            [
+              readString(embed?.footer?.text),
+              record.username ? `Posted as ${record.username}` : null,
+              embed?.timestamp ? new Date(embed.timestamp).toLocaleString() : null
+            ]
               .filter(Boolean)
               .join(' • ')
           )
@@ -426,7 +475,7 @@ export function convertDiscordWebhookToSlackPayload(payload: {
   }
 
   return {
-    text: truncateSlackText([title, description].filter(Boolean).join(' - '), 3000),
+    text: truncateSlackText([title, plainDescription].filter(Boolean).join(' - '), 3000),
     blocks
   };
 }
@@ -481,4 +530,145 @@ function truncateSlackText(value: string, maxLength: number): string {
 
 function escapeSlackText(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function parseNexusAlertContent(content: string): ParsedAlertContent {
+  let remaining = content.trim();
+  const categoryMatch = remaining.match(/^\[\*\*([^\]]+?)\*\*\]\s*/);
+  const category = categoryMatch ? stripDiscordFormatting(categoryMatch[1]) : null;
+  if (categoryMatch) {
+    remaining = remaining.slice(categoryMatch[0].length).trim();
+  }
+
+  let zone: string | null = null;
+  const zoneMatch = remaining.match(/^\*\*Zone\*\*\s*\[\*\*?([^\]]+?)\*\*?\]\s*/i);
+  if (zoneMatch) {
+    zone = stripDiscordFormatting(zoneMatch[1]);
+    remaining = remaining.slice(zoneMatch[0].length).trim();
+  }
+
+  const tokens: string[] = [];
+  for (;;) {
+    const tokenMatch = remaining.match(/^\[([^\]]+)\]\s*/);
+    if (!tokenMatch) {
+      break;
+    }
+    tokens.push(stripDiscordFormatting(tokenMatch[1]));
+    remaining = remaining.slice(tokenMatch[0].length).trim();
+  }
+
+  return {
+    title: titleFromCategory(category),
+    category,
+    zone,
+    tokens,
+    body: remaining || stripDiscordFormatting(content),
+    bodyIsTechnical: isTechnicalSlackBody(remaining)
+  };
+}
+
+function titleFromCategory(category: string | null): string | null {
+  if (!category) {
+    return null;
+  }
+  const normalized = category.toLowerCase();
+  if (normalized.includes('cheat')) {
+    return 'Cheat Alert';
+  }
+  if (normalized.includes('quest')) {
+    return 'Quest Debug';
+  }
+  if (normalized.includes('crash')) {
+    return 'Crash Report';
+  }
+  if (normalized.includes('error')) {
+    return 'Error Alert';
+  }
+  return `${category} Alert`;
+}
+
+function buildAlertFields(parsed: ParsedAlertContent): Array<{ type: 'mrkdwn'; text: string }> {
+  const fields: Array<{ type: 'mrkdwn'; text: string }> = [];
+  if (parsed.category) {
+    fields.push(slackField('Category', parsed.category));
+  }
+  if (parsed.zone) {
+    fields.push(slackField('Zone', parsed.zone));
+  }
+
+  if (parsed.category?.toLowerCase().includes('cheat') && parsed.tokens.length >= 3) {
+    fields.push(slackField('Detector', parsed.tokens[0]));
+    fields.push(slackField('Account', parsed.tokens[1]));
+    fields.push(slackField('Character', parsed.tokens[2]));
+    for (const [index, token] of parsed.tokens.slice(3, 6).entries()) {
+      fields.push(slackField(`Context ${index + 1}`, token));
+    }
+    return fields;
+  }
+
+  for (const [index, token] of parsed.tokens.slice(0, 6).entries()) {
+    fields.push(slackField(index === 0 ? 'Signal' : `Context ${index}`, token));
+  }
+  return fields;
+}
+
+function buildEmbedFields(embed?: DiscordWebhookEmbed): Array<{ type: 'mrkdwn'; text: string }> {
+  return (
+    embed?.fields?.slice(0, 10).map((field) =>
+      slackField(field.name, truncateSlackText(field.value, 900))
+    ) ?? []
+  );
+}
+
+function buildAttachmentFields(
+  payload: DiscordWebhookPayload
+): Array<{ type: 'mrkdwn'; text: string }> {
+  const fields: Array<{ type: 'mrkdwn'; text: string }> = [];
+  if (payload.files?.length) {
+    fields.push(slackField('Files', String(payload.files.length)));
+  }
+  if (payload.attachments?.length) {
+    fields.push(slackField('Attachments', String(payload.attachments.length)));
+  }
+  return fields;
+}
+
+function slackField(label: string, value: string): { type: 'mrkdwn'; text: string } {
+  return {
+    type: 'mrkdwn',
+    text: `*${escapeSlackText(truncateSlackText(stripDiscordFormatting(label), 80))}*\n${escapeSlackText(
+      truncateSlackText(stripDiscordFormatting(value), 900)
+    )}`
+  };
+}
+
+function formatSlackMessageBody(value: string, technical: boolean): string {
+  const normalized = convertDiscordMrkdwnToSlack(value);
+  const trimmed = truncateSlackText(normalized, technical ? 2400 : 2900);
+  if (!technical) {
+    return escapeSlackText(trimmed);
+  }
+  return `\`\`\`${escapeSlackText(trimmed)}\`\`\``;
+}
+
+function convertDiscordMrkdwnToSlack(value: string): string {
+  return value.trim().replace(/\*\*([^*\n][^*]*?)\*\*/g, '*$1*');
+}
+
+function stripDiscordFormatting(value: string): string {
+  return value
+    .replace(/\*\*([^*\n][^*]*?)\*\*/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .trim();
+}
+
+function isTechnicalSlackBody(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return false;
+  }
+  if (/^(if|elsif|else|while|for|sub|function)\b/i.test(trimmed)) {
+    return true;
+  }
+  return /[{}();]|->|==|!=|&&|\|\|/.test(trimmed) && !/[.!?]\s*$/.test(trimmed);
 }

@@ -15,6 +15,7 @@ import { reviewCrashReport, sortCrashReportSegments } from './geminiCrashReviewS
 import {
   buildSlackPayloadFromText,
   buildSlackPayloadFromUnknown,
+  convertDiscordWebhookToSlackPayload,
   getSlackWebhookUrlFromConfig,
   redactSlackConfig,
   sendSlackIncomingWebhook,
@@ -3394,6 +3395,14 @@ function buildSlackRelayPayload(
         title,
         text: lines.join('\n\n'),
         url: messageUrl
+      });
+      return appendSlackCodexHandoff(slackPayload, config, messageUrl);
+    }
+
+    if (hasDiscordPayloadShape(record)) {
+      slackPayload = convertDiscordWebhookToSlackPayload(record, {
+        fallbackTitle: 'CW Nexus Alert',
+        messageUrl
       });
       return appendSlackCodexHandoff(slackPayload, config, messageUrl);
     }

@@ -83,6 +83,46 @@ test('Slack payload helpers render text fallback and blocks', () => {
   assert.ok(convertedPayload.blocks?.length);
 });
 
+test('Slack Discord-content conversion renders Nexus alerts without dumping JSON', () => {
+  const convertedPayload = convertDiscordWebhookToSlackPayload(
+    {
+      content:
+        '[**Cheat**] **Zone** [**tutorial**] [MQGhost] [melmac2001] [Beefy] was caught not sending the proper packets as regularly as they were supposed to.\\n'
+    },
+    { messageUrl: 'https://nexus.example.test/admin/webhooks?messageId=abc123' }
+  );
+
+  assert.match(convertedPayload.text, /^Cheat Alert - was caught not sending/);
+  assert.doesNotMatch(convertedPayload.text, /"content"/);
+
+  const fieldBlock = convertedPayload.blocks?.find((block) => Array.isArray(block.fields));
+  assert.ok(fieldBlock);
+  const fieldText = (fieldBlock.fields as Array<{ text: string }>).map((field) => field.text);
+  assert.ok(fieldText.includes('*Category*\nCheat'));
+  assert.ok(fieldText.includes('*Zone*\ntutorial'));
+  assert.ok(fieldText.includes('*Detector*\nMQGhost'));
+  assert.ok(fieldText.includes('*Account*\nmelmac2001'));
+  assert.ok(fieldText.includes('*Character*\nBeefy'));
+
+  const actionBlock = convertedPayload.blocks?.find((block) => block.type === 'actions');
+  assert.ok(actionBlock);
+});
+
+test('Slack Discord-content conversion formats quest debug messages as technical alerts', () => {
+  const convertedPayload = convertDiscordWebhookToSlackPayload({
+    content: `[**Quest Debug**] **Zone** [**skyshrine**] elsif(((1 == 1 or Client=SCALAR(0x132fecc3928)->GetGM()) and 1 and 1 == GetZoneFaction()-> 1 and (Ranger eq 'Warrior' or Client=SCALAR(0x132fecc3928)->GetGM())))\n`
+  });
+
+  assert.match(convertedPayload.text, /^Quest Debug - elsif/);
+  assert.doesNotMatch(convertedPayload.text, /"content"/);
+
+  const bodyBlock = convertedPayload.blocks?.find(
+    (block) => block.type === 'section' && typeof (block.text as { text?: unknown } | undefined)?.text === 'string'
+  );
+  assert.ok(bodyBlock);
+  assert.match((bodyBlock.text as { text: string }).text, /^```elsif/);
+});
+
 test('Slack sender posts JSON payloads and throws on Slack failures', async () => {
   const originalFetch = globalThis.fetch;
   let capturedUrl: string | URL | Request | null = null;
