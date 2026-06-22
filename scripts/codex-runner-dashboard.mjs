@@ -26,6 +26,8 @@ loadEnv(resolve(scriptDir, 'codex-runner-dashboard.env'));
 const workRoot = resolve(process.env.CODEX_RUNNER_WORK_ROOT || join(process.cwd(), 'work'));
 const registryDir = resolve(process.env.CODEX_RUNNER_REGISTRY_DIR || join(workRoot, 'runners'));
 const controlDir = resolve(process.env.CODEX_RUNNER_CONTROL_DIR || join(workRoot, 'runner-controls'));
+const dashboardIconPath = resolve(scriptDir, 'assets/nexus-runners-icon.png');
+const dashboardIcon = existsSync(dashboardIconPath) ? readFileSync(dashboardIconPath) : null;
 
 const config = {
   host: process.env.DASHBOARD_HOST || '127.0.0.1',
@@ -132,6 +134,15 @@ server.listen(config.port, config.host, () => {
 async function routeRequest(request, response) {
   const url = new URL(request.url || '/', config.baseUrl);
   const path = stripBasePath(url.pathname);
+
+  if (
+    path === '/assets/nexus-runners-icon.png' ||
+    path === '/favicon.ico' ||
+    url.pathname === '/favicon.ico'
+  ) {
+    sendDashboardIcon(response);
+    return;
+  }
 
   if (url.pathname === '/health' || path === '/health') {
     sendJson(response, 200, { ok: true, hostname: hostname() });
@@ -1825,6 +1836,7 @@ function renderDashboardPage(session) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  ${renderIconLinks()}
   <title>Nexus Runners</title>
   <style>
     :root {
@@ -4884,6 +4896,7 @@ function renderErrorPage(title, detail) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  ${renderIconLinks()}
   <title>Nexus Runners</title>
   <style>
     body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #07111d; color: #e5edf8; font: 15px/1.45 system-ui, sans-serif; }
@@ -5045,6 +5058,24 @@ function sendHtml(response, statusCode, body) {
     'cache-control': 'no-store'
   });
   response.end(body);
+}
+
+function sendDashboardIcon(response) {
+  if (!dashboardIcon) {
+    response.writeHead(404, {
+      'content-type': 'text/plain; charset=utf-8',
+      'cache-control': 'no-store'
+    });
+    response.end('Not found\n');
+    return;
+  }
+
+  response.writeHead(200, {
+    'content-type': 'image/png',
+    'content-length': dashboardIcon.length,
+    'cache-control': 'public, max-age=86400'
+  });
+  response.end(dashboardIcon);
 }
 
 function redirect(response, location) {
@@ -5229,6 +5260,12 @@ function escapeJsString(value) {
     .replace(/'/g, "\\'")
     .replace(/\r/g, '\\r')
     .replace(/\n/g, '\\n');
+}
+
+function renderIconLinks() {
+  const iconHref = escapeHtml(withBasePath('/assets/nexus-runners-icon.png'));
+  return `<link rel="icon" type="image/png" sizes="512x512" href="${iconHref}">
+  <link rel="apple-touch-icon" href="${iconHref}">`;
 }
 
 function withBasePath(path) {
