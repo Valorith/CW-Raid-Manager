@@ -1,4 +1,4 @@
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 
 import { CodexJobStatus, InboundWebhookActionType, Prisma } from '@prisma/client';
 
@@ -13,11 +13,18 @@ import { prisma } from '../utils/prisma.js';
 const MAX_PROMPT_CONTEXT_CHARS = 180_000;
 const DEFAULT_CODEX_REPOSITORY = 'Valorith/Server';
 const DEFAULT_CODEX_BASE_BRANCH = 'master';
+const CODEX_CRASH_SOURCE_TYPE = 'crash_report';
+const RECENT_SUCCEEDED_DEDUPE_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 const TERMINAL_JOB_STATUSES = new Set<CodexJobStatus>([
   CodexJobStatus.SUCCEEDED,
   CodexJobStatus.FAILED,
   CodexJobStatus.CANCELED
 ]);
+const ACTIVE_DEDUPE_JOB_STATUSES = [
+  CodexJobStatus.QUEUED,
+  CodexJobStatus.CLAIMED,
+  CodexJobStatus.RUNNING
+] as const;
 
 type CodexActionConfig = {
   slackCodexHandoffEnabled?: boolean;
@@ -29,6 +36,13 @@ type CodexActionConfig = {
 type CodexJobRecord = Prisma.CodexJobGetPayload<{}>;
 
 export type SerializedCodexJob = ReturnType<typeof serializeCodexJob>;
+
+export type CreateCodexJobForWebhookMessageResult = {
+  job: SerializedCodexJob;
+  deduped: boolean;
+  dedupeKey: string;
+  dedupeReason: 'active_job' | 'recent_pr' | null;
+};
 
 export function isCodexRunnerConfigured(): boolean {
   return Boolean(appConfig.codexRunner.token);
@@ -46,6 +60,8 @@ export function serializeCodexJob(
     id: job.id,
     messageId: job.messageId,
     status: job.status,
+    sourceType: job.sourceType,
+    dedupeKey: job.dedupeKey,
     targetRepository: job.targetRepository,
     baseBranch: job.baseBranch,
     branchName: job.branchName,
@@ -214,6 +230,8 @@ export async function retryCodexJob(jobId: string) {
       messageId: existing.messageId,
       createdById: existing.createdById,
       status: CodexJobStatus.QUEUED,
+      sourceType: existing.sourceType,
+      dedupeKey: existing.dedupeKey,
       targetRepository: existing.targetRepository,
       baseBranch: existing.baseBranch,
       branchName,
@@ -235,7 +253,10 @@ export async function retryCodexJob(jobId: string) {
   return serializeCodexJob(job);
 }
 
-export async function createCodexJobForWebhookMessage(messageId: string, createdById?: string) {
+export async function createCodexJobForWebhookMessage(
+  messageId: string,
+  createdById?: string
+): Promise<CreateCodexJobForWebhookMessageResult> {
   if (!isCodexRunnerConfigured()) {
     throw new Error('CODEX_RUNNER_TOKEN is not configured for Nexus.');
   }
@@ -279,9 +300,44 @@ export async function createCodexJobForWebhookMessage(messageId: string, created
   const targetConfig = resolveCodexTargetConfig(message.webhook.actions);
   const targetRepository = normalizeRepository(targetConfig.repository);
   const baseBranch = normalizeGitRef(targetConfig.baseBranch, 'base branch');
+  const dedupe = buildCrashDedupeMetadata({
+    crashReport,
+    targetRepository,
+    baseBranch,
+    aiReview: getLatestReviewFromActionRuns(message.actionRuns)
+  });
+  const existingDedupeJob = await findExistingCodexCrashDedupeJob({
+    dedupeKey: dedupe.key,
+    targetRepository,
+    baseBranch
+  });
+  if (existingDedupeJob) {
+    const job = await appendDuplicateCrashEvidence(existingDedupeJob.job, {
+      messageId,
+      receivedAt: message.receivedAt,
+      reason: existingDedupeJob.reason,
+      dedupeKey: dedupe.key
+    });
+
+    return {
+      job: serializeCodexJob(job),
+      deduped: true,
+      dedupeKey: dedupe.key,
+      dedupeReason: existingDedupeJob.reason
+    };
+  }
+
   const branchName = buildBranchName(messageId);
   const sentAt = new Date();
-  const context = buildCodexCrashHandoffPayload(message, crashReport, sentAt);
+  const context = {
+    ...buildCodexCrashHandoffPayload(message, crashReport, sentAt),
+    dedupe: {
+      key: dedupe.key,
+      sourceType: CODEX_CRASH_SOURCE_TYPE,
+      fingerprint: dedupe.fingerprint,
+      signals: dedupe.signals
+    }
+  };
   const prompt = buildCodexPrompt({
     targetRepository,
     baseBranch,
@@ -298,6 +354,8 @@ export async function createCodexJobForWebhookMessage(messageId: string, created
       messageId,
       createdById,
       status: CodexJobStatus.QUEUED,
+      sourceType: CODEX_CRASH_SOURCE_TYPE,
+      dedupeKey: dedupe.key,
       targetRepository,
       baseBranch,
       branchName,
@@ -307,7 +365,12 @@ export async function createCodexJobForWebhookMessage(messageId: string, created
     }
   });
 
-  return serializeCodexJob(job);
+  return {
+    job: serializeCodexJob(job),
+    deduped: false,
+    dedupeKey: dedupe.key,
+    dedupeReason: null
+  };
 }
 
 export async function claimNextCodexJob(runnerId: string) {
@@ -425,6 +488,205 @@ export async function updateCodexJobFromRunner(
   });
 
   return serializeCodexJob(job);
+}
+
+async function findExistingCodexCrashDedupeJob(options: {
+  dedupeKey: string;
+  targetRepository: string;
+  baseBranch: string;
+}): Promise<{ job: CodexJobRecord; reason: 'active_job' | 'recent_pr' } | null> {
+  const activeJob = await prisma.codexJob.findFirst({
+    where: {
+      sourceType: CODEX_CRASH_SOURCE_TYPE,
+      dedupeKey: options.dedupeKey,
+      targetRepository: options.targetRepository,
+      baseBranch: options.baseBranch,
+      status: { in: [...ACTIVE_DEDUPE_JOB_STATUSES] }
+    },
+    orderBy: { createdAt: 'asc' }
+  });
+
+  if (activeJob) {
+    return { job: activeJob, reason: 'active_job' };
+  }
+
+  const recentSucceededJob = await prisma.codexJob.findFirst({
+    where: {
+      sourceType: CODEX_CRASH_SOURCE_TYPE,
+      dedupeKey: options.dedupeKey,
+      targetRepository: options.targetRepository,
+      baseBranch: options.baseBranch,
+      status: CodexJobStatus.SUCCEEDED,
+      prUrl: { not: null },
+      completedAt: {
+        gte: new Date(Date.now() - RECENT_SUCCEEDED_DEDUPE_WINDOW_MS)
+      }
+    },
+    orderBy: { completedAt: 'desc' }
+  });
+
+  return recentSucceededJob ? { job: recentSucceededJob, reason: 'recent_pr' } : null;
+}
+
+async function appendDuplicateCrashEvidence(
+  job: CodexJobRecord,
+  duplicate: {
+    messageId: string;
+    receivedAt: Date;
+    reason: 'active_job' | 'recent_pr';
+    dedupeKey: string;
+  }
+): Promise<CodexJobRecord> {
+  if (job.messageId === duplicate.messageId) {
+    return job;
+  }
+
+  const context = normalizeJsonObject(job.context);
+  const dedupeContext = normalizeJsonObject(context.dedupe);
+  const relatedMessages = Array.isArray(dedupeContext.relatedMessages)
+    ? dedupeContext.relatedMessages.filter((entry): entry is Prisma.JsonObject =>
+        Boolean(entry && typeof entry === 'object' && !Array.isArray(entry))
+      )
+    : [];
+
+  if (relatedMessages.some((entry) => entry.messageId === duplicate.messageId)) {
+    return job;
+  }
+
+  const nextContext: Prisma.JsonObject = {
+    ...context,
+    dedupe: {
+      ...dedupeContext,
+      key: dedupeContext.key ?? duplicate.dedupeKey,
+      sourceType: dedupeContext.sourceType ?? CODEX_CRASH_SOURCE_TYPE,
+      relatedMessages: [
+        ...relatedMessages,
+        {
+          messageId: duplicate.messageId,
+          receivedAt: duplicate.receivedAt.toISOString(),
+          linkedAt: new Date().toISOString(),
+          reason: duplicate.reason
+        }
+      ]
+    }
+  };
+
+  return prisma.codexJob.update({
+    where: { id: job.id },
+    data: {
+      context: nextContext as Prisma.InputJsonValue
+    }
+  });
+}
+
+function getLatestReviewFromActionRuns(
+  runs: Array<{
+    status: string;
+    result: Prisma.JsonValue | null;
+    createdAt: Date;
+    action: { type: InboundWebhookActionType } | null;
+  }>
+): Prisma.JsonObject | null {
+  const run = runs.find(
+    (candidate) => candidate.action?.type === InboundWebhookActionType.CRASH_REVIEW
+  );
+  return run?.result && typeof run.result === 'object' && !Array.isArray(run.result)
+    ? (run.result as Prisma.JsonObject)
+    : null;
+}
+
+function buildCrashDedupeMetadata(options: {
+  crashReport: string;
+  targetRepository: string;
+  baseBranch: string;
+  aiReview: Prisma.JsonObject | null;
+}) {
+  const signature = normalizeJsonObject(options.aiReview?.signature);
+  const topApplicationFrame = findTopApplicationFrame(options.crashReport);
+  const signals = [
+    `source:${CODEX_CRASH_SOURCE_TYPE}`,
+    `repository:${options.targetRepository.toLowerCase()}`,
+    `base:${options.baseBranch.toLowerCase()}`,
+    `exception:${normalizeCrashSignal(firstStringValue(signature.exception) || firstCrashLine(options.crashReport))}`,
+    `top-frame:${normalizeCrashSignal(firstStringValue(signature.topFrame) || topApplicationFrame)}`,
+    `quest:${normalizeCrashSignal(findQuestErrorLine(options.crashReport))}`,
+    `modules:${normalizeModuleStack(options.crashReport).join('|')}`
+  ].filter((signal) => !signal.endsWith(':') && !signal.endsWith(':unknown'));
+  const fallback = normalizeCrashReportForDedupe(options.crashReport);
+  const fingerprintInput = signals.length >= 4 ? signals.join('\n') : fallback;
+  const fingerprint = createHash('sha256').update(fingerprintInput).digest('hex');
+
+  return {
+    key: `crash:${fingerprint}`,
+    fingerprint,
+    signals
+  };
+}
+
+function normalizeJsonObject(value: unknown): Prisma.JsonObject {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? ({ ...(value as Prisma.JsonObject) } as Prisma.JsonObject)
+    : {};
+}
+
+function firstStringValue(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function firstCrashLine(crashReport: string): string {
+  return crashReport
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean) || '';
+}
+
+function findQuestErrorLine(crashReport: string): string {
+  return (
+    crashReport
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find((line) => line.includes('[QuestErrors]')) || ''
+  );
+}
+
+function findTopApplicationFrame(crashReport: string): string {
+  const lines = crashReport.split(/\r?\n/).map((line) => line.trim());
+  return (
+    lines.find((line) => /(?:zone|world|ucs|queryserv|shared_memory|loginserver)\.exe:/i.test(line)) ||
+    lines.find((line) => /\.(?:exe|dll):/i.test(line)) ||
+    ''
+  );
+}
+
+function normalizeModuleStack(crashReport: string): string[] {
+  return crashReport
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => /\.(?:exe|dll):/i.test(line))
+    .slice(0, 8)
+    .map((line) => normalizeCrashSignal(line))
+    .filter(Boolean);
+}
+
+function normalizeCrashReportForDedupe(crashReport: string): string {
+  return crashReport
+    .split(/\r?\n/)
+    .map((line) => normalizeCrashSignal(line))
+    .filter(Boolean)
+    .slice(0, 120)
+    .join('\n');
+}
+
+function normalizeCrashSignal(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/0x[0-9a-f]+/gi, '0xaddr')
+    .replace(/\b[0-9a-f]{8,}\b/gi, 'hex')
+    .replace(/\b\d{5,}\b/g, 'num')
+    .replace(/[a-z]:\\[^,\s)]+/gi, 'path')
+    .replace(/\/[^\s,)]+/g, 'path')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function resolveCodexTargetConfig(

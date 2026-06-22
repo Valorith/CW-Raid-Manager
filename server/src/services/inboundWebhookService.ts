@@ -382,6 +382,43 @@ function toRetentionPolicy(value: unknown): InboundWebhookRetentionPolicy {
   return normalizeRetentionPolicy(value as InboundWebhookRetentionPolicy);
 }
 
+const CODEX_JOB_MESSAGE_SUMMARY_SELECT = {
+  id: true,
+  messageId: true,
+  status: true,
+  sourceType: true,
+  dedupeKey: true,
+  targetRepository: true,
+  baseBranch: true,
+  branchName: true,
+  runnerId: true,
+  statusMessage: true,
+  error: true,
+  prUrl: true,
+  prNumber: true,
+  claimedAt: true,
+  startedAt: true,
+  completedAt: true,
+  createdAt: true,
+  updatedAt: true
+} satisfies Prisma.CodexJobSelect;
+
+type CodexMessageJob = Prisma.CodexJobGetPayload<{
+  select: typeof CODEX_JOB_MESSAGE_SUMMARY_SELECT;
+}>;
+
+function serializeCodexMessageJob(job: CodexMessageJob) {
+  return {
+    ...job,
+    output: null,
+    claimedAt: job.claimedAt?.toISOString() ?? null,
+    startedAt: job.startedAt?.toISOString() ?? null,
+    completedAt: job.completedAt?.toISOString() ?? null,
+    createdAt: job.createdAt.toISOString(),
+    updatedAt: job.updatedAt.toISOString()
+  };
+}
+
 function compactActionRunResult(result: Prisma.JsonValue | null): Prisma.JsonValue | null {
   if (!result || typeof result !== 'object' || Array.isArray(result)) {
     return result;
@@ -878,6 +915,11 @@ export async function listInboundWebhookMessages(options: {
         actionRuns: {
           include: { action: true },
           orderBy: { createdAt: 'asc' }
+        },
+        codexJobs: {
+          select: CODEX_JOB_MESSAGE_SUMMARY_SELECT,
+          orderBy: { createdAt: 'desc' },
+          take: 5
         }
       }
     }),
@@ -888,7 +930,8 @@ export async function listInboundWebhookMessages(options: {
     messages: messages.map((message) => ({
       ...message,
       webhook: message.webhook ? redactInboundWebhookActions(message.webhook) : message.webhook,
-      actionRuns: message.actionRuns.map((run) => redactInboundWebhookActionRun(run))
+      actionRuns: message.actionRuns.map((run) => redactInboundWebhookActionRun(run)),
+      codexJobs: message.codexJobs.map((job) => serializeCodexMessageJob(job))
     })),
     total
   };
@@ -907,6 +950,11 @@ export async function getInboundWebhookMessage(messageId: string, userId?: strin
       actionRuns: {
         include: { action: true },
         orderBy: { createdAt: 'asc' }
+      },
+      codexJobs: {
+        select: CODEX_JOB_MESSAGE_SUMMARY_SELECT,
+        orderBy: { createdAt: 'desc' },
+        take: 5
       },
       labelAssignments: {
         include: { label: true }
@@ -946,6 +994,7 @@ export async function getInboundWebhookMessage(messageId: string, userId?: strin
     ...message,
     webhook: message.webhook ? redactInboundWebhookActions(message.webhook) : message.webhook,
     actionRuns: message.actionRuns.map((run) => redactInboundWebhookActionRun(run)),
+    codexJobs: message.codexJobs.map((job) => serializeCodexMessageJob(job)),
     scriptErrorContext,
     labels: message.labelAssignments.map((la) => la.label),
     linkedTestChanges: message.testChangeLinks.map((link) => ({
@@ -4717,6 +4766,11 @@ export async function listInboundWebhookMessagesEnhanced(options: {
           },
           orderBy: { createdAt: 'asc' }
         },
+        codexJobs: {
+          select: CODEX_JOB_MESSAGE_SUMMARY_SELECT,
+          orderBy: { createdAt: 'desc' },
+          take: 5
+        },
         labelAssignments: {
           include: { label: true }
         },
@@ -4761,6 +4815,7 @@ export async function listInboundWebhookMessagesEnhanced(options: {
       ...redactInboundWebhookActionRun(run),
       result: compactActionRunResult(run.result)
     })),
+    codexJobs: msg.codexJobs.map((job) => serializeCodexMessageJob(job)),
     isRead: msg.readStatuses.length > 0,
     isStarred: msg.stars.length > 0,
     labels: msg.labelAssignments.map((la) => la.label),

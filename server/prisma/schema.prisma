@@ -972,6 +972,8 @@ model CodexJob {
   messageId        String?
   createdById      String?
   status           CodexJobStatus         @default(QUEUED)
+  sourceType       String?                @db.VarChar(40)
+  dedupeKey        String?                @db.VarChar(128)
   targetRepository String                 @db.VarChar(120)
   baseBranch       String                 @db.VarChar(120)
   branchName       String                 @db.VarChar(191)
@@ -995,6 +997,7 @@ model CodexJob {
   @@index([messageId])
   @@index([createdById])
   @@index([status, createdAt])
+  @@index([dedupeKey, targetRepository, baseBranch, status], map: "CodexJob_dedupe_target_status_idx")
   @@index([branchName])
 }
 

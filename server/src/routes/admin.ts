@@ -2545,9 +2545,15 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
       const { messageId } = paramsSchema.parse(request.params);
 
       try {
-        const result = await createCodexJobForWebhookMessage(messageId, request.user.userId);
+        const outcome = await createCodexJobForWebhookMessage(messageId, request.user.userId);
         const message = await getInboundWebhookMessage(messageId, request.user.userId);
-        return reply.code(201).send({ result, message });
+        return reply.code(outcome.deduped ? 200 : 201).send({
+          result: outcome.job,
+          deduped: outcome.deduped,
+          dedupeKey: outcome.dedupeKey,
+          dedupeReason: outcome.dedupeReason,
+          message
+        });
       } catch (error) {
         request.log.error({ error }, 'Failed to send crash report to Codex.');
         if (error instanceof Error && error.message.includes('not found')) {

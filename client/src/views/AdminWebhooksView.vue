@@ -7418,7 +7418,42 @@ function getFixWithCodexState(message: InboundWebhookMessage): {
     return { canSend: false, title: 'Queueing crash report for Codex...' };
   }
 
+  const existingJob = getBlockingCodexJob(message);
+  if (existingJob) {
+    if (existingJob.prUrl) {
+      return {
+        canSend: false,
+        title: `A matching Codex fix already has PR #${existingJob.prNumber ?? 'open'}.`
+      };
+    }
+    return {
+      canSend: false,
+      title: `A matching Codex job is already ${existingJob.status.toLowerCase()}.`
+    };
+  }
+
   return { canSend: true, title: 'Queue this crash report for the Codex VPS runner.' };
+}
+
+function getBlockingCodexJob(message: InboundWebhookMessage) {
+  return (
+    message.codexJobs?.find((job) => {
+      if (job.status === 'QUEUED' || job.status === 'CLAIMED' || job.status === 'RUNNING') {
+        return true;
+      }
+      return job.status === 'SUCCEEDED' && Boolean(job.prUrl);
+    }) ?? null
+  );
+}
+
+function formatCodexDedupeReason(reason: 'active_job' | 'recent_pr' | null | undefined) {
+  if (reason === 'recent_pr') {
+    return 'A matching crash already has a recent Codex PR.';
+  }
+  if (reason === 'active_job') {
+    return 'A matching crash is already queued or running in Codex.';
+  }
+  return 'A matching Codex job already exists.';
 }
 
 function getFixWithState(message: InboundWebhookMessage): {
@@ -8808,15 +8843,30 @@ async function fixWithCodex(message: InboundWebhookMessage) {
   sendingCodexMessageIds.value = new Set(sendingCodexMessageIds.value);
 
   try {
-    const { result, message: updated } = await api.sendWebhookCrashToCodex(message.id);
+    const {
+      result,
+      message: updated,
+      deduped,
+      dedupeReason
+    } = await api.sendWebhookCrashToCodex(message.id);
     if (updated) {
       updateInboxMessage(updated);
     }
-    addToast({
-      title: 'Codex Job Queued',
-      message: `Job ${result.id} queued for ${result.targetRepository}:${result.baseBranch}.`,
-      variant: 'success'
-    });
+    if (deduped) {
+      addToast({
+        title: result.prUrl ? 'Codex PR Already Exists' : 'Codex Job Already In Progress',
+        message: `${formatCodexDedupeReason(dedupeReason)} Using job ${result.id}${
+          result.prUrl ? ` (${result.prUrl})` : ''
+        }.`,
+        variant: 'info'
+      });
+    } else {
+      addToast({
+        title: 'Codex Job Queued',
+        message: `Job ${result.id} queued for ${result.targetRepository}:${result.baseBranch}.`,
+        variant: 'success'
+      });
+    }
   } catch (error) {
     addToast({
       title: 'Codex Handoff Failed',

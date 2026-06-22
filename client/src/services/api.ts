@@ -1705,6 +1705,8 @@ export interface CodexJobSummary {
   id: string;
   messageId: string | null;
   status: CodexJobStatus;
+  sourceType?: string | null;
+  dedupeKey?: string | null;
   targetRepository: string;
   baseBranch: string;
   branchName: string;
@@ -1781,6 +1783,7 @@ export interface InboundWebhookMessage {
   } | null;
   webhook?: InboundWebhook | null;
   actionRuns?: InboundWebhookActionRun[];
+  codexJobs?: CodexJobSummary[];
   // Email inbox-like features
   isRead?: boolean;
   isStarred?: boolean;
@@ -5682,7 +5685,13 @@ export const api = {
 
   async sendWebhookCrashToCodex(
     messageId: string
-  ): Promise<{ result: CodexJobSummary; message: InboundWebhookMessage }> {
+  ): Promise<{
+    result: CodexJobSummary;
+    message: InboundWebhookMessage;
+    deduped?: boolean;
+    dedupeKey?: string | null;
+    dedupeReason?: 'active_job' | 'recent_pr' | null;
+  }> {
     const response = await axios.post(`/api/admin/webhook-inbox/${messageId}/fix-with-codex`);
     return response.data;
   },
