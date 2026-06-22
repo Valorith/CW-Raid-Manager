@@ -13,6 +13,7 @@ import {
   getCodexJob,
   isCodexRunnerConfigured,
   listCodexJobs,
+  recoverStaleCodexJobs,
   retryCodexJob,
   updateCodexJobFromRunner
 } from '../services/codexJobService.js';
@@ -29,6 +30,24 @@ const statusBodySchema = z.object({
   output: z.string().max(500_000).nullable().optional(),
   prUrl: z.string().url().nullable().optional(),
   prNumber: z.number().int().positive().nullable().optional(),
+  failureCategory: z.string().max(80).nullable().optional(),
+  retryable: z.boolean().optional(),
+  leaseTtlSeconds: z.number().int().min(30).max(7200).optional(),
+  eventType: z.string().max(80).nullable().optional(),
+  eventMessage: z.string().max(10_000).nullable().optional(),
+  eventData: z.unknown().optional(),
+  artifacts: z
+    .array(
+      z.object({
+        type: z.string().min(1).max(80),
+        label: z.string().min(1).max(160),
+        content: z.string().max(200_000).nullable().optional(),
+        url: z.string().url().max(1024).nullable().optional(),
+        metadata: z.unknown().optional()
+      })
+    )
+    .max(10)
+    .optional(),
   result: z.unknown().optional()
 });
 
@@ -157,6 +176,21 @@ export async function codexRunnerRoutes(server: FastifyInstance): Promise<void> 
     }
   });
 
+  server.post('/jobs/recover-stale', async (request, reply) => {
+    if (!authenticateRunner(request, reply)) {
+      return;
+    }
+
+    try {
+      return reply.send(await recoverStaleCodexJobs());
+    } catch (error) {
+      request.log.error({ error }, 'Failed to recover stale Codex jobs.');
+      return reply.badRequest(
+        error instanceof Error ? error.message : 'Unable to recover stale Codex jobs.'
+      );
+    }
+  });
+
   server.get('/jobs/:jobId', async (request, reply) => {
     if (!authenticateRunner(request, reply)) {
       return;
@@ -194,9 +228,26 @@ export async function codexRunnerRoutes(server: FastifyInstance): Promise<void> 
     }
 
     try {
-      const { runnerId, result, ...rest } = bodyResult.data;
+      const { runnerId, result, eventData, artifacts, ...rest } = bodyResult.data;
       const job = await updateCodexJobFromRunner(params.jobId, runnerId, {
         ...rest,
+        ...(eventData === undefined
+          ? {}
+          : { eventData: eventData as Prisma.InputJsonValue }),
+        ...(artifacts === undefined
+          ? {}
+          : {
+              artifacts: artifacts.map((artifact) => ({
+                type: artifact.type,
+                label: artifact.label,
+                content: artifact.content,
+                url: artifact.url,
+                metadata:
+                  artifact.metadata === undefined
+                    ? undefined
+                    : (artifact.metadata as Prisma.InputJsonValue)
+              }))
+            }),
         ...(result === undefined ? {} : { result: result as Prisma.InputJsonValue })
       });
       return reply.send({ job });

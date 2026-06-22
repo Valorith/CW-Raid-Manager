@@ -45,6 +45,7 @@ const config = {
   codexCloudTimeoutMs: parsePositiveInt(process.env.CODEX_CLOUD_TIMEOUT_MS, 2 * 60 * 60 * 1000),
   pollIntervalMs: parsePositiveInt(process.env.CODEX_RUNNER_POLL_INTERVAL_MS, 15_000),
   heartbeatIntervalMs: parsePositiveInt(process.env.CODEX_RUNNER_HEARTBEAT_INTERVAL_MS, 5_000),
+  jobLeaseTtlSeconds: parsePositiveInt(process.env.CODEX_RUNNER_JOB_LEASE_TTL_SECONDS, 600),
   cancelCheckIntervalMs: parsePositiveInt(process.env.CODEX_RUNNER_CANCEL_CHECK_INTERVAL_MS, 5_000),
   draftPr: parseBoolean(process.env.CODEX_RUNNER_DRAFT_PR, false),
   verifyCommand: process.env.CODEX_RUNNER_VERIFY_COMMAND || '',
@@ -83,6 +84,7 @@ const runnerState = {
   githubCliBin: config.githubCliBin,
   pollIntervalMs: config.pollIntervalMs,
   heartbeatIntervalMs: config.heartbeatIntervalMs,
+  jobLeaseTtlSeconds: config.jobLeaseTtlSeconds,
   cancelCheckIntervalMs: config.cancelCheckIntervalMs,
   workRoot: config.workRoot,
   controlFile: config.controlFile,
@@ -204,7 +206,13 @@ async function processJob(job) {
   try {
     await updateJob(job.id, {
       status: 'RUNNING',
-      statusMessage: 'Cloning repository on the VPS runner.'
+      statusMessage: 'Cloning repository on the VPS runner.',
+      eventType: 'clone_started',
+      eventMessage: 'Cloning repository on the VPS runner.',
+      eventData: {
+        targetRepository: job.targetRepository,
+        baseBranch: job.baseBranch
+      }
     });
     await ensureJobActive(job.id);
 
@@ -239,6 +247,9 @@ async function processJob(job) {
       logPath,
       jobId: job.id
     });
+    await recordJobEvent(job.id, 'branch_ready', `Runner branch ready: ${job.branchName}.`, {
+      branchName: job.branchName
+    });
 
     const executionResult =
       config.executionMode === 'cloud-hybrid'
@@ -249,10 +260,18 @@ async function processJob(job) {
     if (config.verifyCommand) {
       await updateJob(job.id, {
         status: 'RUNNING',
-        statusMessage: `Running verification command: ${config.verifyCommand}`
+        statusMessage: `Running verification command: ${config.verifyCommand}`,
+        eventType: 'verification_started',
+        eventMessage: `Running verification command: ${config.verifyCommand}`,
+        eventData: {
+          command: config.verifyCommand
+        }
       });
       await ensureJobActive(job.id);
       await runShell(config.verifyCommand, { cwd: repoDir, logPath, jobId: job.id });
+      await recordJobEvent(job.id, 'verification_succeeded', 'Verification command completed.', {
+        command: config.verifyCommand
+      });
     }
 
     await runCommand('git', ['clean', '-f', '--', 'error.log'], {
@@ -273,7 +292,9 @@ async function processJob(job) {
 
     await updateJob(job.id, {
       status: 'RUNNING',
-      statusMessage: 'Committing Codex changes and opening a pull request.'
+      statusMessage: 'Committing Codex changes and opening a pull request.',
+      eventType: 'publish_started',
+      eventMessage: 'Committing Codex changes and opening a pull request.'
     });
 
     await ensureJobActive(job.id);
@@ -284,15 +305,28 @@ async function processJob(job) {
       jobId: job.id
     });
     await ensureJobActive(job.id);
-    await runCommand('git', ['push', '--set-upstream', 'origin', job.branchName], {
+    await runCommand('git', ['push', '--force-with-lease', '--set-upstream', 'origin', job.branchName], {
       cwd: repoDir,
       logPath,
       jobId: job.id
     });
     await ensureJobActive(job.id);
+    await recordJobEvent(job.id, 'branch_pushed', `Pushed ${job.branchName}.`, {
+      branchName: job.branchName
+    });
 
     const codexLastMessage = await readTextIfExists(lastMessagePath);
     await writeFile(prBodyPath, buildPullRequestBody(job, codexLastMessage, executionResult), 'utf8');
+    await recordJobArtifact(job.id, {
+      type: 'codex_notes',
+      label: 'Codex final notes',
+      content: truncate(codexLastMessage || 'Codex did not write a final message.', 80_000)
+    });
+    await recordJobArtifact(job.id, {
+      type: 'pull_request_body',
+      label: 'Pull request body',
+      content: truncate(await readTextIfExists(prBodyPath), 80_000)
+    });
 
     const prArgs = [
       'pr',
@@ -313,15 +347,28 @@ async function processJob(job) {
     }
 
     await ensureJobActive(job.id);
-    const pr = await runCommand(config.githubCliBin, prArgs, { cwd: repoDir, logPath, jobId: job.id });
-    const prUrl = extractPullRequestUrl(pr.stdout);
+    const existingPr = await findExistingPullRequest(job, { cwd: repoDir, logPath });
+    let prUrl = existingPr?.url || null;
+    let prNumber = existingPr?.number || null;
+    if (prUrl) {
+      await recordJobEvent(job.id, 'existing_pr_found', `Reusing existing pull request: ${prUrl}`, {
+        prUrl,
+        prNumber
+      });
+    } else {
+      const pr = await runCommand(config.githubCliBin, prArgs, { cwd: repoDir, logPath, jobId: job.id });
+      prUrl = extractPullRequestUrl(pr.stdout);
+      prNumber = extractPullRequestNumber(prUrl);
+    }
 
     await updateJob(job.id, {
       status: 'SUCCEEDED',
-      statusMessage: prUrl ? `Pull request created: ${prUrl}` : 'Pull request created.',
+      statusMessage: prUrl ? `Pull request ready: ${prUrl}` : 'Pull request created.',
       output: truncate(await readTextIfExists(logPath), 500_000),
       prUrl,
-      prNumber: extractPullRequestNumber(prUrl),
+      prNumber,
+      eventType: 'succeeded',
+      eventMessage: prUrl ? `Pull request ready: ${prUrl}` : 'Pull request created.',
       result: {
         branchName: job.branchName,
         pullRequestUrl: prUrl,
@@ -330,22 +377,59 @@ async function processJob(job) {
         ...(executionResult.codexCloud ? { codexCloud: executionResult.codexCloud } : {})
       }
     });
+    await recordJobArtifact(job.id, {
+      type: 'runner_log',
+      label: 'Runner log',
+      content: truncate(await readTextIfExists(logPath), 200_000)
+    });
+    if (prUrl) {
+      await recordJobArtifact(job.id, {
+        type: 'github_pr',
+        label: `GitHub PR #${prNumber || ''}`.trim(),
+        url: prUrl,
+        metadata: {
+          prUrl,
+          prNumber,
+          branchName: job.branchName
+        }
+      });
+    }
   } catch (error) {
     if (error instanceof JobCanceledError) {
       await updateJob(job.id, {
         status: 'CANCELED',
         statusMessage: 'Canceled by the Nexus runner control plane.',
-        output: truncate(await readTextIfExists(logPath), 500_000)
+        output: truncate(await readTextIfExists(logPath), 500_000),
+        eventType: 'canceled',
+        eventMessage: 'Canceled by the Nexus runner control plane.'
+      });
+      await recordJobArtifact(job.id, {
+        type: 'runner_log',
+        label: 'Runner log before cancellation',
+        content: truncate(await readTextIfExists(logPath), 200_000)
       });
       return;
     }
 
     const message = error instanceof Error ? error.message : String(error);
+    const retryable = isRetryableRunnerError(message);
     await updateJob(job.id, {
       status: 'FAILED',
       statusMessage: 'Codex runner failed.',
       error: message,
-      output: truncate(await readTextIfExists(logPath), 500_000)
+      output: truncate(await readTextIfExists(logPath), 500_000),
+      failureCategory: retryable ? 'transient_infrastructure' : 'runner_failure',
+      retryable,
+      eventType: 'failed',
+      eventMessage: message,
+      eventData: {
+        retryable
+      }
+    });
+    await recordJobArtifact(job.id, {
+      type: 'runner_log',
+      label: retryable ? 'Runner log for retryable failure' : 'Runner log for failure',
+      content: truncate(await readTextIfExists(logPath), 200_000)
     });
   }
 }
@@ -353,7 +437,9 @@ async function processJob(job) {
 async function runLocalCodexJob(job, { repoDir, logPath, lastMessagePath }) {
   await updateJob(job.id, {
     status: 'RUNNING',
-    statusMessage: 'Running local Codex CLI against the crash report.'
+    statusMessage: 'Running local Codex CLI against the crash report.',
+    eventType: 'codex_local_started',
+    eventMessage: 'Running local Codex CLI against the crash report.'
   });
   await ensureJobActive(job.id);
 
@@ -397,6 +483,8 @@ async function runCloudHybridCodexJob(job, { jobDir, repoDir, logPath, lastMessa
   await updateJob(job.id, {
     status: 'RUNNING',
     statusMessage: 'Submitting Codex Cloud task from the VPS runner.',
+    eventType: 'codex_cloud_submitting',
+    eventMessage: 'Submitting Codex Cloud task from the VPS runner.',
     result: {
       codexCloud: {
         envId: cloudEnvId,
@@ -454,6 +542,9 @@ async function runCloudHybridCodexJob(job, { jobDir, repoDir, logPath, lastMessa
   await updateJob(job.id, {
     status: 'RUNNING',
     statusMessage: formatCloudStatusMessage('Codex Cloud task submitted.', codexCloud),
+    eventType: 'codex_cloud_submitted',
+    eventMessage: formatCloudStatusMessage('Codex Cloud task submitted.', codexCloud),
+    eventData: codexCloud,
     result: {
       codexCloud
     }
@@ -481,6 +572,9 @@ async function runCloudHybridCodexJob(job, { jobDir, repoDir, logPath, lastMessa
   await updateJob(job.id, {
     status: 'RUNNING',
     statusMessage: formatCloudStatusMessage('Applying Codex Cloud diff locally.', completedTask),
+    eventType: 'codex_cloud_applying',
+    eventMessage: formatCloudStatusMessage('Applying Codex Cloud diff locally.', completedTask),
+    eventData: completedTask,
     result: {
       codexCloud: {
         ...completedTask,
@@ -545,6 +639,9 @@ async function pollCodexCloudTask(job, codexCloud, { cwd, logPath }) {
       await updateJob(job.id, {
         status: 'RUNNING',
         statusMessage: formatCloudStatusMessage(`Codex Cloud task is ${lastTask.status}.`, lastTask),
+        eventType: 'codex_cloud_status',
+        eventMessage: formatCloudStatusMessage(`Codex Cloud task is ${lastTask.status}.`, lastTask),
+        eventData: lastTask,
         result: {
           codexCloud: lastTask
         }
@@ -667,6 +764,7 @@ async function updateJob(jobId, patch) {
   try {
     await apiPost(`/jobs/${encodeURIComponent(jobId)}/status`, {
       runnerId: config.runnerId,
+      leaseTtlSeconds: config.jobLeaseTtlSeconds,
       ...patch
     });
   } catch (error) {
@@ -676,6 +774,22 @@ async function updateJob(jobId, patch) {
       }`
     );
   }
+}
+
+async function recordJobEvent(jobId, type, message, data = {}) {
+  await updateJob(jobId, {
+    eventType: type,
+    eventMessage: message,
+    eventData: data
+  });
+}
+
+async function recordJobArtifact(jobId, artifact) {
+  await updateJob(jobId, {
+    eventType: 'artifact_recorded',
+    eventMessage: `Recorded artifact: ${artifact.label}`,
+    artifacts: [artifact]
+  });
 }
 
 function updateCurrentJobFromPatch(jobId, patch) {
@@ -733,6 +847,13 @@ function runProcess(command, args, options) {
       options.displayCommand || (options.shell ? command : [command, ...args].map(shellQuote).join(' '));
 
     void appendFile(options.logPath, `\n[${startedAt}] $ ${rendered}\n`, 'utf8');
+    if (options.jobId) {
+      void recordJobEvent(options.jobId, 'command_started', rendered, {
+        command: rendered,
+        cwd: options.cwd || null,
+        startedAt
+      });
+    }
 
     const cancelTimer = options.jobId
       ? setInterval(() => {
@@ -801,12 +922,81 @@ function runProcess(command, args, options) {
         return;
       }
       if (code === 0) {
+        if (options.jobId) {
+          void recordJobEvent(options.jobId, 'command_succeeded', rendered, {
+            command: rendered,
+            exitCode: code,
+            completedAt: new Date().toISOString()
+          });
+        }
         resolvePromise({ stdout, stderr });
         return;
+      }
+      if (options.jobId) {
+        void recordJobEvent(options.jobId, 'command_failed', rendered, {
+          command: rendered,
+          exitCode: code,
+          completedAt: new Date().toISOString(),
+          output: truncate(stderr || stdout, 20_000)
+        });
       }
       reject(new Error(`${rendered} exited with code ${code}\n${stderr || stdout}`));
     });
   });
+}
+
+async function findExistingPullRequest(job, { cwd, logPath }) {
+  const result = await runCommand(
+    config.githubCliBin,
+    [
+      'pr',
+      'list',
+      '--repo',
+      job.targetRepository,
+      '--head',
+      job.branchName,
+      '--state',
+      'open',
+      '--json',
+      'number,url',
+      '--limit',
+      '5'
+    ],
+    {
+      cwd,
+      logPath,
+      jobId: job.id
+    }
+  );
+  const rows = JSON.parse(result.stdout || '[]');
+  const first = Array.isArray(rows) ? rows[0] : null;
+  if (!first?.url) {
+    return null;
+  }
+  return {
+    url: first.url,
+    number: Number.isFinite(Number(first.number)) ? Number(first.number) : extractPullRequestNumber(first.url)
+  };
+}
+
+function isRetryableRunnerError(message) {
+  const text = String(message || '').toLowerCase();
+  return [
+    'econnreset',
+    'etimedout',
+    'eai_again',
+    'enotfound',
+    'socket hang up',
+    'rate limit',
+    'temporarily unavailable',
+    '503',
+    '502',
+    '504',
+    'nexus api',
+    'codex cloud task did not finish',
+    'could not determine its task id',
+    'github api'
+  ].some((needle) => text.includes(needle));
 }
 
 function buildCommitMessage(job) {

@@ -15,11 +15,13 @@ const DEFAULT_CODEX_REPOSITORY = 'Valorith/Server';
 const DEFAULT_CODEX_BASE_BRANCH = 'master';
 const CODEX_CRASH_SOURCE_TYPE = 'crash_report';
 const RECENT_SUCCEEDED_DEDUPE_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+const DEFAULT_JOB_LEASE_MS = 10 * 60 * 1000;
 const TERMINAL_JOB_STATUSES = new Set<CodexJobStatus>([
   CodexJobStatus.SUCCEEDED,
   CodexJobStatus.FAILED,
   CodexJobStatus.CANCELED
 ]);
+const LEASED_JOB_STATUSES = [CodexJobStatus.CLAIMED, CodexJobStatus.RUNNING] as const;
 const ACTIVE_DEDUPE_JOB_STATUSES = [
   CodexJobStatus.QUEUED,
   CodexJobStatus.CLAIMED,
@@ -34,6 +36,34 @@ type CodexActionConfig = {
 };
 
 type CodexJobRecord = Prisma.CodexJobGetPayload<{}>;
+type CodexJobDetailRecord = CodexJobRecord & {
+  events?: Array<{
+    id: string;
+    runnerId: string | null;
+    type: string;
+    message: string | null;
+    data: Prisma.JsonValue | null;
+    createdAt: Date;
+  }>;
+  artifacts?: Array<{
+    id: string;
+    runnerId: string | null;
+    type: string;
+    label: string;
+    content: string | null;
+    url: string | null;
+    metadata: Prisma.JsonValue | null;
+    createdAt: Date;
+  }>;
+};
+
+type CodexJobArtifactInput = {
+  type: string;
+  label: string;
+  content?: string | null;
+  url?: string | null;
+  metadata?: Prisma.InputJsonValue | null;
+};
 
 export type SerializedCodexJob = ReturnType<typeof serializeCodexJob>;
 
@@ -49,11 +79,13 @@ export function isCodexRunnerConfigured(): boolean {
 }
 
 export function serializeCodexJob(
-  job: CodexJobRecord,
+  job: CodexJobDetailRecord,
   options: {
     includePrompt?: boolean;
     includeContext?: boolean;
     includeOutput?: boolean;
+    includeEvents?: boolean;
+    includeArtifacts?: boolean;
   } = {}
 ) {
   return {
@@ -72,8 +104,39 @@ export function serializeCodexJob(
     prUrl: job.prUrl,
     prNumber: job.prNumber,
     result: job.result,
+    retryCount: job.retryCount,
+    maxRetries: job.maxRetries,
+    failureCategory: job.failureCategory,
     ...(options.includePrompt ? { prompt: job.prompt } : {}),
     ...(options.includeContext ? { context: job.context } : {}),
+    ...(options.includeEvents
+      ? {
+          events: (job.events || []).map((event) => ({
+            id: event.id,
+            runnerId: event.runnerId,
+            type: event.type,
+            message: event.message,
+            data: event.data,
+            createdAt: event.createdAt.toISOString()
+          }))
+        }
+      : {}),
+    ...(options.includeArtifacts
+      ? {
+          artifacts: (job.artifacts || []).map((artifact) => ({
+            id: artifact.id,
+            runnerId: artifact.runnerId,
+            type: artifact.type,
+            label: artifact.label,
+            content: artifact.content,
+            url: artifact.url,
+            metadata: artifact.metadata,
+            createdAt: artifact.createdAt.toISOString()
+          }))
+        }
+      : {}),
+    leaseExpiresAt: job.leaseExpiresAt?.toISOString() ?? null,
+    lastHeartbeatAt: job.lastHeartbeatAt?.toISOString() ?? null,
     claimedAt: job.claimedAt?.toISOString() ?? null,
     startedAt: job.startedAt?.toISOString() ?? null,
     completedAt: job.completedAt?.toISOString() ?? null,
@@ -328,7 +391,21 @@ export async function getCodexJob(
   } = {}
 ) {
   const job = await prisma.codexJob.findUnique({
-    where: { id: jobId }
+    where: { id: jobId },
+    ...(options.includeDetail
+      ? {
+          include: {
+            events: {
+              orderBy: { createdAt: 'asc' },
+              take: 200
+            },
+            artifacts: {
+              orderBy: { createdAt: 'desc' },
+              take: 50
+            }
+          }
+        }
+      : {})
   });
 
   if (!job) {
@@ -337,7 +414,9 @@ export async function getCodexJob(
 
   return serializeCodexJob(job, {
     includePrompt: options.includeDetail === true,
-    includeContext: options.includeDetail === true
+    includeContext: options.includeDetail === true,
+    includeEvents: options.includeDetail === true,
+    includeArtifacts: options.includeDetail === true
   });
 }
 
@@ -392,6 +471,16 @@ export async function createAdHocCodexJob(input: {
       statusMessage: 'Queued from the VPS runner dashboard.'
     }
   });
+  await recordCodexJobEvent(job.id, {
+    type: 'queued',
+    message: 'Queued from the VPS runner dashboard.',
+    data: {
+      source: 'runner-dashboard',
+      targetRepository,
+      baseBranch,
+      branchName
+    }
+  });
 
   return serializeCodexJob(job);
 }
@@ -416,7 +505,15 @@ export async function cancelCodexJob(jobId: string, reason?: string | null) {
     data: {
       status: CodexJobStatus.CANCELED,
       statusMessage: message,
+      leaseExpiresAt: null,
       completedAt: new Date()
+    }
+  });
+  await recordCodexJobEvent(job.id, {
+    type: 'canceled',
+    message,
+    data: {
+      reason: reason || null
     }
   });
 
@@ -445,6 +542,8 @@ export async function retryCodexJob(jobId: string) {
       status: CodexJobStatus.QUEUED,
       sourceType: existing.sourceType,
       dedupeKey: existing.dedupeKey,
+      retryCount: existing.retryCount + 1,
+      maxRetries: existing.maxRetries,
       targetRepository: existing.targetRepository,
       baseBranch: existing.baseBranch,
       branchName,
@@ -460,6 +559,22 @@ export async function retryCodexJob(jobId: string) {
       result: {
         retriedFromJobId: existing.id
       }
+    }
+  });
+  await recordCodexJobEvent(existing.id, {
+    type: 'retry_requested',
+    message: `Retry queued as ${job.id}.`,
+    data: {
+      retryJobId: job.id,
+      retryCount: existing.retryCount + 1
+    }
+  });
+  await recordCodexJobEvent(job.id, {
+    type: 'queued',
+    message: `Queued as a retry of ${existing.id}.`,
+    data: {
+      retriedFromJobId: existing.id,
+      retryCount: existing.retryCount + 1
     }
   });
 
@@ -577,6 +692,18 @@ export async function createCodexJobForWebhookMessage(
       statusMessage: 'Queued for the VPS Codex runner.'
     }
   });
+  await recordCodexJobEvent(job.id, {
+    type: 'queued',
+    message: 'Queued for the VPS Codex runner.',
+    data: {
+      source: CODEX_CRASH_SOURCE_TYPE,
+      messageId,
+      dedupeKey: dedupe.key,
+      targetRepository,
+      baseBranch,
+      branchName
+    }
+  });
 
   return {
     job: serializeCodexJob(job),
@@ -587,6 +714,8 @@ export async function createCodexJobForWebhookMessage(
 }
 
 export async function claimNextCodexJob(runnerId: string) {
+  await recoverStaleCodexJobs();
+
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const nextJob = await prisma.codexJob.findFirst({
       where: { status: CodexJobStatus.QUEUED },
@@ -606,6 +735,8 @@ export async function claimNextCodexJob(runnerId: string) {
         status: CodexJobStatus.CLAIMED,
         runnerId,
         claimedAt: new Date(),
+        lastHeartbeatAt: new Date(),
+        leaseExpiresAt: new Date(Date.now() + DEFAULT_JOB_LEASE_MS),
         statusMessage: `Claimed by ${runnerId}.`
       }
     });
@@ -613,6 +744,16 @@ export async function claimNextCodexJob(runnerId: string) {
     if (claimed.count === 1) {
       const job = await prisma.codexJob.findUniqueOrThrow({
         where: { id: nextJob.id }
+      });
+      await recordCodexJobEvent(job.id, {
+        runnerId,
+        type: 'claimed',
+        message: `Claimed by ${runnerId}.`,
+        data: {
+          leaseExpiresAt: job.leaseExpiresAt?.toISOString() ?? null,
+          retryCount: job.retryCount,
+          maxRetries: job.maxRetries
+        }
       });
       return {
         ...serializeCodexJob(job),
@@ -622,6 +763,69 @@ export async function claimNextCodexJob(runnerId: string) {
   }
 
   return null;
+}
+
+export async function recoverStaleCodexJobs(options: { now?: Date } = {}) {
+  const now = options.now ?? new Date();
+  const staleJobs = await prisma.codexJob.findMany({
+    where: {
+      status: { in: [...LEASED_JOB_STATUSES] },
+      leaseExpiresAt: { lt: now }
+    },
+    orderBy: { leaseExpiresAt: 'asc' },
+    take: 50
+  });
+  const recovered: SerializedCodexJob[] = [];
+  const failed: SerializedCodexJob[] = [];
+
+  for (const job of staleJobs) {
+    const canRetry = job.retryCount < job.maxRetries;
+    const updated = await prisma.codexJob.update({
+      where: { id: job.id },
+      data: canRetry
+        ? {
+            status: CodexJobStatus.QUEUED,
+            runnerId: null,
+            retryCount: { increment: 1 },
+            failureCategory: 'stale_runner',
+            leaseExpiresAt: null,
+            lastHeartbeatAt: now,
+            claimedAt: null,
+            startedAt: null,
+            completedAt: null,
+            statusMessage: `Runner lease expired; requeued (${job.retryCount + 1}/${job.maxRetries}).`
+          }
+        : {
+            status: CodexJobStatus.FAILED,
+            failureCategory: 'stale_runner',
+            leaseExpiresAt: null,
+            lastHeartbeatAt: now,
+            completedAt: now,
+            statusMessage: 'Runner lease expired and retry limit was reached.',
+            error: `Runner ${job.runnerId || 'unknown'} stopped heartbeating before completion.`
+          }
+    });
+    await recordCodexJobEvent(updated.id, {
+      runnerId: job.runnerId,
+      type: canRetry ? 'lease_expired_requeued' : 'lease_expired_failed',
+      message: canRetry
+        ? `Runner lease expired; requeued (${job.retryCount + 1}/${job.maxRetries}).`
+        : 'Runner lease expired and retry limit was reached.',
+      data: {
+        previousRunnerId: job.runnerId,
+        previousStatus: job.status,
+        leaseExpiresAt: job.leaseExpiresAt?.toISOString() ?? null,
+        retryCount: job.retryCount,
+        maxRetries: job.maxRetries
+      }
+    });
+    (canRetry ? recovered : failed).push(serializeCodexJob(updated));
+  }
+
+  return {
+    recovered,
+    failed
+  };
 }
 
 export async function updateCodexJobFromRunner(
@@ -634,6 +838,13 @@ export async function updateCodexJobFromRunner(
     output?: string | null;
     prUrl?: string | null;
     prNumber?: number | null;
+    failureCategory?: string | null;
+    retryable?: boolean;
+    leaseTtlSeconds?: number;
+    eventType?: string | null;
+    eventMessage?: string | null;
+    eventData?: Prisma.InputJsonValue | null;
+    artifacts?: CodexJobArtifactInput[];
     result?: Prisma.InputJsonValue | null;
   }
 ) {
@@ -658,46 +869,134 @@ export async function updateCodexJobFromRunner(
   }
 
   const now = new Date();
-  const data: Prisma.CodexJobUpdateInput = {
-    runnerId
-  };
+  const existingTerminal = TERMINAL_JOB_STATUSES.has(existing.status);
+  if (existingTerminal && input.status && input.status !== existing.status) {
+    return serializeCodexJob(existing);
+  }
 
-  if (input.status) {
-    data.status = input.status;
-    if (input.status === CodexJobStatus.RUNNING && !existing.startedAt) {
-      data.startedAt = now;
-    }
-    if (
-      input.status === CodexJobStatus.SUCCEEDED ||
-      input.status === CodexJobStatus.FAILED ||
-      input.status === CodexJobStatus.CANCELED
-    ) {
-      data.completedAt = now;
+  const terminalStatus = input.status ? TERMINAL_JOB_STATUSES.has(input.status) : false;
+  const retryableFailure =
+    input.status === CodexJobStatus.FAILED &&
+    input.retryable === true &&
+    existing.retryCount < existing.maxRetries;
+  const data: Prisma.CodexJobUpdateInput = existingTerminal
+    ? {}
+    : {
+        runnerId,
+        lastHeartbeatAt: now
+      };
+
+  if (!existingTerminal && input.status) {
+    if (retryableFailure) {
+      data.status = CodexJobStatus.QUEUED;
+      data.runnerId = null;
+      data.retryCount = { increment: 1 };
+      data.leaseExpiresAt = null;
+      data.claimedAt = null;
+      data.startedAt = null;
+      data.completedAt = null;
+      data.failureCategory = normalizeFailureCategory(input.failureCategory) || 'transient';
+      data.statusMessage = `Retrying after transient runner failure (${existing.retryCount + 1}/${existing.maxRetries}).`;
+    } else {
+      data.status = input.status;
+      if (input.status === CodexJobStatus.RUNNING && !existing.startedAt) {
+        data.startedAt = now;
+      }
+      if (terminalStatus) {
+        data.completedAt = now;
+        data.leaseExpiresAt = null;
+      }
     }
   }
 
-  if (input.statusMessage !== undefined) {
+  if (!existingTerminal && !terminalStatus && !retryableFailure) {
+    data.leaseExpiresAt = new Date(
+      now.getTime() + Math.max(30, Math.min(input.leaseTtlSeconds ?? 600, 7200)) * 1000
+    );
+  }
+
+  if (!existingTerminal && input.statusMessage !== undefined && !retryableFailure) {
     data.statusMessage = input.statusMessage;
   }
-  if (input.error !== undefined) {
+  if (!existingTerminal && input.error !== undefined) {
     data.error = input.error;
   }
-  if (input.output !== undefined) {
+  if (!existingTerminal && input.output !== undefined) {
     data.output = input.output;
   }
-  if (input.prUrl !== undefined) {
+  if (!existingTerminal && input.prUrl !== undefined) {
     data.prUrl = input.prUrl;
   }
-  if (input.prNumber !== undefined) {
+  if (!existingTerminal && input.prNumber !== undefined) {
     data.prNumber = input.prNumber;
   }
-  if (input.result !== undefined) {
+  if (!existingTerminal && input.failureCategory !== undefined && !retryableFailure) {
+    data.failureCategory = normalizeFailureCategory(input.failureCategory);
+  }
+  if (!existingTerminal && input.result !== undefined) {
     data.result = input.result === null ? Prisma.JsonNull : input.result;
   }
 
-  const job = await prisma.codexJob.update({
-    where: { id: jobId },
-    data
+  const eventType = normalizeEventType(
+    input.eventType ||
+      (retryableFailure
+        ? 'retry_scheduled'
+        : input.status
+          ? `status_${input.status.toLowerCase()}`
+          : 'heartbeat')
+  );
+  const eventMessage =
+    input.eventMessage ||
+    (retryableFailure ? 'Transient failure recorded; job requeued.' : input.statusMessage) ||
+    null;
+
+  const job = await prisma.$transaction(async (tx) => {
+    const updated = Object.keys(data).length
+      ? await tx.codexJob.update({
+          where: { id: jobId },
+          data
+        })
+      : existing;
+
+    await tx.codexJobEvent.create({
+      data: {
+        jobId,
+        runnerId,
+        type: eventType,
+        message: eventMessage,
+        data: sanitizeJsonInput({
+          ...(input.eventData && typeof input.eventData === 'object' && !Array.isArray(input.eventData)
+            ? (input.eventData as Prisma.JsonObject)
+            : {}),
+          status: input.status || existing.status,
+          retryable: input.retryable === true,
+          retryScheduled: retryableFailure,
+          failureCategory: input.failureCategory || null
+        })
+      }
+    });
+
+    if (input.artifacts?.length) {
+      await tx.codexJobArtifact.createMany({
+        data: input.artifacts.slice(0, 10).map((artifact) => ({
+          jobId,
+          runnerId,
+          type: normalizeEventType(artifact.type),
+          label: normalizeArtifactLabel(artifact.label),
+          content:
+            artifact.content === undefined || artifact.content === null
+              ? null
+              : truncateText(artifact.content, 200_000),
+          url: artifact.url ? truncateText(artifact.url, 1024) : null,
+          metadata:
+            artifact.metadata === undefined || artifact.metadata === null
+              ? Prisma.JsonNull
+              : artifact.metadata
+        }))
+      });
+    }
+
+    return updated;
   });
 
   return serializeCodexJob(job);
@@ -784,12 +1083,24 @@ async function appendDuplicateCrashEvidence(
     }
   };
 
-  return prisma.codexJob.update({
+  const updated = await prisma.codexJob.update({
     where: { id: job.id },
     data: {
       context: nextContext as Prisma.InputJsonValue
     }
   });
+  await recordCodexJobEvent(updated.id, {
+    type: 'deduped_duplicate',
+    message: `Duplicate crash report linked: ${duplicate.messageId}.`,
+    data: {
+      messageId: duplicate.messageId,
+      receivedAt: duplicate.receivedAt.toISOString(),
+      reason: duplicate.reason,
+      dedupeKey: duplicate.dedupeKey
+    }
+  });
+
+  return updated;
 }
 
 function getLatestReviewFromActionRuns(
@@ -1086,6 +1397,55 @@ function truncateForPrompt(value: string) {
     return value;
   }
   return `${value.slice(0, MAX_PROMPT_CONTEXT_CHARS)}\n... truncated by Nexus ...`;
+}
+
+async function recordCodexJobEvent(
+  jobId: string,
+  input: {
+    runnerId?: string | null;
+    type: string;
+    message?: string | null;
+    data?: Prisma.InputJsonValue | null;
+  }
+) {
+  await prisma.codexJobEvent.create({
+    data: {
+      jobId,
+      runnerId: input.runnerId || null,
+      type: normalizeEventType(input.type),
+      message: input.message ? truncateText(input.message, 10_000) : null,
+      data: input.data === undefined || input.data === null ? Prisma.JsonNull : input.data
+    }
+  });
+}
+
+function normalizeEventType(value: string) {
+  return (
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9_.:-]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 80) || 'event'
+  );
+}
+
+function normalizeArtifactLabel(value: string) {
+  return truncateText(value.replace(/\s+/g, ' ').trim() || 'Artifact', 160);
+}
+
+function normalizeFailureCategory(value: string | null | undefined) {
+  if (!value?.trim()) {
+    return null;
+  }
+  return normalizeEventType(value).slice(0, 80);
+}
+
+function sanitizeJsonInput(value: Prisma.InputJsonValue): Prisma.InputJsonValue {
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
+function truncateText(value: string, maxLength: number) {
+  return value.length > maxLength ? `${value.slice(0, maxLength)}\n... truncated by Nexus ...` : value;
 }
 
 function clampNumber(value: number, min: number, max: number) {

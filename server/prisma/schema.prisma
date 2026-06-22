@@ -986,6 +986,11 @@ model CodexJob {
   prUrl            String?                @db.VarChar(1024)
   prNumber         Int?
   result           Json?
+  retryCount       Int                    @default(0)
+  maxRetries       Int                    @default(1)
+  failureCategory  String?                @db.VarChar(80)
+  leaseExpiresAt   DateTime?
+  lastHeartbeatAt  DateTime?
   claimedAt        DateTime?
   startedAt        DateTime?
   completedAt      DateTime?
@@ -993,12 +998,45 @@ model CodexJob {
   updatedAt        DateTime               @updatedAt
   message          InboundWebhookMessage? @relation(fields: [messageId], references: [id], onDelete: Cascade)
   createdBy        User?                  @relation("CodexJobCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  events           CodexJobEvent[]
+  artifacts        CodexJobArtifact[]
 
   @@index([messageId])
   @@index([createdById])
   @@index([status, createdAt])
+  @@index([status, leaseExpiresAt], map: "CodexJob_status_lease_idx")
   @@index([dedupeKey, targetRepository, baseBranch, status], map: "CodexJob_dedupe_target_status_idx")
   @@index([branchName])
+}
+
+model CodexJobEvent {
+  id        String     @id @default(cuid())
+  jobId     String
+  runnerId  String?    @db.VarChar(120)
+  type      String     @db.VarChar(80)
+  message   String?    @db.Text
+  data      Json?
+  createdAt DateTime   @default(now())
+  job       CodexJob   @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, createdAt])
+  @@index([type, createdAt])
+}
+
+model CodexJobArtifact {
+  id        String     @id @default(cuid())
+  jobId     String
+  runnerId  String?    @db.VarChar(120)
+  type      String     @db.VarChar(80)
+  label     String     @db.VarChar(160)
+  content   String?    @db.LongText
+  url       String?    @db.VarChar(1024)
+  metadata  Json?
+  createdAt DateTime   @default(now())
+  job       CodexJob   @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, createdAt])
+  @@index([type, createdAt])
 }
 
 // Webhook Message Read Status - per-user read tracking

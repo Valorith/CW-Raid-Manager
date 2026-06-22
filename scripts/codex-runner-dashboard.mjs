@@ -2860,6 +2860,26 @@ function renderDashboardPage(session) {
       font-size: 12px;
       white-space: nowrap;
     }
+    .artifact-list {
+      display: grid;
+      gap: 10px;
+    }
+    .artifact-row {
+      display: grid;
+      gap: 7px;
+      min-width: 0;
+      border: 1px solid rgba(172, 187, 205, 0.16);
+      border-radius: 8px;
+      background: rgba(2, 6, 23, 0.22);
+      padding: 11px;
+    }
+    .artifact-row pre {
+      max-height: 220px;
+      padding: 10px;
+      border: 1px solid rgba(172, 187, 205, 0.12);
+      border-radius: 7px;
+      background: rgba(2, 6, 23, 0.34);
+    }
     .toolbar {
       display: flex;
       justify-content: space-between;
@@ -4181,6 +4201,56 @@ function renderDashboardPage(session) {
       '</section>';
     }
 
+    function eventClass(type) {
+      const text = String(type || '').toLowerCase();
+      if (text.includes('failed')) return 'failed';
+      if (text.includes('running') || text.includes('started') || text.includes('submitted') || text.includes('status')) return 'current';
+      return 'done';
+    }
+
+    function renderJobEvents(events) {
+      const rows = Array.isArray(events) ? events : [];
+      if (!rows.length) {
+        return '<section class="job"><h3>Runner Events</h3><div class="empty">No structured events captured for this job yet.</div></section>';
+      }
+      return '<section class="job"><h3>Runner Events</h3><div class="task-timeline">' +
+        rows.map((event) => {
+          return '<div class="timeline-step ' + escapeHtml(eventClass(event.type)) + '">' +
+            '<span class="timeline-dot"></span>' +
+            '<div class="timeline-main">' +
+              '<strong>' + escapeHtml(event.type || 'event') + '</strong>' +
+              '<small>' + escapeHtml(event.message || '') + '</small>' +
+              (event.runnerId ? '<small>Runner: ' + escapeHtml(event.runnerId) + '</small>' : '') +
+            '</div>' +
+            '<span class="timeline-time">' + escapeHtml(relativeTime(event.createdAt)) + '</span>' +
+          '</div>';
+        }).join('') +
+      '</div></section>';
+    }
+
+    function renderJobArtifacts(artifacts) {
+      const rows = Array.isArray(artifacts) ? artifacts : [];
+      if (!rows.length) {
+        return '<section class="job"><h3>Artifacts</h3><div class="empty">No artifacts captured for this job yet.</div></section>';
+      }
+      return '<section class="job"><h3>Artifacts</h3><div class="artifact-list">' +
+        rows.map((artifact) => {
+          const link = artifact.url
+            ? '<a href="' + escapeHtml(artifact.url) + '" target="_blank" rel="noreferrer">' + escapeHtml(artifact.url) + '</a>'
+            : '';
+          const content = artifact.content
+            ? '<pre>' + escapeHtml(artifact.content) + '</pre>'
+            : '';
+          return '<div class="artifact-row">' +
+            '<div class="row">' + renderBadge(artifact.type || 'artifact', 'idle') + '<strong>' + escapeHtml(artifact.label || 'Artifact') + '</strong></div>' +
+            '<div class="mini">' + escapeHtml(relativeTime(artifact.createdAt)) + (artifact.runnerId ? ' · ' + escapeHtml(artifact.runnerId) : '') + '</div>' +
+            link +
+            content +
+          '</div>';
+        }).join('') +
+      '</div></section>';
+    }
+
     function renderSummary(runners, tasks, service, integrations, pool, poolService) {
       const activeRunners = runners.filter((runner) => runner.active && !runner.paused).length;
       const pausedRunners = runners.filter((runner) => runner.paused).length;
@@ -4486,12 +4556,18 @@ function renderDashboardPage(session) {
       detailBodyEl.innerHTML =
         renderTaskBacklinks(task) +
         renderTaskTimeline(task) +
+        renderJobEvents(task.events) +
+        renderJobArtifacts(task.artifacts) +
         '<div class="grid">' +
           renderField('Status', task.status) +
           renderField('Repository', task.targetRepository, true) +
           renderField('Base branch', task.baseBranch, true) +
           renderField('Branch', task.branchName, true) +
           renderField('Runner', task.runnerId, true) +
+          renderField('Retry count', (task.retryCount || 0) + ' / ' + (task.maxRetries ?? 0)) +
+          renderField('Failure category', task.failureCategory || 'none') +
+          renderField('Lease expires', task.leaseExpiresAt ? relativeTime(task.leaseExpiresAt) : 'none') +
+          renderField('Heartbeat', task.lastHeartbeatAt ? relativeTime(task.lastHeartbeatAt) : 'none') +
           renderField('Created', relativeTime(task.createdAt)) +
           renderField('Updated', relativeTime(task.updatedAt)) +
         '</div>' +

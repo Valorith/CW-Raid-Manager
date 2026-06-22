@@ -83,6 +83,7 @@ while (!shuttingDown) {
 
 async function scaleOnce() {
   const generatedAt = new Date().toISOString();
+  const recovery = await recoverStaleJobs();
   const [jobs, heartbeats] = await Promise.all([listActiveJobs(), listRunnerHeartbeats()]);
   const queue = summarizeQueue(jobs);
   const desiredIds = buildDesiredRunnerIds();
@@ -179,6 +180,7 @@ async function scaleOnce() {
     ok: true,
     config: serializeConfig(),
     queue,
+    recovery,
     pool: {
       target,
       busy: busyCount,
@@ -189,6 +191,14 @@ async function scaleOnce() {
     instances: refreshedUnits.map((unit, index) => serializeInstance(unit, index < target)),
     actions: latestActions
   });
+}
+
+async function recoverStaleJobs() {
+  const body = await nexusPost('/jobs/recover-stale', {});
+  return {
+    recovered: Array.isArray(body.recovered) ? body.recovered.length : 0,
+    failed: Array.isArray(body.failed) ? body.failed.length : 0
+  };
 }
 
 async function listActiveJobs() {
@@ -372,6 +382,28 @@ async function nexusGet(path) {
     throw new Error(body?.error || body?.message || text || `Nexus responded with ${response.status}.`);
   }
   return body || {};
+}
+
+async function nexusPost(path, body) {
+  const response = await fetch(`${config.nexusBaseUrl}/api/codex-runner${path}`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${config.token}`,
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify(body || {})
+  });
+  const text = await response.text();
+  let parsed = null;
+  try {
+    parsed = text ? JSON.parse(text) : null;
+  } catch {
+    parsed = null;
+  }
+  if (!response.ok) {
+    throw new Error(parsed?.error || parsed?.message || text || `Nexus responded with ${response.status}.`);
+  }
+  return parsed || {};
 }
 
 async function writePoolState(state) {
