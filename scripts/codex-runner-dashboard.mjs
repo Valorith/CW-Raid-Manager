@@ -1804,9 +1804,9 @@ function renderDashboardPage(session) {
     main { padding: 24px 0 48px; }
     .command-bar {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      align-items: start;
-      gap: 14px;
+      grid-template-columns: 1fr;
+      align-items: stretch;
+      gap: 12px;
       margin-bottom: 16px;
     }
     .summary-strip {
@@ -1818,7 +1818,8 @@ function renderDashboardPage(session) {
       align-items: center;
       justify-content: flex-end;
       gap: 8px;
-      min-width: max-content;
+      min-width: 0;
+      flex-wrap: wrap;
     }
     .readiness-button {
       gap: 7px;
