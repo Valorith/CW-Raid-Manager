@@ -204,57 +204,14 @@ async function processJob(job) {
   await writeFile(promptPath, job.prompt, 'utf8');
 
   try {
-    await updateJob(job.id, {
-      status: 'RUNNING',
-      statusMessage: 'Cloning repository on the VPS runner.',
-      eventType: 'clone_started',
-      eventMessage: 'Cloning repository on the VPS runner.',
-      eventData: {
-        targetRepository: job.targetRepository,
-        baseBranch: job.baseBranch
-      }
-    });
-    await ensureJobActive(job.id);
-
-    await runCommand(
-      config.githubCliBin,
-      [
-        'repo',
-        'clone',
-        job.targetRepository,
-        repoDir,
-        '--',
-        '--branch',
-        job.baseBranch,
-        '--single-branch'
-      ],
-      { cwd: jobDir, logPath, jobId: job.id }
-    );
-
-    await ensureJobActive(job.id);
-    await runCommand('git', ['checkout', '-b', job.branchName], {
-      cwd: repoDir,
-      logPath,
-      jobId: job.id
-    });
-    await runCommand('git', ['config', 'user.name', config.gitUserName], {
-      cwd: repoDir,
-      logPath,
-      jobId: job.id
-    });
-    await runCommand('git', ['config', 'user.email', config.gitUserEmail], {
-      cwd: repoDir,
-      logPath,
-      jobId: job.id
-    });
-    await recordJobEvent(job.id, 'branch_ready', `Runner branch ready: ${job.branchName}.`, {
-      branchName: job.branchName
-    });
-
-    const executionResult =
-      config.executionMode === 'cloud-hybrid'
-        ? await runCloudHybridCodexJob(job, { jobDir, repoDir, logPath, lastMessagePath })
-        : await runLocalCodexJob(job, { repoDir, logPath, lastMessagePath });
+    const executionResult = config.executionMode === 'cloud-hybrid'
+      ? await runCloudHybridCodexJob(job, { jobDir, repoDir, logPath, lastMessagePath })
+      : await runLocalCodexJob(job, {
+          repoDir,
+          logPath,
+          lastMessagePath,
+          prepareRepository: () => prepareRepository(job, { jobDir, repoDir, logPath })
+        });
     await ensureJobActive(job.id);
 
     if (config.verifyCommand) {
@@ -434,7 +391,58 @@ async function processJob(job) {
   }
 }
 
-async function runLocalCodexJob(job, { repoDir, logPath, lastMessagePath }) {
+async function prepareRepository(job, { jobDir, repoDir, logPath }) {
+  await updateJob(job.id, {
+    status: 'RUNNING',
+    statusMessage: 'Cloning repository on the VPS runner.',
+    eventType: 'clone_started',
+    eventMessage: 'Cloning repository on the VPS runner.',
+    eventData: {
+      targetRepository: job.targetRepository,
+      baseBranch: job.baseBranch
+    }
+  });
+  await ensureJobActive(job.id);
+
+  await rm(repoDir, { recursive: true, force: true });
+  await runCommand(
+    config.githubCliBin,
+    [
+      'repo',
+      'clone',
+      job.targetRepository,
+      repoDir,
+      '--',
+      '--branch',
+      job.baseBranch,
+      '--single-branch'
+    ],
+    { cwd: jobDir, logPath, jobId: job.id }
+  );
+
+  await ensureJobActive(job.id);
+  await runCommand('git', ['checkout', '-b', job.branchName], {
+    cwd: repoDir,
+    logPath,
+    jobId: job.id
+  });
+  await runCommand('git', ['config', 'user.name', config.gitUserName], {
+    cwd: repoDir,
+    logPath,
+    jobId: job.id
+  });
+  await runCommand('git', ['config', 'user.email', config.gitUserEmail], {
+    cwd: repoDir,
+    logPath,
+    jobId: job.id
+  });
+  await recordJobEvent(job.id, 'branch_ready', `Runner branch ready: ${job.branchName}.`, {
+    branchName: job.branchName
+  });
+}
+
+async function runLocalCodexJob(job, { repoDir, logPath, lastMessagePath, prepareRepository }) {
+  await prepareRepository();
   await updateJob(job.id, {
     status: 'RUNNING',
     statusMessage: 'Running local Codex CLI against the crash report.',
@@ -510,7 +518,7 @@ async function runCloudHybridCodexJob(job, { jobDir, repoDir, logPath, lastMessa
       await readFile(cloudPromptPath, 'utf8')
     ],
     {
-      cwd: repoDir,
+      cwd: jobDir,
       logPath,
       jobId: job.id,
       env: getCodexEnv(),
@@ -521,7 +529,7 @@ async function runCloudHybridCodexJob(job, { jobDir, repoDir, logPath, lastMessa
   let task = extractCloudTaskReference(`${submit.stdout}\n${submit.stderr}`);
   if (!task.id) {
     task =
-      (await findNewestCloudTask(submittedAt, { cwd: repoDir, logPath, jobId: job.id, envId: cloudEnvId })) ||
+      (await findNewestCloudTask(submittedAt, { cwd: jobDir, logPath, jobId: job.id, envId: cloudEnvId })) ||
       task;
   }
   if (!task.id) {
@@ -550,9 +558,9 @@ async function runCloudHybridCodexJob(job, { jobDir, repoDir, logPath, lastMessa
     }
   });
 
-  const completedTask = await pollCodexCloudTask(job, codexCloud, { cwd: repoDir, logPath });
+  const completedTask = await pollCodexCloudTask(job, codexCloud, { cwd: jobDir, logPath });
   const statusText = await readCodexCloudStatusText(codexCloud.taskId, {
-    cwd: repoDir,
+    cwd: jobDir,
     logPath,
     jobId: job.id
   }).catch((error) => {
@@ -571,9 +579,9 @@ async function runCloudHybridCodexJob(job, { jobDir, repoDir, logPath, lastMessa
 
   await updateJob(job.id, {
     status: 'RUNNING',
-    statusMessage: formatCloudStatusMessage('Applying Codex Cloud diff locally.', completedTask),
+    statusMessage: formatCloudStatusMessage('Preparing local checkout for Codex Cloud diff.', completedTask),
     eventType: 'codex_cloud_applying',
-    eventMessage: formatCloudStatusMessage('Applying Codex Cloud diff locally.', completedTask),
+    eventMessage: formatCloudStatusMessage('Preparing local checkout for Codex Cloud diff.', completedTask),
     eventData: completedTask,
     result: {
       codexCloud: {
@@ -582,6 +590,17 @@ async function runCloudHybridCodexJob(job, { jobDir, repoDir, logPath, lastMessa
         applyingAt: new Date().toISOString()
       }
     }
+  });
+  await ensureJobActive(job.id);
+
+  await prepareRepository(job, { jobDir, repoDir, logPath });
+
+  await updateJob(job.id, {
+    status: 'RUNNING',
+    statusMessage: formatCloudStatusMessage('Applying Codex Cloud diff locally.', completedTask),
+    eventType: 'codex_cloud_applying',
+    eventMessage: formatCloudStatusMessage('Applying Codex Cloud diff locally.', completedTask),
+    eventData: completedTask
   });
   await ensureJobActive(job.id);
 
@@ -910,7 +929,7 @@ function runProcess(command, args, options) {
       }
       reject(error);
     });
-    child.on('close', (code) => {
+    child.on('close', (code, signal) => {
       if (cancelTimer) {
         clearInterval(cancelTimer);
       }
@@ -936,11 +955,13 @@ function runProcess(command, args, options) {
         void recordJobEvent(options.jobId, 'command_failed', rendered, {
           command: rendered,
           exitCode: code,
+          signal: signal || null,
           completedAt: new Date().toISOString(),
           output: truncate(stderr || stdout, 20_000)
         });
       }
-      reject(new Error(`${rendered} exited with code ${code}\n${stderr || stdout}`));
+      const exitSummary = signal ? `signal ${signal}` : `code ${code}`;
+      reject(new Error(`${rendered} exited with ${exitSummary}\n${stderr || stdout}`));
     });
   });
 }
@@ -995,7 +1016,13 @@ function isRetryableRunnerError(message) {
     'nexus api',
     'codex cloud task did not finish',
     'could not determine its task id',
-    'github api'
+    'github api',
+    'exited with signal',
+    'sigterm',
+    'sigkill',
+    'early eof',
+    'remote end hung up',
+    'connection reset by peer'
   ].some((needle) => text.includes(needle));
 }
 
