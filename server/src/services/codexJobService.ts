@@ -5,6 +5,7 @@ import { CodexJobStatus, InboundWebhookActionType, Prisma } from '@prisma/client
 import {
   buildCodexCrashHandoffPayload,
   buildCrashReviewInput,
+  isServerCrashReportIntake,
   looksLikeCrashReport
 } from './inboundWebhookService.js';
 import { appConfig } from '../config/appConfig.js';
@@ -621,7 +622,7 @@ export async function createCodexJobForWebhookMessage(
   if (!crashReport.trim()) {
     throw new Error('Crash report text is empty.');
   }
-  if (!looksLikeCrashReport(crashReport)) {
+  if (!isServerCrashReportIntake(message.webhook) && !looksLikeCrashReport(crashReport)) {
     throw new Error('Only crash reports can be sent to Codex.');
   }
 

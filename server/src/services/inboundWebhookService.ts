@@ -340,7 +340,7 @@ export function generateWebhookToken(): string {
   return randomBytes(24).toString('base64url');
 }
 
-function isServerCrashReportIntake(
+export function isServerCrashReportIntake(
   webhook: { intakeType?: InboundWebhookIntakeType | null } | null | undefined
 ): boolean {
   return webhook?.intakeType === SERVER_CRASH_REPORT_INTAKE;
@@ -735,7 +735,7 @@ export async function sendCodexSlackHandoffForMessage(
   if (!crashReport.trim()) {
     throw new Error('Crash report text is empty.');
   }
-  if (!looksLikeCrashReport(crashReport)) {
+  if (!isServerCrashReportIntake(message.webhook) && !looksLikeCrashReport(crashReport)) {
     throw new Error('Only crash reports can be sent to Codex.');
   }
 
@@ -2849,11 +2849,35 @@ export function looksLikeCrashReport(text: string): boolean {
     return true;
   }
 
+  const lines = text.split(/\r?\n/);
+  const nativeFrameCount = lines.filter((line) =>
+    /^\s*#\d+\s+0x[0-9a-f]+\s+in\s+\S+/i.test(line)
+  ).length;
+  if (nativeFrameCount >= 3) {
+    return true;
+  }
+  if (
+    nativeFrameCount >= 1 &&
+    (lower.includes('[thread debugging using libthread_db enabled]') ||
+      lower.includes('using host libthread_db library') ||
+      lower.includes('signal handler called') ||
+      /\bprogram received signal\b|\bsig(?:segv|abrt|ill|bus|fpe)\b/i.test(stripped))
+  ) {
+    return true;
+  }
+
+  const sharedObjectLineCount = lines.filter((line) =>
+    /(?:^|\s|\/)[\w@.+-]+\.so(?:\.\d+)*\b/i.test(line)
+  ).length;
+  if (nativeFrameCount >= 1 && sharedObjectLineCount >= 2) {
+    return true;
+  }
+
   // Check for module loading patterns (common in crash dumps)
   const modulePattern = /\.(exe|dll):/i;
-  const lines = text.split(/\r?\n/).slice(0, 20); // Check first 20 lines
+  const moduleLines = lines.slice(0, 20); // Check first 20 lines
   let moduleLineCount = 0;
-  for (const line of lines) {
+  for (const line of moduleLines) {
     if (modulePattern.test(line)) {
       moduleLineCount++;
       if (moduleLineCount >= 3) {

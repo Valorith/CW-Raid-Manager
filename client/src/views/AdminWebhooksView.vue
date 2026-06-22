@@ -7481,7 +7481,7 @@ function isCrashReportMessage(message: InboundWebhookMessage) {
     return true;
   }
 
-  return /(?:\bException:|\bSymInit:|\bOS-Version:|\bzone\.exe\b|\bworld\.exe\b)/i.test(text);
+  return looksLikeNativeCrashText(text);
 }
 
 function isSendingDiscordSummary(messageId: string) {
@@ -7669,6 +7669,36 @@ function looksLikeScriptErrorText(reportText: string) {
     normalized.includes('perl runtime error') ||
     normalized.includes('lua runtime error')
   );
+}
+
+function looksLikeNativeCrashText(reportText: string) {
+  const stripped = reportText.replace(/\*\*/g, '').replace(/__/g, '');
+  const normalized = stripped.toLowerCase();
+  if (/(?:\bException:|\bSymInit:|\bOS-Version:|\bzone\.exe\b|\bworld\.exe\b)/i.test(stripped)) {
+    return true;
+  }
+
+  const lines = stripped.split(/\r?\n/);
+  const nativeFrameCount = lines.filter((line) =>
+    /^\s*#\d+\s+0x[0-9a-f]+\s+in\s+\S+/i.test(line)
+  ).length;
+  if (nativeFrameCount >= 3) {
+    return true;
+  }
+  if (
+    nativeFrameCount >= 1 &&
+    (normalized.includes('[thread debugging using libthread_db enabled]') ||
+      normalized.includes('using host libthread_db library') ||
+      normalized.includes('signal handler called') ||
+      /\bprogram received signal\b|\bsig(?:segv|abrt|ill|bus|fpe)\b/i.test(stripped))
+  ) {
+    return true;
+  }
+
+  const sharedObjectLineCount = lines.filter((line) =>
+    /(?:^|\s|\/)[\w@.+-]+\.so(?:\.\d+)*\b/i.test(line)
+  ).length;
+  return nativeFrameCount >= 1 && sharedObjectLineCount >= 2;
 }
 
 function extractScriptErrorLocation(reportText: string): { path: string; line: number } | null {
