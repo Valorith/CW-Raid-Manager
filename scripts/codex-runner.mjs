@@ -52,6 +52,13 @@ const config = {
   gitUserEmail: process.env.GIT_AUTHOR_EMAIL || 'codex-runner@local'
 };
 
+class JobCanceledError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'JobCanceledError';
+  }
+}
+
 const runOnce = process.argv.includes('--once');
 let active = false;
 let shuttingDown = false;
@@ -247,6 +254,12 @@ async function processJob(job) {
       await ensureJobActive(job.id);
       await runShell(config.verifyCommand, { cwd: repoDir, logPath, jobId: job.id });
     }
+
+    await runCommand('git', ['clean', '-f', '--', 'error.log'], {
+      cwd: repoDir,
+      logPath,
+      jobId: job.id
+    });
 
     const status = await runCommand('git', ['status', '--porcelain'], {
       cwd: repoDir,
@@ -948,13 +961,13 @@ function normalizeCloudTaskStatus(value) {
   const text = String(value || '').trim().toLowerCase();
   const token = text.match(/\b(?:status|state|phase)\s*[:=]\s*([a-z_-]+)/)?.[1] || text;
 
-  if (/^(completed|complete|succeeded|success|done|finished)$/.test(token)) {
+  if (/^(completed|complete|succeeded|success|done|finished|ready)$/.test(token)) {
     return 'succeeded';
   }
   if (/^(failed|failure|error|errored|canceled|cancelled)$/.test(token)) {
     return 'failed';
   }
-  if (/\b(completed|succeeded|success|done|finished)\b/.test(text)) {
+  if (/\b(completed|succeeded|success|done|finished|ready)\b/.test(text)) {
     return 'succeeded';
   }
   if (/\b(failed|failure|errored|canceled|cancelled)\b/.test(text)) {
@@ -974,7 +987,7 @@ function extractCloudStatusLabel(value) {
   }
 
   const lower = text.toLowerCase();
-  if (/\b(completed|complete|succeeded|success|done|finished)\b/.test(lower)) {
+  if (/\b(completed|complete|succeeded|success|done|finished|ready)\b/.test(lower)) {
     return 'completed';
   }
   if (/\b(failed|failure|errored|error|canceled|cancelled)\b/.test(lower)) {
@@ -1217,11 +1230,4 @@ function shellQuote(value) {
 
 function sleep(ms) {
   return new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
-}
-
-class JobCanceledError extends Error {
-  constructor(message) {
-    super(message);
-    this.name = 'JobCanceledError';
-  }
 }
