@@ -3338,6 +3338,44 @@
                         <line x1="14" y1="11" x2="14" y2="17" />
                       </svg>
                     </button>
+                    <button
+                      class="icon-button label-manager__automation-toggle label-manager__automation-toggle--ignore"
+                      :class="{ 'label-manager__automation-toggle--active': labelToEdit.ignoreInInbox }"
+                      type="button"
+                      :aria-pressed="labelToEdit.ignoreInInbox"
+                      :aria-label="getLabelAutomationTooltip('ignoreInInbox', labelToEdit.ignoreInInbox)"
+                      :data-tooltip="getLabelAutomationTooltip('ignoreInInbox', labelToEdit.ignoreInInbox)"
+                      @mouseenter="
+                        showLabelAutomationTooltip(
+                          $event,
+                          getLabelAutomationTooltip('ignoreInInbox', labelToEdit.ignoreInInbox)
+                        )
+                      "
+                      @mouseleave="hideLabelAutomationTooltip"
+                      @focus="
+                        showLabelAutomationTooltip(
+                          $event,
+                          getLabelAutomationTooltip('ignoreInInbox', labelToEdit.ignoreInInbox)
+                        )
+                      "
+                      @blur="hideLabelAutomationTooltip"
+                      @click="labelToEdit.ignoreInInbox = !labelToEdit.ignoreInInbox"
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <path d="M21 8v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8" />
+                        <path d="M3 8l2-4h14l2 4" />
+                        <path d="M9 13h6" />
+                        <path d="M3 3l18 18" />
+                      </svg>
+                    </button>
                   </div>
                   <div class="label-manager__actions">
                     <button class="btn btn--small btn--accent" type="button" @click="updateLabel">
@@ -3427,6 +3465,44 @@
                         />
                         <line x1="10" y1="11" x2="10" y2="17" />
                         <line x1="14" y1="11" x2="14" y2="17" />
+                      </svg>
+                    </button>
+                    <button
+                      class="icon-button label-manager__automation-toggle label-manager__automation-toggle--ignore"
+                      :class="{ 'label-manager__automation-toggle--active': label.ignoreInInbox }"
+                      type="button"
+                      :aria-pressed="label.ignoreInInbox"
+                      :aria-label="getLabelAutomationTooltip('ignoreInInbox', label.ignoreInInbox)"
+                      :data-tooltip="getLabelAutomationTooltip('ignoreInInbox', label.ignoreInInbox)"
+                      @mouseenter="
+                        showLabelAutomationTooltip(
+                          $event,
+                          getLabelAutomationTooltip('ignoreInInbox', label.ignoreInInbox)
+                        )
+                      "
+                      @mouseleave="hideLabelAutomationTooltip"
+                      @focus="
+                        showLabelAutomationTooltip(
+                          $event,
+                          getLabelAutomationTooltip('ignoreInInbox', label.ignoreInInbox)
+                        )
+                      "
+                      @blur="hideLabelAutomationTooltip"
+                      @click="toggleLabelAutomation(label, 'ignoreInInbox')"
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <path d="M21 8v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8" />
+                        <path d="M3 8l2-4h14l2 4" />
+                        <path d="M9 13h6" />
+                        <path d="M3 3l18 18" />
                       </svg>
                     </button>
                   </div>
@@ -3560,6 +3636,44 @@
                       />
                       <line x1="10" y1="11" x2="10" y2="17" />
                       <line x1="14" y1="11" x2="14" y2="17" />
+                    </svg>
+                  </button>
+                  <button
+                    class="icon-button label-manager__automation-toggle label-manager__automation-toggle--ignore"
+                    :class="{ 'label-manager__automation-toggle--active': newLabelForm.ignoreInInbox }"
+                    type="button"
+                    :aria-pressed="newLabelForm.ignoreInInbox"
+                    :aria-label="getLabelAutomationTooltip('ignoreInInbox', newLabelForm.ignoreInInbox)"
+                    :data-tooltip="getLabelAutomationTooltip('ignoreInInbox', newLabelForm.ignoreInInbox)"
+                    @mouseenter="
+                      showLabelAutomationTooltip(
+                        $event,
+                        getLabelAutomationTooltip('ignoreInInbox', newLabelForm.ignoreInInbox)
+                      )
+                    "
+                    @mouseleave="hideLabelAutomationTooltip"
+                    @focus="
+                      showLabelAutomationTooltip(
+                        $event,
+                        getLabelAutomationTooltip('ignoreInInbox', newLabelForm.ignoreInInbox)
+                      )
+                    "
+                    @blur="hideLabelAutomationTooltip"
+                    @click="newLabelForm.ignoreInInbox = !newLabelForm.ignoreInInbox"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M21 8v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8" />
+                      <path d="M3 8l2-4h14l2 4" />
+                      <path d="M9 13h6" />
+                      <path d="M3 3l18 18" />
                     </svg>
                   </button>
                 </div>
@@ -4399,7 +4513,8 @@ const newLabelForm = reactive({
   name: '',
   color: '#4a90d9',
   autoArchive: false,
-  autoDelete: false
+  autoDelete: false,
+  ignoreInInbox: false
 });
 
 // Webhook Settings Modal
@@ -8217,13 +8332,15 @@ async function createLabel() {
       name: newLabelForm.name.trim(),
       color: newLabelForm.color,
       autoArchive: newLabelForm.autoArchive,
-      autoDelete: newLabelForm.autoDelete
+      autoDelete: newLabelForm.autoDelete,
+      ignoreInInbox: newLabelForm.ignoreInInbox
     });
     webhookLabels.value.push(label);
     newLabelForm.name = '';
     newLabelForm.color = '#4a90d9';
     newLabelForm.autoArchive = false;
     newLabelForm.autoDelete = false;
+    newLabelForm.ignoreInInbox = false;
     addToast({ title: 'Success', message: 'Label created' });
   } catch (err) {
     addToast({ title: 'Error', message: 'Failed to create label' });
@@ -8237,7 +8354,8 @@ async function updateLabel() {
       name: labelToEdit.value.name,
       color: labelToEdit.value.color,
       autoArchive: labelToEdit.value.autoArchive,
-      autoDelete: labelToEdit.value.autoDelete
+      autoDelete: labelToEdit.value.autoDelete,
+      ignoreInInbox: labelToEdit.value.ignoreInInbox
     });
     const index = webhookLabels.value.findIndex((l) => l.id === updated.id);
     if (index >= 0) {
@@ -8254,7 +8372,7 @@ async function updateLabel() {
 
 async function toggleLabelAutomation(
   label: WebhookMessageLabel,
-  field: 'autoArchive' | 'autoDelete'
+  field: 'autoArchive' | 'autoDelete' | 'ignoreInInbox'
 ) {
   try {
     const updated = await api.updateWebhookLabel(label.id, {
@@ -8269,11 +8387,20 @@ async function toggleLabelAutomation(
   }
 }
 
-function getLabelAutomationTooltip(field: 'autoArchive' | 'autoDelete', enabled: boolean) {
+function getLabelAutomationTooltip(
+  field: 'autoArchive' | 'autoDelete' | 'ignoreInInbox',
+  enabled: boolean
+) {
   if (field === 'autoArchive') {
     return enabled
       ? 'Auto-archive is on. Click to disable it for this label.'
       : 'Auto-archive is off. Click to archive reports after this label is applied.';
+  }
+
+  if (field === 'ignoreInInbox') {
+    return enabled
+      ? 'Inbox ignore is on. Click to keep normal inbox reports with this label.'
+      : 'Inbox ignore is off. Click to discard normal inbox reports before actions run.';
   }
 
   return enabled
@@ -15252,6 +15379,20 @@ input[type='checkbox']:checked::after {
     rgba(15, 23, 42, 0.82);
   color: #fecdd3;
   box-shadow: 0 0 0 1px rgba(251, 113, 133, 0.12), 0 12px 24px rgba(190, 18, 60, 0.22);
+}
+
+.label-manager__automation-toggle--ignore {
+  border-color: rgba(251, 191, 36, 0.3);
+}
+
+.label-manager__automation-toggle--ignore.label-manager__automation-toggle--active {
+  opacity: 1;
+  border-color: rgba(250, 204, 21, 0.78);
+  background:
+    linear-gradient(135deg, rgba(202, 138, 4, 0.34), rgba(217, 119, 6, 0.24)),
+    rgba(15, 23, 42, 0.82);
+  color: #fef3c7;
+  box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.12), 0 12px 24px rgba(180, 83, 9, 0.2);
 }
 
 .label-manager-tooltip {

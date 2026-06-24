@@ -2759,7 +2759,8 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
         name: z.string().min(1).max(50),
         color: z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'Invalid hex color'),
         autoArchive: z.boolean().optional(),
-        autoDelete: z.boolean().optional()
+        autoDelete: z.boolean().optional(),
+        ignoreInInbox: z.boolean().optional()
       });
       const parsed = bodySchema.safeParse(request.body ?? {});
       if (!parsed.success) {
@@ -2813,7 +2814,8 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
           .optional(),
         sortOrder: z.number().int().optional(),
         autoArchive: z.boolean().optional(),
-        autoDelete: z.boolean().optional()
+        autoDelete: z.boolean().optional(),
+        ignoreInInbox: z.boolean().optional()
       });
       const parsed = bodySchema.safeParse(request.body ?? {});
       if (!parsed.success) {

@@ -64,6 +64,7 @@ debugLog('========================================');
 
 // Per-server setting key
 const PROCESSING_ENABLED_KEY = `webhookProcessingEnabled:${SERVER_ID}`;
+const INBOX_IGNORED_LABEL_IDS_KEY = 'webhookInboxIgnoredLabelIds';
 
 /**
  * Check if webhook processing is enabled for this server instance.
@@ -114,6 +115,61 @@ export async function setWebhookProcessingEnabled(enabled: boolean): Promise<voi
     create: { key: PROCESSING_ENABLED_KEY, value: enabled ? 'true' : 'false' }
   });
   debugLog(`[InboundWebhookService] Webhook processing ${enabled ? 'ENABLED' : 'DISABLED'} for server "${SERVER_ID}"`);
+}
+
+function parseIgnoredWebhookLabelIds(value: string | null | undefined): Set<string> {
+  if (!value) return new Set();
+
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      return new Set(parsed.filter((item): item is string => typeof item === 'string' && item.length > 0));
+    }
+  } catch {
+    // Older/manual values can still be interpreted as comma-separated ids.
+  }
+
+  return new Set(
+    value
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+  );
+}
+
+async function getIgnoredWebhookLabelIds(): Promise<Set<string>> {
+  try {
+    const setting = await prisma.systemSetting.findUnique({
+      where: { key: INBOX_IGNORED_LABEL_IDS_KEY }
+    });
+    return parseIgnoredWebhookLabelIds(setting?.value);
+  } catch {
+    return new Set();
+  }
+}
+
+async function setWebhookLabelInboxIgnored(labelId: string, ignored: boolean): Promise<void> {
+  const ignoredIds = await getIgnoredWebhookLabelIds();
+  if (ignored) {
+    ignoredIds.add(labelId);
+  } else {
+    ignoredIds.delete(labelId);
+  }
+
+  const value = JSON.stringify(Array.from(ignoredIds).sort());
+  await prisma.systemSetting.upsert({
+    where: { key: INBOX_IGNORED_LABEL_IDS_KEY },
+    update: { value },
+    create: { key: INBOX_IGNORED_LABEL_IDS_KEY, value }
+  });
+}
+
+async function withInboxIgnoreFlags<T extends { id: string }>(labels: T[]): Promise<Array<T & { ignoreInInbox: boolean }>> {
+  const ignoredIds = await getIgnoredWebhookLabelIds();
+  return labels.map((label) => ({
+    ...label,
+    ignoreInInbox: ignoredIds.has(label.id)
+  }));
 }
 
 // ============================================================================
@@ -1745,6 +1801,11 @@ export async function receiveInboundWebhookMessage(input: InboundWebhookMessageI
   if (isServerCrashEndpoint) {
     await addDefaultLabelsToMessage(message.id, ['CRASH']);
   }
+  if (await deleteIfInboxIgnoredByLabels(message.id)) {
+    debugLog(`[WEBHOOK RECEIVE] Message ${message.id} matched an inbox ignored label - discarded before processing`);
+    debugLog(`[WEBHOOK RECEIVE] ========== MESSAGE RECEIVE COMPLETE ==========`);
+    return message;
+  }
 
   if (!processingEnabled) {
     debugLog(`[WEBHOOK RECEIVE] Processing DISABLED - stored message ${message.id} without running actions`);
@@ -1774,6 +1835,11 @@ export async function receiveInboundWebhookMessage(input: InboundWebhookMessageI
     debugLog(`[WEBHOOK RECEIVE] Message created: ${message.id}, non-crash payload detected - running actions immediately`);
     if (messageContent) {
       await applyPassthroughLabels(message.id, messageContent);
+    }
+    if (await deleteIfInboxIgnoredByLabels(message.id)) {
+      debugLog(`[WEBHOOK RECEIVE] Message ${message.id} matched an inbox ignored label - discarded before actions`);
+      debugLog(`[WEBHOOK RECEIVE] ========== MESSAGE RECEIVE COMPLETE ==========`);
+      return message;
     }
     await runInboundWebhookActions(message.id, webhook.actions, message.payload, webhook.label, webhook.devMode);
     debugLog(`[WEBHOOK RECEIVE] ========== MESSAGE RECEIVE COMPLETE ==========`);
@@ -1841,6 +1907,9 @@ export async function createInboundWebhookMessageForAdmin(options: {
   if (isServerCrashEndpoint) {
     await addDefaultLabelsToMessage(message.id, ['CRASH']);
   }
+  if (await deleteIfInboxIgnoredByLabels(message.id)) {
+    return message;
+  }
 
   if (options.runActions !== false) {
     if (isServerCrashEndpoint) {
@@ -1858,6 +1927,9 @@ export async function createInboundWebhookMessageForAdmin(options: {
     if (!shouldUseCrashMergePipeline(options.payload, null, options.payload)) {
       if (messageContent) {
         await applyPassthroughLabels(message.id, messageContent);
+      }
+      if (await deleteIfInboxIgnoredByLabels(message.id)) {
+        return message;
       }
       await runInboundWebhookActions(message.id, webhook.actions, message.payload, webhook.label, webhook.devMode);
       return message;
@@ -2002,6 +2074,9 @@ async function runInboundWebhookActions(
         // If not, skip AI review and let it pass through to Discord unchanged
         if (!options.forceCrashReview && !looksLikeCrashReport(crashInput)) {
           await applyPassthroughLabels(messageId, crashInput);
+          if (await deleteIfInboxIgnoredByLabels(messageId)) {
+            return;
+          }
           await prisma.inboundWebhookActionRun.create({
             data: {
               messageId,
@@ -2060,6 +2135,9 @@ async function runInboundWebhookActions(
 
           // Auto-label based on crash type and webhook source
           await autoLabelMessage(messageId, findings, signature ?? { exception: extracted.exceptionLine }, webhookLabel, crashInput);
+          if (await deleteIfInboxIgnoredByLabels(messageId)) {
+            return;
+          }
         } catch (error) {
           overallStatus = 'FAILED';
           const shouldRetry = isTransientCrashReviewError(error);
@@ -4061,9 +4139,10 @@ export async function toggleMessageStar(messageId: string, userId: string, starr
 // ============================================================================
 
 export async function listWebhookLabels() {
-  return prisma.webhookMessageLabel.findMany({
+  const labels = await prisma.webhookMessageLabel.findMany({
     orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }]
   });
+  return withInboxIgnoreFlags(labels);
 }
 
 export async function createWebhookLabel(input: {
@@ -4071,8 +4150,9 @@ export async function createWebhookLabel(input: {
   color: string;
   autoArchive?: boolean;
   autoDelete?: boolean;
+  ignoreInInbox?: boolean;
 }) {
-  return prisma.webhookMessageLabel.create({
+  const label = await prisma.webhookMessageLabel.create({
     data: {
       id: generateCuid(),
       name: input.name.trim(),
@@ -4081,6 +4161,15 @@ export async function createWebhookLabel(input: {
       autoDelete: input.autoDelete ?? false
     }
   });
+
+  if (input.ignoreInInbox) {
+    await setWebhookLabelInboxIgnored(label.id, true);
+  }
+
+  return {
+    ...label,
+    ignoreInInbox: input.ignoreInInbox ?? false
+  };
 }
 
 // Standard label colors
@@ -4138,7 +4227,8 @@ export async function findOrCreateWebhookLabel(name: string) {
   );
 
   if (existingLabel) {
-    return existingLabel;
+    const [label] = await withInboxIgnoreFlags([existingLabel]);
+    return label;
   }
 
   // Determine color: use standard color if matching, otherwise generate consistent color
@@ -4146,18 +4236,30 @@ export async function findOrCreateWebhookLabel(name: string) {
   const color = STANDARD_LABEL_COLORS[lowerName] ?? generateColorFromName(trimmedName);
 
   // Create new label
-  return prisma.webhookMessageLabel.create({
+  const label = await prisma.webhookMessageLabel.create({
     data: {
       id: generateCuid(),
       name: trimmedName,
       color
     }
   });
+
+  return {
+    ...label,
+    ignoreInInbox: false
+  };
 }
 
 export async function updateWebhookLabel(
   labelId: string,
-  input: { name?: string; color?: string; sortOrder?: number; autoArchive?: boolean; autoDelete?: boolean }
+  input: {
+    name?: string;
+    color?: string;
+    sortOrder?: number;
+    autoArchive?: boolean;
+    autoDelete?: boolean;
+    ignoreInInbox?: boolean;
+  }
 ) {
   const data: Record<string, unknown> = {};
   if (input.name !== undefined) data.name = input.name.trim();
@@ -4166,16 +4268,24 @@ export async function updateWebhookLabel(
   if (input.autoArchive !== undefined) data.autoArchive = input.autoArchive;
   if (input.autoDelete !== undefined) data.autoDelete = input.autoDelete;
 
-  return prisma.webhookMessageLabel.update({
+  const label = await prisma.webhookMessageLabel.update({
     where: { id: labelId },
     data
   });
+
+  if (input.ignoreInInbox !== undefined) {
+    await setWebhookLabelInboxIgnored(labelId, input.ignoreInInbox);
+  }
+
+  const [labelWithFlags] = await withInboxIgnoreFlags([label]);
+  return labelWithFlags;
 }
 
 export async function deleteWebhookLabel(labelId: string) {
   await prisma.webhookMessageLabel.delete({
     where: { id: labelId }
   });
+  await setWebhookLabelInboxIgnored(labelId, false);
 }
 
 export async function setMessageLabels(messageId: string, labelIds: string[]) {
@@ -4193,6 +4303,10 @@ export async function setMessageLabels(messageId: string, labelIds: string[]) {
         labelId
       }))
     });
+  }
+
+  if (await deleteIfInboxIgnoredByLabels(messageId)) {
+    return;
   }
 
   await applyLabelAutomationIfComplete(messageId);
@@ -4239,6 +4353,57 @@ async function applyLabelAutomationIfComplete(messageId: string): Promise<void> 
       data: { archivedAt: new Date() }
     });
   }
+}
+
+async function deleteIfInboxIgnoredByLabels(messageId: string): Promise<boolean> {
+  const ignoredLabelIds = await getIgnoredWebhookLabelIds();
+  if (ignoredLabelIds.size === 0) {
+    return false;
+  }
+
+  const message = await prisma.inboundWebhookMessage.findUnique({
+    where: { id: messageId },
+    select: {
+      id: true,
+      webhook: {
+        select: {
+          intakeType: true
+        }
+      },
+      labelAssignments: {
+        select: {
+          labelId: true,
+          label: {
+            select: {
+              name: true
+            }
+          }
+        }
+      }
+    }
+  });
+
+  if (!message || isServerCrashReportIntake(message.webhook)) {
+    return false;
+  }
+
+  const ignoredLabels = message.labelAssignments.filter((assignment) =>
+    ignoredLabelIds.has(assignment.labelId)
+  );
+  if (ignoredLabels.length === 0) {
+    return false;
+  }
+
+  await prisma.inboundWebhookMessage.delete({
+    where: { id: messageId }
+  });
+
+  debugLog(
+    `[InboundWebhookService] Deleted inbox message ${messageId}; ignored label(s): ${ignoredLabels
+      .map((assignment) => assignment.label.name)
+      .join(', ')}`
+  );
+  return true;
 }
 
 function resolveLabelAutomationAction(

@@ -1742,6 +1742,7 @@ export interface WebhookMessageLabel {
   sortOrder: number;
   autoArchive: boolean;
   autoDelete: boolean;
+  ignoreInInbox: boolean;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -5776,6 +5777,7 @@ export const api = {
     color: string;
     autoArchive?: boolean;
     autoDelete?: boolean;
+    ignoreInInbox?: boolean;
   }): Promise<WebhookMessageLabel> {
     const response = await axios.post('/api/admin/webhook-labels', payload);
     return response.data.label;
@@ -5801,6 +5803,7 @@ export const api = {
       sortOrder?: number;
       autoArchive?: boolean;
       autoDelete?: boolean;
+      ignoreInInbox?: boolean;
     }
   ): Promise<WebhookMessageLabel> {
     const response = await axios.put(`/api/admin/webhook-labels/${labelId}`, payload);
