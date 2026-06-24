@@ -151,6 +151,14 @@ export const ADMIN_NOTIFICATION_EVENT_DEFINITIONS: NotificationEventDefinition[]
     scopeType: 'GLOBAL',
     recommended: false,
     adminOnly: true
+  },
+  {
+    key: 'webhook.crash_auto_fix_triggered',
+    label: 'Crash Auto-Fix Triggered',
+    description: 'Alert when crash Auto-Fix starts a Codex or Devin fix action from the webhook inbox.',
+    scopeType: 'GLOBAL',
+    recommended: false,
+    adminOnly: true
   }
 ];
 

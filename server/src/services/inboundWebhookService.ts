@@ -81,10 +81,11 @@ export interface CrashTelemetryAutoFixDispatchResult {
   provider: CrashTelemetryAutoFixProvider | null;
   triggered: boolean;
   targetId?: string;
+  targetLabel?: string;
 }
 
 interface CrashTelemetryAutoFixActions {
-  sendToDevin: (messageId: string) => Promise<{ endpointId: string }>;
+  sendToDevin: (messageId: string) => Promise<{ endpointId: string; endpointLabel?: string }>;
   queueCodex: (messageId: string) => Promise<{ job: { id: string } }>;
 }
 
@@ -1840,7 +1841,7 @@ async function runAutoCrashTelemetryFix(messageId: string) {
     ? persisted.settings
     : await getDefaultCrashTelemetryAutoFixSettings();
   try {
-    await dispatchCrashTelemetryAutoFix(messageId, settings, {
+    const result = await dispatchCrashTelemetryAutoFix(messageId, settings, {
       sendToDevin: async (id) => {
         const { sendCrashReportToDevinEndpoint } = await import(
           './outboundWebhookEndpointService.js'
@@ -1851,6 +1852,12 @@ async function runAutoCrashTelemetryFix(messageId: string) {
         const { createCodexJobForWebhookMessage } = await import('./codexJobService.js');
         return createCodexJobForWebhookMessage(id);
       }
+    });
+    await queueCrashAutoFixTriggeredMessengerNotifications(messageId, result).catch((error) => {
+      console.error(
+        `[InboundWebhookService] Failed to queue crash telemetry Auto-Fix notification for ${messageId}:`,
+        error
+      );
     });
   } catch (error) {
     console.error(
@@ -1874,7 +1881,15 @@ export async function dispatchCrashTelemetryAutoFix(
     debugLog(
       `[InboundWebhookService] Auto-Fix sent crash telemetry ${messageId} to Devin endpoint ${result.endpointId}`
     );
-    return { provider: 'devin', triggered: true, targetId: result.endpointId };
+    const dispatchResult: CrashTelemetryAutoFixDispatchResult = {
+      provider: 'devin',
+      triggered: true,
+      targetId: result.endpointId
+    };
+    if (result.endpointLabel) {
+      dispatchResult.targetLabel = result.endpointLabel;
+    }
+    return dispatchResult;
   }
 
   const result = await actions.queueCodex(messageId);
@@ -1882,6 +1897,10 @@ export async function dispatchCrashTelemetryAutoFix(
     `[InboundWebhookService] Auto-Fix queued Codex job ${result.job.id} for crash telemetry ${messageId}`
   );
   return { provider: 'codex', triggered: true, targetId: result.job.id };
+}
+
+function formatCrashAutoFixProviderLabel(provider: CrashTelemetryAutoFixProvider): string {
+  return provider === 'codex' ? 'Codex' : 'Devin';
 }
 
 export async function receiveInboundWebhookMessage(input: InboundWebhookMessageInput) {
@@ -3444,6 +3463,102 @@ function enrichPayloadWithCrashReview(
     crashReviewAttempts: attempts,
     originalPayload: payload
   };
+}
+
+async function queueCrashAutoFixTriggeredMessengerNotifications(
+  messageId: string,
+  result: CrashTelemetryAutoFixDispatchResult
+): Promise<void> {
+  if (!result.triggered || !result.provider) {
+    return;
+  }
+
+  const message = await prisma.inboundWebhookMessage.findUnique({
+    where: { id: messageId },
+    select: {
+      id: true,
+      receivedAt: true,
+      payload: true,
+      rawBody: true,
+      webhook: {
+        select: {
+          label: true
+        }
+      },
+      actionRuns: {
+        select: {
+          status: true,
+          result: true,
+          createdAt: true,
+          action: {
+            select: {
+              type: true
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' }
+      }
+    }
+  });
+
+  if (!message) {
+    return;
+  }
+
+  const review = getLatestCrashReviewResult(message.actionRuns);
+  const rawSummary = typeof review?.summary === 'string' ? review.summary.trim() : '';
+  const rawReportSummary = buildCrashReviewInput(message.payload, message.rawBody, message.payload)
+    .replace(/\s+/g, ' ')
+    .trim();
+  const signature =
+    review?.signature && typeof review.signature === 'object' && !Array.isArray(review.signature)
+      ? review.signature
+      : null;
+  const providerLabel = formatCrashAutoFixProviderLabel(result.provider);
+  const targetLabel =
+    result.targetLabel ??
+    (result.targetId
+      ? result.provider === 'codex'
+        ? `Codex job ${result.targetId}`
+        : `Devin endpoint ${result.targetId}`
+      : null);
+  const messageUrl = clientBaseUrl
+    ? `${clientBaseUrl}/admin/webhooks?messageId=${encodeURIComponent(message.id)}`
+    : null;
+  const notificationPayload = {
+    messageId: message.id,
+    webhookLabel: message.webhook.label,
+    receivedAt: message.receivedAt.toISOString(),
+    messageUrl,
+    provider: result.provider,
+    providerLabel,
+    targetId: result.targetId ?? null,
+    targetLabel,
+    triggerMode: 'automatic',
+    summary: truncateText(
+      rawSummary || rawReportSummary || 'Crash Auto-Fix started a provider fix action.',
+      360
+    ),
+    signature
+  };
+
+  const admins = await prisma.user.findMany({
+    where: { admin: true },
+    select: { id: true }
+  });
+
+  await Promise.all(
+    admins.map((admin) =>
+      queueUserNotification({
+        userId: admin.id,
+        scopeType: 'GLOBAL',
+        scopeId: 'global',
+        eventKey: 'webhook.crash_auto_fix_triggered',
+        payload: notificationPayload as Prisma.InputJsonValue,
+        dedupeSeed: `${message.id}:${result.provider}:${result.targetId ?? 'none'}`
+      })
+    )
+  );
 }
 
 async function queueCrashReportMessengerNotifications(

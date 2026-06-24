@@ -6,6 +6,7 @@ import {
   dispatchCrashTelemetryAutoFix,
   looksLikeCrashReport
 } from './inboundWebhookService.js';
+import { renderNotificationEvent } from './notificationEventRenderer.js';
 
 const linuxNativeCrash = `[New LWP 321132]
 [New LWP 321138]
@@ -104,4 +105,32 @@ test('crash telemetry Auto-Fix dispatch does nothing when disabled', async () =>
     provider: 'codex',
     triggered: false
   });
+});
+
+test('renders crash Auto-Fix trigger notifications', () => {
+  const rendered = renderNotificationEvent(
+    'webhook.crash_auto_fix_triggered',
+    {
+      messageId: 'message-codex',
+      provider: 'codex',
+      providerLabel: 'Codex',
+      targetId: 'codex-job',
+      targetLabel: 'Codex job codex-job',
+      webhookLabel: 'Crash Telemetry',
+      summary: 'Segmentation fault while loading zone data.',
+      signature: {
+        exception: 'SIGSEGV',
+        topFrame: 'zone_bootup.cpp:88'
+      },
+      messageUrl: 'https://nexus.example/admin/webhooks?messageId=message-codex'
+    },
+    { provider: 'TELEGRAM' }
+  );
+
+  assert.match(rendered.text, /Crash Auto-Fix triggered/);
+  assert.match(rendered.text, /Provider: Codex/);
+  assert.match(rendered.text, /Target: Codex job codex-job/);
+  assert.match(rendered.text, /Crash Telemetry/);
+  assert.match(rendered.text, /SIGSEGV/);
+  assert.match(rendered.text, /message-codex/);
 });

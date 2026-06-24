@@ -1760,7 +1760,7 @@
                 <th>OS</th>
                 <th class="crash-table__number">Lines</th>
                 <th>Created</th>
-                <th class="crash-table__delete" aria-label="Delete crash report"></th>
+                <th class="crash-table__record-actions" aria-label="Crash report actions"></th>
               </tr>
             </thead>
             <tbody>
@@ -1789,31 +1789,62 @@
                 <td>{{ formatReportOs(report) }}</td>
                 <td class="crash-table__number">{{ report.lineCount }}</td>
                 <td>{{ formatRelativeTime(report.receivedAt) }}</td>
-                <td class="crash-table__delete">
-                  <button
-                    class="icon-button icon-button--danger crash-delete-button"
-                    type="button"
-                    :aria-label="`Delete crash ${shortId(report.id)}`"
-                    title="Delete crash report"
-                    :disabled="deletingCrashReportId === report.id"
-                    @click.stop="requestDeleteCrashReport(report)"
-                  >
-                    <svg
-                      viewBox="0 0 24 24"
-                      aria-hidden="true"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
+                <td class="crash-table__record-actions" @click.stop>
+                  <div class="crash-row-actions">
+                    <button
+                      class="icon-button crash-record-action-button crash-archive-button"
+                      type="button"
+                      :aria-label="`Archive crash ${shortId(report.id)}`"
+                      title="Archive crash report"
+                      :disabled="
+                        archivingCrashReportId === report.id ||
+                        deletingCrashReportId === report.id
+                      "
+                      @click="archiveCrashReport(report)"
                     >
-                      <path d="M3 6h18" />
-                      <path d="M8 6V4h8v2" />
-                      <path d="M19 6l-1 14H6L5 6" />
-                      <path d="M10 11v6" />
-                      <path d="M14 11v6" />
-                    </svg>
-                  </button>
+                      <svg
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <path d="M21 8v13H3V8" />
+                        <path d="M1 3h22v5H1z" />
+                        <path d="M10 12l2 2 2-2" />
+                        <path d="M12 14V10" />
+                      </svg>
+                    </button>
+                    <button
+                      class="icon-button icon-button--danger crash-record-action-button crash-delete-button"
+                      type="button"
+                      :aria-label="`Delete crash ${shortId(report.id)}`"
+                      title="Delete crash report"
+                      :disabled="
+                        deletingCrashReportId === report.id ||
+                        archivingCrashReportId === report.id
+                      "
+                      @click="requestDeleteCrashReport(report)"
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <path d="M3 6h18" />
+                        <path d="M8 6V4h8v2" />
+                        <path d="M19 6l-1 14H6L5 6" />
+                        <path d="M10 11v6" />
+                        <path d="M14 11v6" />
+                      </svg>
+                    </button>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -1827,6 +1858,20 @@
               <p class="muted small">{{ selectedCrashReport.fingerprint }}</p>
             </div>
             <div class="crash-stack-panel__actions">
+              <button
+                class="btn btn--outline btn--small btn--crash-record"
+                type="button"
+                :disabled="archivingCrashReportId === selectedCrashReport.id"
+                @click="archiveCrashReport(selectedCrashReport)"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M21 8v13H3V8" />
+                  <path d="M1 3h22v5H1z" />
+                  <path d="M10 12l2 2 2-2" />
+                  <path d="M12 14V10" />
+                </svg>
+                Archive
+              </button>
               <button
                 class="btn btn--accent btn--small btn--crash-record"
                 type="button"
@@ -4725,12 +4770,20 @@ const selectedCrashVersion = ref<string | null>(null);
 const selectedCrashReport = ref<CrashTelemetryReport | null>(null);
 const crashReportPendingDelete = ref<CrashTelemetryReport | null>(null);
 const deletingCrashReportId = ref<string | null>(null);
+const archivingCrashReportId = ref<string | null>(null);
 const crashAutoFixSettings = reactive<CrashTelemetryAutoFixSettings>({
   enabled: false,
   provider: null
 });
 const crashAutoFixLoading = ref(false);
 const crashAutoFixSaving = ref(false);
+
+type CrashTelemetryViewSnapshot = {
+  reports: CrashTelemetryReport[];
+  selectedReport: CrashTelemetryReport | null;
+  summary: CrashTelemetrySummary | null;
+  selectedVersion: string | null;
+};
 
 const inboxTotalPages = computed(() =>
   Math.max(1, Math.ceil(inboxTotal.value / inboxFilters.pageSize))
@@ -6131,6 +6184,152 @@ function getFirstSelectableCrashFixProvider(): CrashTelemetryAutoFixProvider | n
   );
 }
 
+function captureCrashTelemetryViewSnapshot(): CrashTelemetryViewSnapshot {
+  return {
+    reports: [...crashReports.value],
+    selectedReport: selectedCrashReport.value,
+    summary: crashTelemetrySummary.value
+      ? {
+          ...crashTelemetrySummary.value,
+          groups: crashTelemetrySummary.value.groups.map((group) => ({ ...group }))
+        }
+      : null,
+    selectedVersion: selectedCrashVersion.value
+  };
+}
+
+function restoreCrashTelemetryViewSnapshot(snapshot: CrashTelemetryViewSnapshot) {
+  crashReports.value = snapshot.reports;
+  selectedCrashReport.value = snapshot.selectedReport;
+  crashTelemetrySummary.value = snapshot.summary;
+  selectedCrashVersion.value = snapshot.selectedVersion;
+}
+
+function getCrashTimestamp(value: string) {
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function getReportSummaryOs(report: CrashTelemetryReport): string | null {
+  const label = formatReportOs(report);
+  return label === '-' ? null : label;
+}
+
+function buildCrashTelemetryVersionGroupFromReports(
+  reports: CrashTelemetryReport[]
+): CrashTelemetryVersionGroup | null {
+  if (reports.length === 0) {
+    return null;
+  }
+
+  const [firstReport] = reports;
+  const fingerprints = new Set<string>();
+  const serverNames = new Set<string>();
+  let latestReport = firstReport;
+  let firstSeenAt = firstReport.receivedAt;
+  let reviewedCrashes = 0;
+
+  for (const report of reports) {
+    fingerprints.add(report.fingerprint);
+    if (report.serverName) serverNames.add(report.serverName);
+    if (report.serverShortName) serverNames.add(report.serverShortName);
+    if (report.reviewStatus === 'SUCCESS') {
+      reviewedCrashes += 1;
+    }
+    if (getCrashTimestamp(report.receivedAt) > getCrashTimestamp(latestReport.receivedAt)) {
+      latestReport = report;
+    }
+    if (getCrashTimestamp(report.receivedAt) < getCrashTimestamp(firstSeenAt)) {
+      firstSeenAt = report.receivedAt;
+    }
+  }
+
+  return {
+    serverVersion: firstReport.serverVersion,
+    compileDate: latestReport.compileDate ?? firstReport.compileDate,
+    compileTime: latestReport.compileTime ?? firstReport.compileTime,
+    platformName: latestReport.platformName ?? firstReport.platformName,
+    latestServerName:
+      latestReport.serverName ??
+      latestReport.serverShortName ??
+      firstReport.serverName ??
+      firstReport.serverShortName,
+    latestOs: getReportSummaryOs(latestReport) ?? getReportSummaryOs(firstReport),
+    firstSeenAt,
+    lastSeenAt: latestReport.receivedAt,
+    totalCrashes: reports.length,
+    uniqueCrashes: fingerprints.size,
+    reviewedCrashes,
+    affectedServers: serverNames.size
+  };
+}
+
+function patchCrashTelemetrySummaryAfterRemovingReport(report: CrashTelemetryReport) {
+  const summary = crashTelemetrySummary.value;
+  if (!summary) {
+    return;
+  }
+
+  const reportsForVersion = crashReports.value.filter(
+    (candidate) => candidate.serverVersion === report.serverVersion
+  );
+  const updatedGroup = buildCrashTelemetryVersionGroupFromReports(reportsForVersion);
+  const nextGroups = summary.groups
+    .map((group) => {
+      if (group.serverVersion !== report.serverVersion) {
+        return group;
+      }
+      return updatedGroup;
+    })
+    .filter((group): group is CrashTelemetryVersionGroup => Boolean(group))
+    .sort((a, b) => getCrashTimestamp(b.lastSeenAt) - getCrashTimestamp(a.lastSeenAt));
+  const totalCrashes = Math.max(0, summary.totalCrashes - 1);
+
+  crashTelemetrySummary.value = {
+    ...summary,
+    groups: nextGroups,
+    totalCrashes,
+    versions: nextGroups.length,
+    reviewedCrashes:
+      report.reviewStatus === 'SUCCESS'
+        ? Math.max(0, summary.reviewedCrashes - 1)
+        : summary.reviewedCrashes,
+    uniqueCrashes: totalCrashes === 0 ? 0 : Math.min(summary.uniqueCrashes, totalCrashes),
+    latestCrashAt: nextGroups[0]?.lastSeenAt ?? null
+  };
+}
+
+function removeCrashReportFromTelemetryView(report: CrashTelemetryReport) {
+  const removedIndex = crashReports.value.findIndex((item) => item.id === report.id);
+  if (removedIndex < 0) {
+    return false;
+  }
+
+  const remainingReports = crashReports.value.filter((item) => item.id !== report.id);
+  crashReports.value = remainingReports;
+
+  if (selectedCrashReport.value?.id === report.id) {
+    selectedCrashReport.value =
+      remainingReports[Math.min(Math.max(removedIndex, 0), remainingReports.length - 1)] ?? null;
+  }
+
+  patchCrashTelemetrySummaryAfterRemovingReport(report);
+
+  if (
+    selectedCrashVersion.value === report.serverVersion &&
+    !remainingReports.some((item) => item.serverVersion === report.serverVersion)
+  ) {
+    selectedCrashVersion.value = null;
+  }
+
+  return true;
+}
+
+function removeCrashReportByMessageId(messageId: string) {
+  const report = crashReports.value.find((item) => item.messageId === messageId);
+  return report ? removeCrashReportFromTelemetryView(report) : false;
+}
+
 async function loadCrashReports(version: string) {
   crashReportsLoading.value = true;
   try {
@@ -6185,6 +6384,46 @@ function cancelDeleteCrashReport() {
   crashReportPendingDelete.value = null;
 }
 
+async function archiveCrashReport(report: CrashTelemetryReport) {
+  if (archivingCrashReportId.value) return;
+
+  const snapshot = captureCrashTelemetryViewSnapshot();
+  archivingCrashReportId.value = report.id;
+  removeCrashReportFromTelemetryView(report);
+
+  try {
+    const updated = await api.archiveInboundWebhookMessage(report.messageId, true);
+    if (inboxFilters.includeArchived) {
+      updateInboxMessage(updated);
+    } else {
+      const previousInboxCount = inboxMessages.value.length;
+      inboxMessages.value = inboxMessages.value.filter((item) => item.id !== report.messageId);
+      if (inboxMessages.value.length !== previousInboxCount) {
+        inboxTotal.value = Math.max(0, inboxTotal.value - 1);
+      }
+    }
+    if (selectedMessage.value?.id === report.messageId) {
+      closeMessage();
+    }
+    addToast({
+      title: 'Crash archived',
+      message: `Archived crash ${shortId(report.id)}.`,
+      variant: 'success'
+    });
+    void loadCrashTelemetrySummary();
+  } catch (error) {
+    restoreCrashTelemetryViewSnapshot(snapshot);
+    console.error('Failed to archive crash report:', error);
+    addToast({
+      title: 'Crash archive failed',
+      message: getActionErrorMessage(error, 'Unable to archive that crash report.'),
+      variant: 'error'
+    });
+  } finally {
+    archivingCrashReportId.value = null;
+  }
+}
+
 async function confirmDeleteCrashReport() {
   const report = crashReportPendingDelete.value;
   if (!report || deletingCrashReportId.value) return;
@@ -6192,15 +6431,7 @@ async function confirmDeleteCrashReport() {
   deletingCrashReportId.value = report.id;
   try {
     await api.deleteInboundWebhookMessage(report.messageId);
-    const removedIndex = crashReports.value.findIndex((item) => item.id === report.id);
-    const remainingReports = crashReports.value.filter((item) => item.id !== report.id);
-    crashReports.value = remainingReports;
-
-    if (selectedCrashReport.value?.id === report.id) {
-      selectedCrashReport.value =
-        remainingReports[Math.min(Math.max(removedIndex, 0), remainingReports.length - 1)] ??
-        null;
-    }
+    removeCrashReportFromTelemetryView(report);
     if (selectedMessage.value?.id === report.messageId) {
       closeMessage();
     }
@@ -9330,6 +9561,9 @@ async function resolveMessage(message: InboundWebhookMessage) {
 
   try {
     const updated = await api.resolveInboundWebhookMessage(message.id);
+    if (removeCrashReportByMessageId(updated.id)) {
+      void loadCrashTelemetrySummary();
+    }
     if (!inboxFilters.includeArchived) {
       inboxMessages.value = inboxMessages.value.filter((item) => item.id !== updated.id);
       inboxTotal.value = Math.max(0, inboxTotal.value - 1);
@@ -9359,6 +9593,11 @@ async function toggleArchive(message: InboundWebhookMessage) {
   const archived = !message.archivedAt;
   try {
     const updated = await api.archiveInboundWebhookMessage(message.id, archived);
+    if (archived) {
+      if (removeCrashReportByMessageId(message.id)) {
+        void loadCrashTelemetrySummary();
+      }
+    }
     if (!inboxFilters.includeArchived && archived) {
       inboxMessages.value = inboxMessages.value.filter((item) => item.id !== message.id);
       inboxTotal.value = Math.max(0, inboxTotal.value - 1);
@@ -10242,7 +10481,7 @@ function escapeHtml(text: string): string {
 
 .crash-table--reports th:nth-child(11),
 .crash-table--reports td:nth-child(11) {
-  width: 4rem;
+  width: 5.4rem;
 }
 
 .crash-table__number {
@@ -10253,8 +10492,10 @@ function escapeHtml(text: string): string {
   text-align: left;
 }
 
-.crash-table__delete {
+.crash-table__record-actions {
   text-align: right !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
 }
 
 .label-mobile {
@@ -10288,13 +10529,34 @@ function escapeHtml(text: string): string {
   color: #bfdbfe;
 }
 
-.crash-delete-button {
+.crash-row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.28rem;
+}
+
+.crash-record-action-button {
   width: 1.55rem;
   height: 1.55rem;
   min-width: 1.55rem;
   border-radius: 0.28rem;
-  background: rgba(127, 29, 29, 0.2);
   box-shadow: none;
+}
+
+.crash-archive-button {
+  border-color: rgba(167, 139, 250, 0.45);
+  background: rgba(76, 29, 149, 0.18);
+  color: #ddd6fe;
+}
+
+.crash-archive-button:hover:not(:disabled) {
+  border-color: rgba(196, 181, 253, 0.82);
+  background: rgba(91, 33, 182, 0.3);
+  box-shadow: 0 8px 18px rgba(109, 40, 217, 0.18);
+}
+
+.crash-delete-button {
+  background: rgba(127, 29, 29, 0.2);
 }
 
 .crash-delete-button:hover:not(:disabled) {
@@ -10303,7 +10565,7 @@ function escapeHtml(text: string): string {
   box-shadow: 0 8px 18px rgba(220, 38, 38, 0.22);
 }
 
-.crash-delete-button svg {
+.crash-record-action-button svg {
   width: 0.9rem;
   height: 0.9rem;
 }

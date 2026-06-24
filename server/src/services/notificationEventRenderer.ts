@@ -312,6 +312,49 @@ export function renderNotificationEvent(
 
       return { text: parts.join('\n') };
     }
+    case 'webhook.crash_auto_fix_triggered': {
+      const messageUrl = asString(data.messageUrl);
+      const providerLabel = asString(data.providerLabel, 'Selected provider');
+      const webhookLabel = asString(data.webhookLabel);
+      const targetLabel = asString(data.targetLabel);
+      const targetId = asString(data.targetId);
+      const summary = asString(data.summary, 'Crash Auto-Fix started a provider fix action.');
+      const signature = asObject(data.signature);
+      const exception = asString(signature.exception);
+      const topFrame = asString(signature.topFrame);
+      const parts = [
+        `${isTelegram ? '🛠️ ' : ''}Crash Auto-Fix triggered:`,
+        `Provider: ${providerLabel}`
+      ];
+
+      if (targetLabel) {
+        parts.push(`Target: ${targetLabel}`);
+      } else if (targetId) {
+        parts.push(`Target ID: ${targetId}`);
+      }
+
+      if (webhookLabel) {
+        parts.push(`Webhook: ${webhookLabel}`);
+      }
+
+      if (summary) {
+        parts.push('', summary);
+      }
+
+      const signatureLines = [
+        exception ? `Exception: ${exception}` : '',
+        topFrame ? `Location: ${topFrame}` : ''
+      ].filter(Boolean);
+      if (signatureLines.length > 0) {
+        parts.push('', signatureLines.join('\n'));
+      }
+
+      if (messageUrl) {
+        parts.push('', messageUrl);
+      }
+
+      return { text: parts.join('\n') };
+    }
     default:
       return {
         text: asString(data.summary, `Notification: ${eventKey}`)
