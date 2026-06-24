@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildCrashReviewInput, looksLikeCrashReport } from './inboundWebhookService.js';
+import {
+  buildCrashReviewInput,
+  dispatchCrashTelemetryAutoFix,
+  looksLikeCrashReport
+} from './inboundWebhookService.js';
 
 const linuxNativeCrash = `[New LWP 321132]
 [New LWP 321138]
@@ -26,4 +30,78 @@ test('buildCrashReviewInput extracts snake_case server crash reports', () => {
     buildCrashReviewInput({ crash_report: linuxNativeCrash }, null, {}),
     linuxNativeCrash
   );
+});
+
+test('crash telemetry Auto-Fix dispatch queues Codex when Codex is selected', async () => {
+  const calls: string[] = [];
+  const result = await dispatchCrashTelemetryAutoFix(
+    'message-codex',
+    { enabled: true, provider: 'codex' },
+    {
+      sendToDevin: async (messageId) => {
+        calls.push(`devin:${messageId}`);
+        return { endpointId: 'devin-endpoint' };
+      },
+      queueCodex: async (messageId) => {
+        calls.push(`codex:${messageId}`);
+        return { job: { id: 'codex-job' } };
+      }
+    }
+  );
+
+  assert.deepEqual(calls, ['codex:message-codex']);
+  assert.deepEqual(result, {
+    provider: 'codex',
+    triggered: true,
+    targetId: 'codex-job'
+  });
+});
+
+test('crash telemetry Auto-Fix dispatch sends Devin when Devin is selected', async () => {
+  const calls: string[] = [];
+  const result = await dispatchCrashTelemetryAutoFix(
+    'message-devin',
+    { enabled: true, provider: 'devin' },
+    {
+      sendToDevin: async (messageId) => {
+        calls.push(`devin:${messageId}`);
+        return { endpointId: 'devin-endpoint' };
+      },
+      queueCodex: async (messageId) => {
+        calls.push(`codex:${messageId}`);
+        return { job: { id: 'codex-job' } };
+      }
+    }
+  );
+
+  assert.deepEqual(calls, ['devin:message-devin']);
+  assert.deepEqual(result, {
+    provider: 'devin',
+    triggered: true,
+    targetId: 'devin-endpoint'
+  });
+});
+
+test('crash telemetry Auto-Fix dispatch does nothing when disabled', async () => {
+  const calls: string[] = [];
+  const result = await dispatchCrashTelemetryAutoFix(
+    'message-disabled',
+    { enabled: false, provider: 'codex' },
+    {
+      sendToDevin: async (messageId) => {
+        calls.push(`devin:${messageId}`);
+        return { endpointId: 'devin-endpoint' };
+      },
+      queueCodex: async (messageId) => {
+        calls.push(`codex:${messageId}`);
+        return { job: { id: 'codex-job' } };
+      }
+    }
+  );
+
+  assert.deepEqual(calls, []);
+  assert.deepEqual(result, {
+    provider: 'codex',
+    triggered: false
+  });
 });

@@ -1598,14 +1598,52 @@
               <span>Reviewed</span>
             </div>
           </div>
-          <button
-            class="btn btn--outline btn--small"
-            type="button"
-            :disabled="crashTelemetryLoading"
-            @click="refreshCrashTelemetry"
-          >
-            Refresh
-          </button>
+          <div class="crash-window__actions">
+            <div
+              class="crash-auto-fix"
+              :class="{ 'crash-auto-fix--enabled': crashAutoFixSettings.enabled }"
+            >
+              <label class="crash-auto-fix__toggle" :title="crashAutoFixToggleTitle">
+                <span>Auto-Fix</span>
+                <span class="toggle-switch toggle-switch--compact">
+                  <input
+                    type="checkbox"
+                    :checked="crashAutoFixSettings.enabled"
+                    :disabled="crashAutoFixLoading || crashAutoFixSaving"
+                    @change="handleCrashAutoFixToggle"
+                  />
+                  <span class="toggle-slider"></span>
+                </span>
+              </label>
+              <select
+                v-if="crashAutoFixSettings.enabled"
+                class="select select--compact crash-auto-fix__select"
+                :value="crashAutoFixSettings.provider ?? ''"
+                :disabled="crashAutoFixLoading || crashAutoFixSaving"
+                aria-label="Auto-Fix provider"
+                @change="handleCrashAutoFixProviderChange"
+              >
+                <option value="" disabled>Select provider</option>
+                <option
+                  v-for="provider in crashFixProviderOptions"
+                  :key="provider.value"
+                  :value="provider.value"
+                  :disabled="!getCrashAutoFixProviderState(provider.value).canSelect"
+                >
+                  {{ provider.label }}
+                </option>
+              </select>
+              <span v-if="crashAutoFixSaving" class="crash-auto-fix__status">Saving...</span>
+            </div>
+            <button
+              class="btn btn--outline btn--small"
+              type="button"
+              :disabled="crashTelemetryLoading"
+              @click="refreshCrashTelemetry"
+            >
+              Refresh
+            </button>
+          </div>
         </header>
 
         <div v-if="crashTelemetryLoading" class="crash-empty-state">Loading crash telemetry...</div>
@@ -3008,32 +3046,20 @@
                 role="menu"
               >
                 <button
+                  v-for="provider in crashFixProviderOptions"
+                  :key="provider.value"
                   class="fix-with-menu__item"
                   type="button"
                   role="menuitem"
                   :disabled="
-                    !getFixWithCodexState(selectedMessage).canSend ||
-                    isSendingCodexFix(selectedMessage.id)
+                    !getFixWithProviderState(selectedMessage, provider.value).canSend ||
+                    isSendingFixProvider(selectedMessage.id, provider.value)
                   "
-                  :title="getFixWithCodexState(selectedMessage).title"
-                  @click="fixWithCodex(selectedMessage)"
+                  :title="getFixWithProviderState(selectedMessage, provider.value).title"
+                  @click="fixWithProvider(selectedMessage, provider.value)"
                 >
-                  <img class="openai-logo" src="/assets/openai-logo-light.svg" alt="" aria-hidden="true" />
-                  <span>Codex</span>
-                </button>
-                <button
-                  class="fix-with-menu__item"
-                  type="button"
-                  role="menuitem"
-                  :disabled="
-                    !getFixWithDevinState(selectedMessage).canSend ||
-                    isSendingDevinFix(selectedMessage.id)
-                  "
-                  :title="getFixWithDevinState(selectedMessage).title"
-                  @click="fixWithDevin(selectedMessage)"
-                >
-                  <img class="devin-logo" :src="DEVIN_LOGO_SRC" alt="" aria-hidden="true" />
-                  <span>Devin</span>
+                  <img :class="provider.logoClass" :src="provider.logoSrc" alt="" aria-hidden="true" />
+                  <span>{{ provider.label }}</span>
                 </button>
               </div>
             </div>
@@ -4389,6 +4415,8 @@ import {
   type WebhookMessageLabel,
   type CrashInspectionResult,
   type CrashSegmentSortResult,
+  type CrashTelemetryAutoFixProvider,
+  type CrashTelemetryAutoFixSettings,
   type CrashTelemetryReport,
   type CrashTelemetrySummary,
   type CrashTelemetryVersionGroup
@@ -4440,6 +4468,28 @@ const GENERIC_INTAKE_TYPE: InboundWebhookIntakeType = 'GENERIC';
 const SERVER_CRASH_INTAKE_TYPE: InboundWebhookIntakeType = 'EQEMU_SERVER_CRASH_REPORT';
 const DEVIN_OUTBOUND_SERVICE: OutboundWebhookEndpointService = 'DEVIN';
 const CUSTOM_OUTBOUND_SERVICE: OutboundWebhookEndpointService = 'CUSTOM';
+
+interface CrashFixProviderOption {
+  value: CrashTelemetryAutoFixProvider;
+  label: string;
+  logoSrc: string;
+  logoClass: string;
+}
+
+const crashFixProviderOptions: CrashFixProviderOption[] = [
+  {
+    value: 'codex',
+    label: 'Codex',
+    logoSrc: '/assets/openai-logo-light.svg',
+    logoClass: 'openai-logo'
+  },
+  {
+    value: 'devin',
+    label: 'Devin',
+    logoSrc: DEVIN_LOGO_SRC,
+    logoClass: 'devin-logo'
+  }
+];
 
 const creatingWebhook = ref(false);
 const savingWebhookId = ref<string | null>(null);
@@ -4675,6 +4725,12 @@ const selectedCrashVersion = ref<string | null>(null);
 const selectedCrashReport = ref<CrashTelemetryReport | null>(null);
 const crashReportPendingDelete = ref<CrashTelemetryReport | null>(null);
 const deletingCrashReportId = ref<string | null>(null);
+const crashAutoFixSettings = reactive<CrashTelemetryAutoFixSettings>({
+  enabled: false,
+  provider: null
+});
+const crashAutoFixLoading = ref(false);
+const crashAutoFixSaving = ref(false);
 
 const inboxTotalPages = computed(() =>
   Math.max(1, Math.ceil(inboxTotal.value / inboxFilters.pageSize))
@@ -4762,6 +4818,17 @@ const enabledDevinEndpoint = computed(
         isValidHttpUrl(endpoint.url)
     ) ?? null
 );
+const crashAutoFixSelectedProviderLabel = computed(
+  () =>
+    crashFixProviderOptions.find((provider) => provider.value === crashAutoFixSettings.provider)
+      ?.label ?? 'provider'
+);
+const crashAutoFixToggleTitle = computed(() => {
+  if (crashAutoFixSettings.enabled && crashAutoFixSettings.provider) {
+    return `Automatically send new crash telemetry to ${crashAutoFixSelectedProviderLabel.value}.`;
+  }
+  return 'Automatically send new crash telemetry to a fix provider.';
+});
 const endpointNameModalWebhook = computed(
   () => webhooks.value.find((hook) => hook.id === endpointNameModalWebhookId.value) ?? null
 );
@@ -5961,6 +6028,109 @@ async function loadCrashTelemetrySummary() {
   }
 }
 
+async function loadCrashTelemetryAutoFixSettings() {
+  crashAutoFixLoading.value = true;
+  try {
+    const settings = await api.fetchCrashTelemetryAutoFixSettings();
+    applyCrashAutoFixSettings(settings);
+  } catch (error) {
+    console.error('Failed to load crash telemetry Auto-Fix settings:', error);
+    addToast({
+      title: 'Auto-Fix',
+      message: 'Unable to load crash Auto-Fix settings.',
+      variant: 'error'
+    });
+  } finally {
+    crashAutoFixLoading.value = false;
+  }
+}
+
+function applyCrashAutoFixSettings(settings: CrashTelemetryAutoFixSettings) {
+  crashAutoFixSettings.enabled = settings.enabled;
+  crashAutoFixSettings.provider = settings.provider;
+}
+
+async function saveCrashAutoFixSettings(nextSettings: CrashTelemetryAutoFixSettings) {
+  const previousSettings: CrashTelemetryAutoFixSettings = {
+    enabled: crashAutoFixSettings.enabled,
+    provider: crashAutoFixSettings.provider
+  };
+  applyCrashAutoFixSettings(nextSettings);
+  crashAutoFixSaving.value = true;
+
+  try {
+    const saved = await api.updateCrashTelemetryAutoFixSettings(nextSettings);
+    applyCrashAutoFixSettings(saved);
+    addToast({
+      title: saved.enabled ? 'Auto-Fix Enabled' : 'Auto-Fix Disabled',
+      message: saved.enabled
+        ? `New crash telemetry will be sent to ${crashAutoFixSelectedProviderLabel.value}.`
+        : 'New crash telemetry will not be sent to an Auto-Fix provider.',
+      variant: 'success'
+    });
+  } catch (error) {
+    applyCrashAutoFixSettings(previousSettings);
+    addToast({
+      title: 'Auto-Fix',
+      message: getActionErrorMessage(error, 'Unable to update crash Auto-Fix settings.'),
+      variant: 'error'
+    });
+  } finally {
+    crashAutoFixSaving.value = false;
+  }
+}
+
+function handleCrashAutoFixToggle(event: Event) {
+  const checked = (event.target as HTMLInputElement | null)?.checked === true;
+  let provider = crashAutoFixSettings.provider;
+  if (checked && (!provider || !getCrashAutoFixProviderState(provider).canSelect)) {
+    provider = getFirstSelectableCrashFixProvider();
+  }
+
+  if (checked && !provider) {
+    addToast({
+      title: 'Auto-Fix',
+      message: 'No fix provider is currently available.',
+      variant: 'error'
+    });
+    return;
+  }
+
+  void saveCrashAutoFixSettings({
+    enabled: checked,
+    provider: checked ? provider : null
+  });
+}
+
+function handleCrashAutoFixProviderChange(event: Event) {
+  const provider = (event.target as HTMLSelectElement | null)?.value;
+  if (provider !== 'codex' && provider !== 'devin') {
+    return;
+  }
+
+  const state = getCrashAutoFixProviderState(provider);
+  if (!state.canSelect) {
+    addToast({
+      title: 'Auto-Fix',
+      message: state.title,
+      variant: 'error'
+    });
+    return;
+  }
+
+  void saveCrashAutoFixSettings({
+    enabled: true,
+    provider
+  });
+}
+
+function getFirstSelectableCrashFixProvider(): CrashTelemetryAutoFixProvider | null {
+  return (
+    crashFixProviderOptions.find((provider) => getCrashAutoFixProviderState(provider.value).canSelect)
+      ?.value ?? null
+  );
+}
+
 async function loadCrashReports(version: string) {
   crashReportsLoading.value = true;
   try {
@@ -6385,6 +6555,7 @@ async function refreshAll() {
       loadLabels(),
       loadUnreadCount(),
       loadWebhookProcessingStatus(),
+      loadCrashTelemetryAutoFixSettings(),
       loadCrashTelemetrySummary()
     ]);
     if (shouldPollInbox()) {
@@ -7548,6 +7719,39 @@ function getFixWithCodexState(message: InboundWebhookMessage): {
   }
 
   return { canSend: true, title: 'Queue this crash report for the Codex VPS runner.' };
+}
+
+function getFixWithProviderState(
+  message: InboundWebhookMessage,
+  provider: CrashTelemetryAutoFixProvider
+) {
+  return provider === 'codex' ? getFixWithCodexState(message) : getFixWithDevinState(message);
+}
+
+function isSendingFixProvider(messageId: string, provider: CrashTelemetryAutoFixProvider) {
+  return provider === 'codex' ? isSendingCodexFix(messageId) : isSendingDevinFix(messageId);
+}
+
+function getCrashAutoFixProviderState(provider: CrashTelemetryAutoFixProvider): {
+  canSelect: boolean;
+  title: string;
+} {
+  if (provider === 'codex') {
+    return { canSelect: true, title: 'Queue new crash telemetry for the Codex VPS runner.' };
+  }
+
+  if (!enabledDevinEndpoint.value) {
+    return { canSelect: false, title: 'Configure an enabled Devin outbound endpoint first.' };
+  }
+
+  if (!enabledDevinEndpoint.value.hasWebhookSecret) {
+    return { canSelect: false, title: 'Add the Devin webhook secret to the outbound endpoint first.' };
+  }
+
+  return {
+    canSelect: true,
+    title: `Send new crash telemetry to ${enabledDevinEndpoint.value.label}.`
+  };
 }
 
 function getBlockingCodexJob(message: InboundWebhookMessage) {
@@ -8983,6 +9187,17 @@ async function sendDiscordSummary(message: InboundWebhookMessage) {
   }
 }
 
+function fixWithProvider(
+  message: InboundWebhookMessage,
+  provider: CrashTelemetryAutoFixProvider
+) {
+  if (provider === 'codex') {
+    void fixWithCodex(message);
+    return;
+  }
+  void fixWithDevin(message);
+}
+
 async function fixWithCodex(message: InboundWebhookMessage) {
   closeMessageActionMenu();
   closeFixWithMenu();
@@ -9712,6 +9927,144 @@ function escapeHtml(text: string): string {
   min-width: 0;
 }
 
+.crash-window__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.55rem;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.crash-auto-fix {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2rem;
+  padding: 0.2rem 0.28rem 0.2rem 0.62rem;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.72);
+  color: rgba(226, 232, 240, 0.86);
+  box-shadow: inset 0 1px 0 rgba(248, 250, 252, 0.05);
+}
+
+.crash-auto-fix--enabled {
+  border-color: rgba(34, 197, 94, 0.42);
+  background:
+    linear-gradient(135deg, rgba(20, 83, 45, 0.6), rgba(6, 78, 59, 0.44)),
+    rgba(5, 46, 22, 0.72);
+  color: #dcfce7;
+  box-shadow:
+    0 0 0 1px rgba(34, 197, 94, 0.08),
+    0 0 16px rgba(34, 197, 94, 0.12),
+    inset 0 1px 0 rgba(220, 252, 231, 0.14);
+}
+
+.crash-auto-fix--enabled::before,
+.crash-auto-fix--enabled::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+.crash-auto-fix--enabled::before {
+  inset: -45%;
+  z-index: 0;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    transparent 228deg,
+    rgba(22, 163, 74, 0.12) 248deg,
+    rgba(34, 197, 94, 0.54) 275deg,
+    rgba(187, 247, 208, 0.72) 292deg,
+    rgba(34, 197, 94, 0.42) 312deg,
+    transparent 340deg,
+    transparent 360deg
+  );
+  filter: blur(0.55px);
+  animation: crash-auto-fix-racetrack 4.8s linear infinite;
+}
+
+.crash-auto-fix--enabled::after {
+  inset: 2px;
+  z-index: 1;
+  background:
+    linear-gradient(135deg, rgba(20, 83, 45, 0.88), rgba(6, 78, 59, 0.76)),
+    rgba(5, 46, 22, 0.86);
+  box-shadow: inset 0 0 12px rgba(134, 239, 172, 0.08);
+}
+
+.crash-auto-fix > * {
+  position: relative;
+  z-index: 2;
+}
+
+@keyframes crash-auto-fix-racetrack {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.crash-auto-fix__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.crash-auto-fix__toggle > span:first-child,
+.crash-auto-fix__status {
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.crash-auto-fix__status {
+  color: rgba(187, 247, 208, 0.94);
+}
+
+.crash-auto-fix__select {
+  width: auto;
+  min-width: 7.5rem;
+  max-width: 10rem;
+  min-height: 1.58rem;
+  padding-block: 0.25rem;
+  border-radius: 999px;
+}
+
+.crash-auto-fix--enabled .crash-auto-fix__select {
+  border-color: rgba(74, 222, 128, 0.28);
+  background-color: rgba(6, 78, 59, 0.72);
+  background-image:
+    linear-gradient(45deg, transparent 50%, rgba(187, 247, 208, 0.9) 50%),
+    linear-gradient(135deg, rgba(187, 247, 208, 0.9) 50%, transparent 50%),
+    linear-gradient(to right, rgba(74, 222, 128, 0.18), rgba(74, 222, 128, 0.18));
+  color: #dcfce7;
+  box-shadow:
+    inset 0 0 0 1px rgba(5, 46, 22, 0.32),
+    0 0 10px rgba(34, 197, 94, 0.08);
+}
+
+.crash-auto-fix--enabled .toggle-switch input:checked + .toggle-slider {
+  background-color: rgba(34, 197, 94, 0.88);
+  box-shadow: 0 0 10px rgba(34, 197, 94, 0.24);
+}
+
+.crash-auto-fix--enabled .toggle-switch input:focus + .toggle-slider {
+  box-shadow:
+    0 0 0 2px rgba(34, 197, 94, 0.24),
+    0 0 14px rgba(34, 197, 94, 0.34);
+}
+
 .crash-summary-metric {
   display: flex;
   align-items: center;
@@ -10133,6 +10486,21 @@ function escapeHtml(text: string): string {
   .crash-window__summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.4rem;
+  }
+
+  .crash-window__actions {
+    justify-content: space-between;
+  }
+
+  .crash-auto-fix {
+    flex: 1 1 auto;
+    justify-content: space-between;
+    border-radius: 0.55rem;
+  }
+
+  .crash-auto-fix__select {
+    flex: 0 1 9rem;
+    min-width: 7rem;
   }
 
   .crash-summary-metric {

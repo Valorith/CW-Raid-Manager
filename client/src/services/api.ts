@@ -1856,6 +1856,13 @@ export interface CrashTelemetrySummary {
   latestCrashAt: string | null;
 }
 
+export type CrashTelemetryAutoFixProvider = 'codex' | 'devin';
+
+export interface CrashTelemetryAutoFixSettings {
+  enabled: boolean;
+  provider: CrashTelemetryAutoFixProvider | null;
+}
+
 // Crash Report Inspector Types
 export interface CrashHighlight {
   text: string;
@@ -5740,6 +5747,29 @@ export const api = {
         latestCrashAt: null
       }
     );
+  },
+
+  async fetchCrashTelemetryAutoFixSettings(): Promise<CrashTelemetryAutoFixSettings> {
+    const response = await axios.get('/api/admin/webhook-inbox/crashes/auto-fix');
+    const settings = response.data.settings as Partial<CrashTelemetryAutoFixSettings> | undefined;
+    return {
+      enabled: settings?.enabled === true,
+      provider:
+        settings?.provider === 'codex' || settings?.provider === 'devin'
+          ? settings.provider
+          : null
+    };
+  },
+
+  async updateCrashTelemetryAutoFixSettings(
+    settings: CrashTelemetryAutoFixSettings
+  ): Promise<CrashTelemetryAutoFixSettings> {
+    const response = await axios.put('/api/admin/webhook-inbox/crashes/auto-fix', settings);
+    const saved = response.data.settings as Partial<CrashTelemetryAutoFixSettings> | undefined;
+    return {
+      enabled: saved?.enabled === true,
+      provider: saved?.provider === 'codex' || saved?.provider === 'devin' ? saved.provider : null
+    };
   },
 
   async fetchCrashTelemetryReports(params?: {

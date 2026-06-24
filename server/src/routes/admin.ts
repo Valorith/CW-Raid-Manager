@@ -95,6 +95,8 @@ import {
   processDismissedMergeMessages,
   getWebhookProcessingStatus,
   setWebhookProcessingEnabled,
+  getCrashTelemetryAutoFixSettings,
+  setCrashTelemetryAutoFixSettings,
   getPendingMergeGroups,
   processGroupNow
 } from '../services/inboundWebhookService.js';
@@ -2351,6 +2353,47 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
         includeArchived: parsed.data.includeArchived
       });
       return { summary };
+    }
+  );
+
+  server.get(
+    '/webhook-inbox/crashes/auto-fix',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async () => {
+      const settings = await getCrashTelemetryAutoFixSettings();
+      return { settings };
+    }
+  );
+
+  server.put(
+    '/webhook-inbox/crashes/auto-fix',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const bodySchema = z
+        .object({
+          enabled: z.boolean(),
+          provider: z.enum(['codex', 'devin']).nullable().optional()
+        })
+        .refine((value) => !value.enabled || Boolean(value.provider), {
+          message: 'An auto-fix provider is required when Auto-Fix is enabled.'
+        });
+      const parsed = bodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.badRequest(parsed.error.message);
+      }
+
+      try {
+        const settings = await setCrashTelemetryAutoFixSettings(parsed.data);
+        return { settings };
+      } catch (error) {
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to update Auto-Fix settings.'
+        );
+      }
     }
   );
 

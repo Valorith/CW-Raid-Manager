@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'crypto';
 
 import {
+  OutboundWebhookEndpointService,
   Prisma,
   type InboundWebhookActionType,
   type InboundWebhookIntakeType,
@@ -65,6 +66,27 @@ debugLog('========================================');
 // Per-server setting key
 const PROCESSING_ENABLED_KEY = `webhookProcessingEnabled:${SERVER_ID}`;
 const INBOX_IGNORED_LABEL_IDS_KEY = 'webhookInboxIgnoredLabelIds';
+const CRASH_TELEMETRY_AUTO_FIX_KEY = 'crashTelemetryAutoFix';
+const CRASH_TELEMETRY_AUTO_FIX_PROVIDERS = new Set(['codex', 'devin']);
+const DEFAULT_CRASH_TELEMETRY_AUTO_FIX_PROVIDER = 'codex';
+
+export type CrashTelemetryAutoFixProvider = 'codex' | 'devin';
+
+export interface CrashTelemetryAutoFixSettings {
+  enabled: boolean;
+  provider: CrashTelemetryAutoFixProvider | null;
+}
+
+export interface CrashTelemetryAutoFixDispatchResult {
+  provider: CrashTelemetryAutoFixProvider | null;
+  triggered: boolean;
+  targetId?: string;
+}
+
+interface CrashTelemetryAutoFixActions {
+  sendToDevin: (messageId: string) => Promise<{ endpointId: string }>;
+  queueCodex: (messageId: string) => Promise<{ job: { id: string } }>;
+}
 
 /**
  * Check if webhook processing is enabled for this server instance.
@@ -162,6 +184,106 @@ async function setWebhookLabelInboxIgnored(labelId: string, ignored: boolean): P
     update: { value },
     create: { key: INBOX_IGNORED_LABEL_IDS_KEY, value }
   });
+}
+
+function isCrashTelemetryAutoFixProvider(value: unknown): value is CrashTelemetryAutoFixProvider {
+  return typeof value === 'string' && CRASH_TELEMETRY_AUTO_FIX_PROVIDERS.has(value);
+}
+
+function normalizeCrashTelemetryAutoFixSettings(value: unknown): CrashTelemetryAutoFixSettings {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { enabled: false, provider: null };
+  }
+
+  const record = value as Record<string, unknown>;
+  const provider = isCrashTelemetryAutoFixProvider(record.provider) ? record.provider : null;
+  const enabled = record.enabled === true && Boolean(provider);
+  return {
+    enabled,
+    provider: enabled ? provider : null
+  };
+}
+
+async function readCrashTelemetryAutoFixSetting(): Promise<{
+  exists: boolean;
+  settings: CrashTelemetryAutoFixSettings;
+}> {
+  try {
+    const setting = await prisma.systemSetting.findUnique({
+      where: { key: CRASH_TELEMETRY_AUTO_FIX_KEY }
+    });
+
+    if (!setting) {
+      return { exists: false, settings: { enabled: false, provider: null } };
+    }
+
+    try {
+      return {
+        exists: true,
+        settings: normalizeCrashTelemetryAutoFixSettings(JSON.parse(setting.value))
+      };
+    } catch {
+      return { exists: true, settings: { enabled: false, provider: null } };
+    }
+  } catch {
+    return { exists: false, settings: { enabled: false, provider: null } };
+  }
+}
+
+async function hasLegacyAutoDevinCrashTelemetryEndpoint(): Promise<boolean> {
+  try {
+    const endpoint = await prisma.outboundWebhookEndpoint.findFirst({
+      where: {
+        service: OutboundWebhookEndpointService.DEVIN,
+        isEnabled: true,
+        autoSendCrashTelemetry: true,
+        webhookSecret: { not: null }
+      },
+      select: { id: true }
+    });
+    return Boolean(endpoint);
+  } catch {
+    return false;
+  }
+}
+
+async function getDefaultCrashTelemetryAutoFixSettings(): Promise<CrashTelemetryAutoFixSettings> {
+  return {
+    enabled: await hasLegacyAutoDevinCrashTelemetryEndpoint(),
+    provider: DEFAULT_CRASH_TELEMETRY_AUTO_FIX_PROVIDER
+  };
+}
+
+export async function getCrashTelemetryAutoFixSettings(): Promise<CrashTelemetryAutoFixSettings> {
+  const persisted = await readCrashTelemetryAutoFixSetting();
+  if (persisted.exists) {
+    return persisted.settings;
+  }
+
+  return getDefaultCrashTelemetryAutoFixSettings();
+}
+
+export async function setCrashTelemetryAutoFixSettings(input: {
+  enabled: boolean;
+  provider?: CrashTelemetryAutoFixProvider | null;
+}): Promise<CrashTelemetryAutoFixSettings> {
+  const provider = isCrashTelemetryAutoFixProvider(input.provider) ? input.provider : null;
+  if (input.enabled && !provider) {
+    throw new Error('An auto-fix provider is required when Auto-Fix is enabled.');
+  }
+
+  const settings: CrashTelemetryAutoFixSettings = {
+    enabled: input.enabled,
+    provider: input.enabled ? provider : null
+  };
+
+  await prisma.systemSetting.upsert({
+    where: { key: CRASH_TELEMETRY_AUTO_FIX_KEY },
+    update: { value: JSON.stringify(settings) },
+    create: { key: CRASH_TELEMETRY_AUTO_FIX_KEY, value: JSON.stringify(settings) }
+  });
+
+  return settings;
 }
 
 async function withInboxIgnoreFlags<T extends { id: string }>(labels: T[]): Promise<Array<T & { ignoreInInbox: boolean }>> {
@@ -1703,17 +1825,63 @@ function getResolvedIssueDescription(
   return 'Webhook inbox item marked resolved.';
 }
 
-function scheduleAutoDevinCrashTelemetryHandoff(messageId: string) {
-  void import('./outboundWebhookEndpointService.js')
-    .then(({ tryAutoSendCrashTelemetryToDevin }) =>
-      tryAutoSendCrashTelemetryToDevin(messageId)
-    )
-    .catch((error) => {
-      console.error(
-        `[InboundWebhookService] Failed to schedule auto Devin crash handoff for ${messageId}:`,
-        error
-      );
+function scheduleAutoCrashTelemetryFix(messageId: string) {
+  void runAutoCrashTelemetryFix(messageId).catch((error) => {
+    console.error(
+      `[InboundWebhookService] Failed to schedule crash telemetry Auto-Fix for ${messageId}:`,
+      error
+    );
+  });
+}
+
+async function runAutoCrashTelemetryFix(messageId: string) {
+  const persisted = await readCrashTelemetryAutoFixSetting();
+  const settings = persisted.exists
+    ? persisted.settings
+    : await getDefaultCrashTelemetryAutoFixSettings();
+  try {
+    await dispatchCrashTelemetryAutoFix(messageId, settings, {
+      sendToDevin: async (id) => {
+        const { sendCrashReportToDevinEndpoint } = await import(
+          './outboundWebhookEndpointService.js'
+        );
+        return sendCrashReportToDevinEndpoint(id, { trigger: 'automatic' });
+      },
+      queueCodex: async (id) => {
+        const { createCodexJobForWebhookMessage } = await import('./codexJobService.js');
+        return createCodexJobForWebhookMessage(id);
+      }
     });
+  } catch (error) {
+    console.error(
+      `[InboundWebhookService] Failed to run crash telemetry Auto-Fix for ${messageId}:`,
+      error
+    );
+  }
+}
+
+export async function dispatchCrashTelemetryAutoFix(
+  messageId: string,
+  settings: CrashTelemetryAutoFixSettings,
+  actions: CrashTelemetryAutoFixActions
+): Promise<CrashTelemetryAutoFixDispatchResult> {
+  if (!settings.enabled || !settings.provider) {
+    return { provider: settings.provider ?? null, triggered: false };
+  }
+
+  if (settings.provider === 'devin') {
+    const result = await actions.sendToDevin(messageId);
+    debugLog(
+      `[InboundWebhookService] Auto-Fix sent crash telemetry ${messageId} to Devin endpoint ${result.endpointId}`
+    );
+    return { provider: 'devin', triggered: true, targetId: result.endpointId };
+  }
+
+  const result = await actions.queueCodex(messageId);
+  debugLog(
+    `[InboundWebhookService] Auto-Fix queued Codex job ${result.job.id} for crash telemetry ${messageId}`
+  );
+  return { provider: 'codex', triggered: true, targetId: result.job.id };
 }
 
 export async function receiveInboundWebhookMessage(input: InboundWebhookMessageInput) {
@@ -1810,7 +1978,7 @@ export async function receiveInboundWebhookMessage(input: InboundWebhookMessageI
   if (!processingEnabled) {
     debugLog(`[WEBHOOK RECEIVE] Processing DISABLED - stored message ${message.id} without running actions`);
     if (isServerCrashEndpoint) {
-      scheduleAutoDevinCrashTelemetryHandoff(message.id);
+      scheduleAutoCrashTelemetryFix(message.id);
     }
     debugLog(`[WEBHOOK RECEIVE] ========== MESSAGE RECEIVE COMPLETE ==========`);
     return message;
@@ -1826,7 +1994,7 @@ export async function receiveInboundWebhookMessage(input: InboundWebhookMessageI
       webhook.devMode,
       { forceCrashReview: true }
     );
-    scheduleAutoDevinCrashTelemetryHandoff(message.id);
+    scheduleAutoCrashTelemetryFix(message.id);
     debugLog(`[WEBHOOK RECEIVE] ========== MESSAGE RECEIVE COMPLETE ==========`);
     return message;
   }
