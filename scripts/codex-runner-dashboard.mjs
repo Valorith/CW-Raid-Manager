@@ -3667,6 +3667,9 @@ function renderDashboardPage(session) {
     .primary-actions {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+    .single-action {
+      grid-template-columns: 1fr;
+    }
     .control-metric-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3952,6 +3955,95 @@ function renderDashboardPage(session) {
     .logbox pre {
       color: #cfdbd3;
     }
+    .logs-modal-card {
+      width: min(1180px, calc(100vw - 36px));
+      height: min(820px, calc(100vh - 36px));
+    }
+    .logs-modal-head {
+      align-items: flex-start;
+      gap: 16px;
+    }
+    .logs-modal-head > div:first-child {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+    }
+    .logs-modal-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .logs-modal-actions select {
+      min-width: 138px;
+    }
+    .logs-modal-body {
+      grid-template-rows: auto auto minmax(0, 1fr);
+      overflow: hidden;
+    }
+    .log-meta-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .log-meta-card {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+      padding: 11px;
+      border: 1px solid rgba(224, 230, 226, 0.11);
+      border-radius: var(--radius);
+      background: rgba(8, 10, 11, 0.24);
+    }
+    .log-meta-card span {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 950;
+      text-transform: uppercase;
+    }
+    .log-meta-card strong,
+    .log-meta-card code {
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 850;
+      overflow-wrap: anywhere;
+    }
+    .log-status-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-width: 0;
+      padding: 10px 12px;
+      border: 1px solid rgba(224, 230, 226, 0.1);
+      border-radius: var(--radius);
+      background: rgba(8, 10, 11, 0.2);
+    }
+    .log-status-row .mini {
+      overflow-wrap: anywhere;
+    }
+    .logs-modal-logbox {
+      min-height: 0;
+      max-height: none;
+      height: 100%;
+      padding: 0;
+      overflow: auto;
+      border-color: rgba(224, 230, 226, 0.14);
+      background:
+        linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+        #070909;
+      background-size: 100% 28px, auto;
+    }
+    .logs-modal-logbox pre {
+      margin: 0;
+      padding: 16px;
+      color: #d8e3dc;
+      font-size: 12px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
     .empty {
       color: #aeb9b1;
     }
@@ -3969,6 +4061,29 @@ function renderDashboardPage(session) {
       }
       .ops-toolbar button[data-open-create] {
         margin-left: 0;
+      }
+    }
+    @media (max-width: 640px) {
+      .logs-modal-card {
+        width: calc(100vw - 28px);
+        height: calc(100vh - 36px);
+      }
+      .logs-modal-head {
+        align-items: stretch;
+      }
+      .logs-modal-actions {
+        justify-content: stretch;
+      }
+      .logs-modal-actions select,
+      .logs-modal-actions button {
+        flex: 1 1 120px;
+      }
+      .log-meta-grid {
+        grid-template-columns: 1fr;
+      }
+      .logs-modal-body {
+        gap: 10px;
+        padding: 12px;
       }
     }
     @media (max-width: 980px) {
@@ -4150,16 +4265,6 @@ function renderDashboardPage(session) {
               <div class="control-stack" id="runner-metrics"></div>
             </div>
           </article>
-          <article class="panel">
-            <div class="panel-head">
-              <h2>Logs</h2>
-              <button class="ghost" data-log-refresh>Refresh</button>
-            </div>
-            <div class="panel-body">
-              <span class="mini" id="log-status">Logs load on demand.</span>
-              <div class="logbox"><pre id="logs">Select Refresh to load runner service logs.</pre></div>
-            </div>
-          </article>
         </aside>
       </div>
     </section>
@@ -4217,6 +4322,35 @@ function renderDashboardPage(session) {
       <div class="modal-body" id="detail-body"></div>
     </article>
   </div>
+  <div class="modal" id="logs-modal" hidden>
+    <article class="modal-card logs-modal-card">
+      <div class="panel-head logs-modal-head">
+        <div>
+          <h2 id="logs-modal-title">Runner Logs</h2>
+          <div class="mini" id="logs-modal-subtitle">Logs load on demand.</div>
+        </div>
+        <div class="logs-modal-actions">
+          <select id="log-lines" aria-label="Runner log line count">
+            <option value="120">120 lines</option>
+            <option value="240" selected>240 lines</option>
+            <option value="500">500 lines</option>
+            <option value="1000">1000 lines</option>
+          </select>
+          <button class="ghost" data-log-copy>Copy</button>
+          <button class="ghost" data-log-refresh>Refresh</button>
+          <button data-logs-close>Close</button>
+        </div>
+      </div>
+      <div class="modal-body logs-modal-body">
+        <div class="log-meta-grid" id="log-meta"></div>
+        <div class="log-status-row">
+          <span class="mini" id="log-status">Logs load on demand.</span>
+          <span class="mini" id="log-count">No lines loaded.</span>
+        </div>
+        <div class="logbox logs-modal-logbox"><pre id="logs">Open logs to load runner service output.</pre></div>
+      </div>
+    </article>
+  </div>
   <script>
     const API = {
       overview: '${escapeJsString(withBasePath('/api/overview'))}',
@@ -4259,6 +4393,12 @@ function renderDashboardPage(session) {
     const historyEl = document.getElementById('history');
     const logsEl = document.getElementById('logs');
     const logStatusEl = document.getElementById('log-status');
+    const logCountEl = document.getElementById('log-count');
+    const logLinesEl = document.getElementById('log-lines');
+    const logMetaEl = document.getElementById('log-meta');
+    const logsModalEl = document.getElementById('logs-modal');
+    const logsModalTitleEl = document.getElementById('logs-modal-title');
+    const logsModalSubtitleEl = document.getElementById('logs-modal-subtitle');
     const createModalEl = document.getElementById('create-modal');
     const createStatusEl = document.getElementById('create-status');
     const detailModalEl = document.getElementById('detail-modal');
@@ -4277,6 +4417,8 @@ function renderDashboardPage(session) {
     let currentView = 'landing';
     let selectedRunnerId = null;
     let runnerHistory = [];
+    let latestLogData = null;
+    let logsLoadedForRunnerId = null;
 
     function escapeHtml(value) {
       return String(value ?? '').replace(/[&<>"']/g, (char) => ({
@@ -5420,7 +5562,7 @@ function renderDashboardPage(session) {
       const stateClass = runnerStateClass(runner);
       detailRunnerTitleEl.textContent = runner.runnerId;
       detailRunnerMetaEl.innerHTML = '<span>' + escapeHtml(runner.hostname || 'unknown host') + '</span><span>PID ' + escapeHtml(runner.pid || 'n/a') + '</span><span>' + escapeHtml(runner.nexusBaseUrl || '') + '</span>';
-      detailControlsEl.innerHTML = '';
+      detailControlsEl.innerHTML = '<button class="ghost" data-open-logs>View logs</button>';
       detailActivityEl.innerHTML = renderActivity(runner);
       detailUpdatedEl.textContent = 'Updated ' + new Date().toLocaleTimeString();
       const runnerService = getRunnerServiceView(runner);
@@ -5466,6 +5608,12 @@ function renderDashboardPage(session) {
           '</div>' +
         '</section>' +
         renderRunnerPoolSnapshot(runner) +
+        '<section class="control-section">' +
+          '<div class="control-section-title"><span>Diagnostics</span></div>' +
+          '<div class="control-actions single-action">' +
+            '<button class="ghost" data-open-logs>View logs</button>' +
+          '</div>' +
+        '</section>' +
         '<section class="control-section">' +
           '<details class="advanced-controls">' +
             '<summary><span>Advanced controls</span><small>Service, pool, paths</small></summary>' +
@@ -5605,8 +5753,7 @@ function renderDashboardPage(session) {
       currentView = 'runner';
       selectedRunnerId = runnerId;
       window.location.hash = 'runner=' + encodeURIComponent(runnerId);
-      logsEl.textContent = 'Select Refresh to load runner service logs.';
-      logStatusEl.textContent = 'Logs load on demand.';
+      resetLogModal(runnerId);
       await loadRunnerHistory(runnerId, false);
       renderSelectedRunner();
     }
@@ -5648,13 +5795,78 @@ function renderDashboardPage(session) {
       landingViewEl.classList.remove('hidden');
     }
 
-    async function refreshLogs(runnerId = null) {
+    function renderLogMeta(data = null, runnerId = null) {
+      const runner = latestRunners.find((item) => item.runnerId === (data?.runnerId || runnerId || selectedRunnerId)) || {};
+      const service = data?.serviceName || getRunnerServiceView(runner)?.name || '${escapeJsString(config.runnerServiceName)}';
+      logMetaEl.innerHTML =
+        renderLogMetaCard('Runner', data?.runnerId || runner.runnerId || runnerId || 'runner', true) +
+        renderLogMetaCard('Service', service, true) +
+        renderLogMetaCard('Host', runner.hostname || 'unknown') +
+        renderLogMetaCard('State', runner.status || 'unknown');
+    }
+
+    function renderLogMetaCard(label, value, code = false) {
+      const body = code
+        ? '<code>' + escapeHtml(value || 'none') + '</code>'
+        : '<strong>' + escapeHtml(value || 'none') + '</strong>';
+      return '<div class="log-meta-card"><span>' + escapeHtml(label) + '</span>' + body + '</div>';
+    }
+
+    function resetLogModal(runnerId = null) {
+      latestLogData = null;
+      logsLoadedForRunnerId = null;
+      logsEl.textContent = 'Open logs to load runner service output.';
+      logStatusEl.textContent = 'Logs load on demand.';
+      logCountEl.textContent = 'No lines loaded.';
+      logsModalTitleEl.textContent = 'Runner Logs';
+      logsModalSubtitleEl.textContent = runnerId || selectedRunnerId || 'Select a runner.';
+      renderLogMeta(null, runnerId);
+    }
+
+    async function openLogsModal(runnerId = null) {
       const runner = runnerId || selectedRunnerId || latestRunners[0]?.runnerId || 'runner';
+      logsModalTitleEl.textContent = 'Runner Logs';
+      logsModalSubtitleEl.textContent = runner;
+      renderLogMeta(null, runner);
+      logsModalEl.hidden = false;
+      await refreshLogs(runner);
+    }
+
+    function countLogLines(text) {
+      if (!text) return 0;
+      return text.split('\\n').filter((line) => line.length > 0).length;
+    }
+
+    async function refreshLogs(runnerId = null) {
+      const runner = runnerId || logsLoadedForRunnerId || selectedRunnerId || latestRunners[0]?.runnerId || 'runner';
+      const lines = logLinesEl.value || '240';
       logStatusEl.textContent = 'Loading logs...';
-      const data = await requestJson('${escapeJsString(withBasePath('/api/runners'))}/' + encodeURIComponent(runner) + '/logs?lines=240');
+      logsEl.textContent = 'Loading runner service logs...';
+      renderLogMeta(null, runner);
+      const data = await requestJson('${escapeJsString(withBasePath('/api/runners'))}/' + encodeURIComponent(runner) + '/logs?lines=' + encodeURIComponent(lines));
       if (!data) return;
-      logsEl.textContent = data.logs || 'No log lines returned.';
+      latestLogData = data;
+      logsLoadedForRunnerId = data.runnerId || runner;
+      const logText = data.logs || 'No log lines returned.';
+      logsEl.textContent = logText;
+      logsModalSubtitleEl.textContent = (data.runnerId || runner) + ' · ' + (data.serviceName || 'service');
       logStatusEl.textContent = 'Loaded ' + new Date(data.generatedAt).toLocaleString();
+      logCountEl.textContent = countLogLines(data.logs) + ' lines';
+      renderLogMeta(data, runner);
+    }
+
+    async function copyLogs() {
+      const text = logsEl.textContent || '';
+      if (!text || text === 'Open logs to load runner service output.' || text === 'Loading runner service logs...') {
+        logStatusEl.textContent = 'No logs loaded to copy.';
+        return;
+      }
+      if (!navigator.clipboard?.writeText) {
+        logStatusEl.textContent = 'Clipboard access is unavailable in this browser.';
+        return;
+      }
+      await navigator.clipboard.writeText(text);
+      logStatusEl.textContent = 'Copied logs at ' + new Date().toLocaleTimeString();
     }
 
     async function showTaskDetail(jobId) {
@@ -5761,12 +5973,18 @@ function renderDashboardPage(session) {
           createModalEl.hidden = true;
         } else if (button.hasAttribute('data-preflight-close')) {
           preflightModalEl.hidden = true;
+        } else if (button.hasAttribute('data-open-logs')) {
+          await openLogsModal();
         } else if (button.hasAttribute('data-back-to-runners')) {
           closeRunner();
         } else if (button.hasAttribute('data-refresh-history')) {
           if (selectedRunnerId) await loadRunnerHistory(selectedRunnerId);
         } else if (button.hasAttribute('data-log-refresh')) {
           await refreshLogs();
+        } else if (button.hasAttribute('data-log-copy')) {
+          await copyLogs();
+        } else if (button.hasAttribute('data-logs-close')) {
+          logsModalEl.hidden = true;
         } else if (button.hasAttribute('data-modal-close')) {
           detailModalEl.hidden = true;
         } else if (button.dataset.runnerOpen) {
@@ -5827,6 +6045,12 @@ function renderDashboardPage(session) {
     });
     detailModalEl.addEventListener('click', (event) => {
       if (event.target === detailModalEl) detailModalEl.hidden = true;
+    });
+    logsModalEl.addEventListener('click', (event) => {
+      if (event.target === logsModalEl) logsModalEl.hidden = true;
+    });
+    logLinesEl.addEventListener('change', () => {
+      if (!logsModalEl.hidden) refreshLogs();
     });
     detailStatusFilterEl.addEventListener('change', () => {
       if (selectedRunnerId) loadRunnerHistory(selectedRunnerId);
