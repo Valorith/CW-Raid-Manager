@@ -80,12 +80,6 @@ export async function marketRoutes(server: FastifyInstance): Promise<void> {
       }
 
       try {
-        await ensureMarketListingsFresh({ logger: request.log }).catch((error: unknown) => {
-          request.log.warn(
-            { error, itemId: parsedParams.data.itemId },
-            'Failed to refresh market listings before public item lookup; serving cached data.'
-          );
-        });
         const rangeDays = parsedQuery.data.days ?? parsedQuery.data.rangeDays ?? 180;
 
         const marketData = await getPublicMarketItemData({
