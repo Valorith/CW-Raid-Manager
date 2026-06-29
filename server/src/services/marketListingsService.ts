@@ -25,6 +25,7 @@ type MarketListingsSummaryRow = RowDataPacket & {
 
 type MarketListingRow = RowDataPacket & {
   id: string;
+  sourceListingId?: number | bigint | string | null;
   sellerCharacterId: number | bigint | string | null;
   sellerCharacterName: string | null;
   itemId: number | bigint | string | null;
@@ -140,6 +141,12 @@ const SELLER_EVENT_TYPE = 'TRADER_SELL';
 
 let marketListingsSyncPromise: Promise<MarketListingsSyncSummary> | null = null;
 let marketListingsCacheMissingWarned = false;
+let marketListingsSourceSchemaPromise: Promise<MarketListingsSourceSchema> | null = null;
+
+type MarketListingsSourceSchema = {
+  traderSellerIdColumn: 'character_id' | 'char_id' | null;
+  hasBazList: boolean;
+};
 
 function toNumber(value: number | bigint | string | null | undefined): number {
   if (typeof value === 'number' && Number.isFinite(value)) {
@@ -679,12 +686,69 @@ async function setMarketListingsSyncState(
   });
 }
 
-async function fetchEqMarketListings(): Promise<MarketListingRow[]> {
+async function tableExists(tableName: string): Promise<boolean> {
+  const rows = await queryEqDb<RowDataPacket[]>(
+    `
+      SELECT 1
+      FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = ?
+      LIMIT 1
+    `,
+    [tableName]
+  );
+  return rows.length > 0;
+}
+
+async function getTableColumns(tableName: string): Promise<Set<string>> {
+  if (!(await tableExists(tableName))) {
+    return new Set();
+  }
+
+  const rows = await queryEqDb<RowDataPacket[]>(`SHOW COLUMNS FROM \`${tableName}\``);
+  return new Set(
+    rows
+      .map((row) => (typeof row.Field === 'string' ? row.Field : ''))
+      .filter((column) => column.length > 0)
+  );
+}
+
+async function getMarketListingsSourceSchema(): Promise<MarketListingsSourceSchema> {
+  if (!marketListingsSourceSchemaPromise) {
+    marketListingsSourceSchemaPromise = (async () => {
+      const [traderColumns, hasBazList] = await Promise.all([
+        getTableColumns('trader'),
+        tableExists('baz_list')
+      ]);
+      const traderSellerIdColumn: MarketListingsSourceSchema['traderSellerIdColumn'] =
+        traderColumns.has('character_id')
+          ? 'character_id'
+          : traderColumns.has('char_id')
+            ? 'char_id'
+            : null;
+
+      return {
+        traderSellerIdColumn,
+        hasBazList
+      };
+    })().catch((error) => {
+      marketListingsSourceSchemaPromise = null;
+      throw error;
+    });
+  }
+
+  return await marketListingsSourceSchemaPromise;
+}
+
+async function fetchTraderMarketListings(
+  sellerIdColumn: 'character_id' | 'char_id'
+): Promise<MarketListingRow[]> {
   return queryEqDb<MarketListingRow[]>(
     `
       SELECT
-        t.char_id as sellerCharacterId,
-        COALESCE(NULLIF(TRIM(cd.name), ''), CONCAT('Trader ', t.char_id)) as sellerCharacterName,
+        NULL as sourceListingId,
+        t.${sellerIdColumn} as sellerCharacterId,
+        COALESCE(NULLIF(TRIM(cd.name), ''), CONCAT('Trader ', t.${sellerIdColumn})) as sellerCharacterName,
         t.item_id as itemId,
         COALESCE(NULLIF(TRIM(i.Name), ''), CONCAT('Item ', t.item_id)) as itemName,
         i.icon as itemIconId,
@@ -695,10 +759,53 @@ async function fetchEqMarketListings(): Promise<MarketListingRow[]> {
         t.slot_id as slotId,
         t.listing_date as listedAt
       FROM trader t
-      LEFT JOIN character_data cd ON cd.id = t.char_id
+      LEFT JOIN character_data cd ON cd.id = t.${sellerIdColumn}
       LEFT JOIN items i ON i.id = t.item_id
     `
   );
+}
+
+async function fetchBazListMarketListings(): Promise<MarketListingRow[]> {
+  return queryEqDb<MarketListingRow[]>(
+    `
+      SELECT
+        b.listid as sourceListingId,
+        b.sellcharid as sellerCharacterId,
+        COALESCE(NULLIF(TRIM(b.sellcharname), ''), NULLIF(TRIM(cd.name), ''), CONCAT('Trader ', b.sellcharid)) as sellerCharacterName,
+        b.itemid as itemId,
+        COALESCE(NULLIF(TRIM(i.Name), ''), CONCAT('Item ', b.itemid)) as itemName,
+        i.icon as itemIconId,
+        i.itemtype as itemType,
+        i.slots as itemSlots,
+        b.price as price,
+        NULL as charges,
+        b.listid as slotId,
+        NULL as listedAt
+      FROM baz_list b
+      LEFT JOIN character_data cd ON cd.id = b.sellcharid
+      LEFT JOIN items i ON i.id = b.itemid
+      WHERE b.status = 1
+        AND (b.buycharid IS NULL OR b.buycharid = 0)
+    `
+  );
+}
+
+async function fetchEqMarketListings(): Promise<MarketListingRow[]> {
+  const schema = await getMarketListingsSourceSchema();
+
+  if (schema.traderSellerIdColumn) {
+    const traderRows = await fetchTraderMarketListings(schema.traderSellerIdColumn);
+
+    if (traderRows.length > 0 || !schema.hasBazList) {
+      return traderRows;
+    }
+  }
+
+  if (schema.hasBazList) {
+    return fetchBazListMarketListings();
+  }
+
+  return [];
 }
 
 function buildCacheRecords(rows: MarketListingRow[], syncedAt: Date): MarketListingCacheRecord[] {
@@ -711,6 +818,7 @@ function buildCacheRecords(rows: MarketListingRow[], syncedAt: Date): MarketList
 
     return {
       id: buildStableMarketListingId({
+        sourceListingId: toNullableNumber(row.sourceListingId),
         sellerCharacterId,
         sellerCharacterName,
         itemId,
@@ -734,6 +842,7 @@ function buildCacheRecords(rows: MarketListingRow[], syncedAt: Date): MarketList
 }
 
 function buildStableMarketListingId(input: {
+  sourceListingId?: number | null;
   sellerCharacterId: number;
   sellerCharacterName: string;
   itemId: number;
@@ -744,12 +853,18 @@ function buildStableMarketListingId(input: {
     input.sellerCharacterId > 0
       ? `seller-id:${input.sellerCharacterId}`
       : `seller-name:${normalizeSearchQuery(input.sellerCharacterName)}`;
-  const fingerprint = [
+  const fingerprintParts = [
     sellerKey,
     `item:${input.itemId}`,
     `slot:${input.slotId}`,
     `charges:${input.charges ?? 'na'}`
-  ].join('|');
+  ];
+
+  if (input.sourceListingId != null) {
+    fingerprintParts.push(`source:${input.sourceListingId}`);
+  }
+
+  const fingerprint = fingerprintParts.join('|');
 
   return `ml_${createHash('sha1').update(fingerprint).digest('hex')}`;
 }
