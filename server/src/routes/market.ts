@@ -30,9 +30,12 @@ import {
   removeMarketFavoriteCharacter,
   removeMarketFavoriteItem,
   searchMarketCharacters,
-  searchMarketItems
+  searchMarketItems,
+  type MarketTraderListingsRefreshMode
 } from '../services/marketService.js';
 import { searchDiscoveredItems } from '../services/npcRespawnService.js';
+
+const marketTraderListingsRefreshModes = ['none', 'stale', 'force'] as const satisfies readonly MarketTraderListingsRefreshMode[];
 
 export async function marketRoutes(server: FastifyInstance): Promise<void> {
   const itemTypeValues = new Set<number>(EQEMU_ITEM_TYPE_VALUES);
@@ -378,8 +381,21 @@ export async function marketRoutes(server: FastifyInstance): Promise<void> {
       preHandler: [authenticate]
     },
     async (request, reply) => {
+      const querySchema = z.object({
+        traderListingsRefresh: z
+          .enum(marketTraderListingsRefreshModes)
+          .default('none')
+      });
+      const parsed = querySchema.safeParse(request.query);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid market favorites query.');
+      }
+
       try {
-        const favorites = await getMarketFavorites(request.user.userId);
+        const favorites = await getMarketFavorites(request.user.userId, {
+          traderListingsRefresh: parsed.data.traderListingsRefresh,
+          logger: request.log
+        });
         return { favorites };
       } catch (error) {
         request.log.error({ error }, 'Failed to fetch market favorites.');

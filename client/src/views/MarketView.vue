@@ -583,7 +583,7 @@
         :trader-summary="traderSummary"
         :favorites-loading="favoritesLoading"
         :trader-pending-keys="favoriteTraderPendingKeys"
-        @reload-favorites="reloadFavorites"
+        @reload-favorites="reloadTraderFavorites"
         @add-trader="addMarketTrader"
         @remove-trader="removeMarketTrader"
         @open-item="openItemModal"
@@ -1682,6 +1682,7 @@ import {
   type MarketRecentSale,
   type MarketRecentSalesPage,
   type MarketSummary,
+  type MarketTraderListingsRefreshMode,
   type MarketTraderSummary,
   type MarketTopItemsSort,
   type MarketTopItem
@@ -1786,6 +1787,7 @@ let refreshCooldownInterval: ReturnType<typeof setInterval> | null = null;
 let activeSearchToken = 0;
 let activeItemActivityRequestToken = 0;
 let activeItemListingsRequestToken = 0;
+let favoritesRequestToken = 0;
 let marketIntroFrame: number | null = null;
 const marketModalTitleId = 'market-item-trend-title';
 const characterHistoryModalTitleId = 'market-character-history-title';
@@ -2802,10 +2804,18 @@ async function loadSalesPage(page = salesPageNumber.value) {
   }
 }
 
-async function loadFavorites(showErrorToast = true) {
+async function loadFavorites(
+  showErrorToast = true,
+  traderListingsRefresh: MarketTraderListingsRefreshMode = 'none'
+) {
+  const token = ++favoritesRequestToken;
   favoritesLoading.value = true;
   try {
-    const favorites = await api.fetchMarketFavorites();
+    const favorites = await api.fetchMarketFavorites({ traderListingsRefresh });
+    if (token !== favoritesRequestToken) {
+      return;
+    }
+
     favoriteItems.value = favorites.items ?? [];
     favoriteCharacters.value = favorites.characters ?? [];
     favoriteTraders.value = favorites.traders ?? [];
@@ -2821,6 +2831,10 @@ async function loadFavorites(showErrorToast = true) {
       message: null
     };
   } catch (error) {
+    if (token !== favoritesRequestToken) {
+      return;
+    }
+
     console.error('Failed to load market watchlist.', error);
     if (showErrorToast) {
       addToast({
@@ -2830,12 +2844,18 @@ async function loadFavorites(showErrorToast = true) {
       });
     }
   } finally {
-    favoritesLoading.value = false;
+    if (token === favoritesRequestToken) {
+      favoritesLoading.value = false;
+    }
   }
 }
 
 function reloadFavorites() {
   void loadFavorites(true);
+}
+
+function reloadTraderFavorites() {
+  void loadFavorites(true, 'force');
 }
 
 async function addMarketItemFavorite(
@@ -3520,6 +3540,12 @@ watch(
   },
   { flush: 'post' }
 );
+
+watch(activeTab, (currentTab) => {
+  if (currentTab === 'traders') {
+    void loadFavorites(false, 'stale');
+  }
+});
 
 watch(searchQuery, (value) => {
   if (searchTimeout) clearTimeout(searchTimeout);

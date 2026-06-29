@@ -1,9 +1,12 @@
 import { MarketFavoriteListType, Prisma } from '@prisma/client';
 import type { RowDataPacket } from 'mysql2/promise';
 
-
 import { getItemIconId } from './eqItemService.js';
-import { getMarketListingsPage, type MarketListingsPage } from './marketListingsService.js';
+import {
+  ensureMarketListingsFresh,
+  getMarketListingsPage,
+  type MarketListingsPage
+} from './marketListingsService.js';
 import {
   normalizeMarketFavoriteNotificationSettings,
   processMarketSaleNotifications
@@ -25,6 +28,13 @@ type MarketLogger = {
   warn?: (...args: unknown[]) => void;
   error?: (...args: unknown[]) => void;
   debug?: (...args: unknown[]) => void;
+};
+
+export type MarketTraderListingsRefreshMode = 'none' | 'stale' | 'force';
+
+type MarketFavoritesOptions = {
+  traderListingsRefresh?: MarketTraderListingsRefreshMode;
+  logger?: MarketLogger;
 };
 
 type MarketSyncState = {
@@ -1082,6 +1092,27 @@ async function getMarketFavoriteTraderMetrics(
   }
 }
 
+async function refreshMarketListingsForTraderFavorites(
+  mode: MarketTraderListingsRefreshMode | undefined,
+  logger?: MarketLogger
+): Promise<void> {
+  if (!mode || mode === 'none') {
+    return;
+  }
+
+  try {
+    await ensureMarketListingsFresh({
+      logger,
+      maxStaleMs: mode === 'force' ? 0 : undefined
+    });
+  } catch (error) {
+    logger?.warn?.(
+      { error },
+      '[MarketFavorites] Unable to refresh market listings before trader metrics; using existing cache.'
+    );
+  }
+}
+
 async function getMarketFavoriteItemMetrics(input: {
   itemId: number | null;
   itemName: string | null;
@@ -2069,7 +2100,10 @@ export async function searchMarketCharacters(
   return searchMarketCharactersFromMarketData(normalizedQuery, limit);
 }
 
-export async function getMarketFavorites(userId: string): Promise<MarketFavorites> {
+export async function getMarketFavorites(
+  userId: string,
+  options: MarketFavoritesOptions = {}
+): Promise<MarketFavorites> {
   const favorites = await prisma.marketFavorite.findMany({
     where: { userId },
     orderBy: [{ createdAt: 'desc' }]
@@ -2079,7 +2113,7 @@ export async function getMarketFavorites(userId: string): Promise<MarketFavorite
     (favorite) =>
       favorite.listType === MarketFavoriteListType.FAVORITE_ITEMS && Boolean(favorite.itemName)
   );
-  const itemMetrics = await Promise.all(
+  const itemMetricsPromise = Promise.all(
     itemFavorites.map((favorite) =>
       getMarketFavoriteItemMetrics({
         itemId: favorite.itemId,
@@ -2092,7 +2126,7 @@ export async function getMarketFavorites(userId: string): Promise<MarketFavorite
       favorite.listType === MarketFavoriteListType.FAVORITE_CHARACTERS &&
       Boolean(favorite.characterName)
   );
-  const characterMetrics = await Promise.all(
+  const characterMetricsPromise = Promise.all(
     characterFavorites.map((favorite) =>
       getMarketFavoriteCharacterMetrics(favorite.characterName ?? '')
     )
@@ -2100,10 +2134,20 @@ export async function getMarketFavorites(userId: string): Promise<MarketFavorite
   const traderFavorites = favorites.filter(
     (favorite) => favorite.listType === MarketFavoriteListType.MY_TRADERS && Boolean(favorite.characterName)
   );
-  const { metricsByCharacterKey: traderMetricsByKey, summary: traderSummary } =
-    await getMarketFavoriteTraderMetrics(
+  const traderMetricsPromise = (async () => {
+    if (traderFavorites.length > 0) {
+      await refreshMarketListingsForTraderFavorites(options.traderListingsRefresh, options.logger);
+    }
+
+    return getMarketFavoriteTraderMetrics(
       traderFavorites.map((favorite) => favorite.characterName ?? '')
     );
+  })();
+  const [
+    itemMetrics,
+    characterMetrics,
+    { metricsByCharacterKey: traderMetricsByKey, summary: traderSummary }
+  ] = await Promise.all([itemMetricsPromise, characterMetricsPromise, traderMetricsPromise]);
 
   return {
     items: itemFavorites.map((favorite, index) => ({

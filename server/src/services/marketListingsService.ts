@@ -980,7 +980,7 @@ export async function ensureMarketListingsFresh(
   const stale = !lastRetrievedMs || Date.now() - lastRetrievedMs >= maxStaleMs;
 
   if (totalRows === 0 || stale) {
-    await syncMarketListings({ logger });
+    await syncMarketListings({ logger, minIntervalMs: maxStaleMs });
   }
 }
 
