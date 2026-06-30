@@ -2381,6 +2381,8 @@ export interface MarketFavorites {
   traderSummary: MarketTraderSummary;
 }
 
+export type MarketTraderListingsRefreshMode = 'none' | 'stale' | 'force';
+
 // Character Admin Types
 export interface CharacterAdminDetails {
   id: number;
@@ -6460,8 +6462,15 @@ export const api = {
     return response.data.characters ?? [];
   },
 
-  async fetchMarketFavorites(): Promise<MarketFavorites> {
-    const response = await axios.get('/api/market/favorites');
+  async fetchMarketFavorites(
+    options: { traderListingsRefresh?: MarketTraderListingsRefreshMode } = {}
+  ): Promise<MarketFavorites> {
+    const params = new URLSearchParams();
+    if (options.traderListingsRefresh && options.traderListingsRefresh !== 'none') {
+      params.append('traderListingsRefresh', options.traderListingsRefresh);
+    }
+    const query = params.toString();
+    const response = await axios.get(`/api/market/favorites${query ? `?${query}` : ''}`);
     return (
       response.data.favorites ?? {
         items: [],
