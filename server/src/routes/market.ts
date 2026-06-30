@@ -34,6 +34,30 @@ import {
 } from '../services/marketService.js';
 import { searchDiscoveredItems } from '../services/npcRespawnService.js';
 
+const PUBLIC_MARKET_REFRESH_TIMEOUT_MS = 20_000;
+
+async function withTimeout<T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+  message: string
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => {
+      reject(new Error(message));
+    }, timeoutMs);
+    timeout.unref();
+  });
+
+  try {
+    return await Promise.race([operation, timeoutPromise]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
 export async function marketRoutes(server: FastifyInstance): Promise<void> {
   const itemTypeValues = new Set<number>(EQEMU_ITEM_TYPE_VALUES);
   const itemSlotIds = new Set<number>(EQEMU_ITEM_SLOT_IDS);
@@ -77,12 +101,18 @@ export async function marketRoutes(server: FastifyInstance): Promise<void> {
 
       const parsedQuery = querySchema.safeParse(request.query ?? {});
       if (!parsedQuery.success) {
-        return reply.badRequest(parsedQuery.error.issues[0]?.message ?? 'Invalid query parameters.');
+        return reply.badRequest(
+          parsedQuery.error.issues[0]?.message ?? 'Invalid query parameters.'
+        );
       }
 
       try {
         if (!publicMarketListingsRefreshPromise) {
-          publicMarketListingsRefreshPromise = ensureMarketListingsFresh({ logger: request.log })
+          publicMarketListingsRefreshPromise = withTimeout(
+            ensureMarketListingsFresh({ logger: request.log }),
+            PUBLIC_MARKET_REFRESH_TIMEOUT_MS,
+            'Timed out refreshing market listings for public item lookup.'
+          )
             .catch((error: unknown) => {
               request.log.warn(
                 { error },
