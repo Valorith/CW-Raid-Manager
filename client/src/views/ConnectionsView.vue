@@ -1553,8 +1553,10 @@ async function loadConnections(isRefresh = false) {
     lastUpdated.value = new Date();
     pendingSuspiciousRefresh = null;
 
-    // Sync IP group associations in the background
-    syncIpAssociations(response.connections);
+    if (authStore.isAdmin) {
+      // Syncing associations writes admin-only data; guides can still view connections.
+      syncIpAssociations(response.connections);
+    }
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to load server connections.';
   } finally {
