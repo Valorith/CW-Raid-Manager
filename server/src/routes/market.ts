@@ -35,7 +35,35 @@ import {
 } from '../services/marketService.js';
 import { searchDiscoveredItems } from '../services/npcRespawnService.js';
 
-const marketTraderListingsRefreshModes = ['none', 'stale', 'force'] as const satisfies readonly MarketTraderListingsRefreshMode[];
+const PUBLIC_MARKET_REFRESH_TIMEOUT_MS = 20_000;
+
+async function withTimeout<T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+  message: string
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => {
+      reject(new Error(message));
+    }, timeoutMs);
+    timeout.unref();
+  });
+
+  try {
+    return await Promise.race([operation, timeoutPromise]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+const marketTraderListingsRefreshModes = [
+  'none',
+  'stale',
+  'force'
+] as const satisfies readonly MarketTraderListingsRefreshMode[];
 
 export async function marketRoutes(server: FastifyInstance): Promise<void> {
   const itemTypeValues = new Set<number>(EQEMU_ITEM_TYPE_VALUES);
@@ -50,6 +78,7 @@ export async function marketRoutes(server: FastifyInstance): Promise<void> {
     reply.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
     reply.header('Access-Control-Allow-Headers', 'Content-Type');
   };
+  let publicMarketListingsRefreshPromise: Promise<void> | null = null;
 
   server.options('/public/items/:itemId', async (_request, reply) => {
     applyPublicMarketCors(reply);
@@ -79,16 +108,30 @@ export async function marketRoutes(server: FastifyInstance): Promise<void> {
 
       const parsedQuery = querySchema.safeParse(request.query ?? {});
       if (!parsedQuery.success) {
-        return reply.badRequest(parsedQuery.error.issues[0]?.message ?? 'Invalid query parameters.');
+        return reply.badRequest(
+          parsedQuery.error.issues[0]?.message ?? 'Invalid query parameters.'
+        );
       }
 
       try {
-        await ensureMarketListingsFresh({ logger: request.log }).catch((error: unknown) => {
-          request.log.warn(
-            { error, itemId: parsedParams.data.itemId },
-            'Failed to refresh market listings before public item lookup; serving cached data.'
-          );
-        });
+        if (!publicMarketListingsRefreshPromise) {
+          publicMarketListingsRefreshPromise = withTimeout(
+            ensureMarketListingsFresh({ logger: request.log }),
+            PUBLIC_MARKET_REFRESH_TIMEOUT_MS,
+            'Timed out refreshing market listings for public item lookup.'
+          )
+            .catch((error: unknown) => {
+              request.log.warn(
+                { error },
+                'Failed to refresh market listings for public item lookup; serving cached data.'
+              );
+            })
+            .finally(() => {
+              publicMarketListingsRefreshPromise = null;
+            });
+          void publicMarketListingsRefreshPromise;
+        }
+
         const rangeDays = parsedQuery.data.days ?? parsedQuery.data.rangeDays ?? 180;
 
         const marketData = await getPublicMarketItemData({
@@ -382,9 +425,7 @@ export async function marketRoutes(server: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const querySchema = z.object({
-        traderListingsRefresh: z
-          .enum(marketTraderListingsRefreshModes)
-          .default('none')
+        traderListingsRefresh: z.enum(marketTraderListingsRefreshModes).default('none')
       });
       const parsed = querySchema.safeParse(request.query);
       if (!parsed.success) {
