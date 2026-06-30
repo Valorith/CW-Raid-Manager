@@ -107,7 +107,7 @@ export function buildServer(): FastifyInstance {
 
   registerRoutes(server);
 
-  server.get('/health', async () => ({ status: 'ok' }));
+  server.get('/health', { logLevel: 'warn' }, async () => ({ status: 'ok' }));
 
   if (clientIndexHtml && clientDistPath) {
     server.register(fastifyStatic, {

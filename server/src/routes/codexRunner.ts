@@ -83,8 +83,10 @@ const cancelBodySchema = z.object({
   reason: z.string().max(1_000).optional()
 });
 
+const quietPollingRoute = { logLevel: 'warn' as const };
+
 export async function codexRunnerRoutes(server: FastifyInstance): Promise<void> {
-  server.get('/health', async () => ({
+  server.get('/health', quietPollingRoute, async () => ({
     configured: isCodexRunnerConfigured()
   }));
 
@@ -108,7 +110,7 @@ export async function codexRunnerRoutes(server: FastifyInstance): Promise<void> 
     }
   });
 
-  server.get('/jobs', async (request, reply) => {
+  server.get('/jobs', quietPollingRoute, async (request, reply) => {
     if (!authenticateRunner(request, reply)) {
       return;
     }
@@ -157,7 +159,7 @@ export async function codexRunnerRoutes(server: FastifyInstance): Promise<void> 
     }
   });
 
-  server.post('/jobs/claim', async (request, reply) => {
+  server.post('/jobs/claim', quietPollingRoute, async (request, reply) => {
     if (!authenticateRunner(request, reply)) {
       return;
     }
@@ -176,7 +178,7 @@ export async function codexRunnerRoutes(server: FastifyInstance): Promise<void> 
     }
   });
 
-  server.post('/jobs/recover-stale', async (request, reply) => {
+  server.post('/jobs/recover-stale', quietPollingRoute, async (request, reply) => {
     if (!authenticateRunner(request, reply)) {
       return;
     }
