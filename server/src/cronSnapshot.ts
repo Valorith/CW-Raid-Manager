@@ -83,8 +83,15 @@ async function loadCronDependencies(): Promise<CronDependencies> {
   ]);
 
   cleanupCronDependencies = async () => {
-    await eqDb.closeEqDbPool();
-    await prismaModule.prisma.$disconnect();
+    const results = await Promise.allSettled([
+      eqDb.closeEqDbPool(),
+      prismaModule.prisma.$disconnect()
+    ]);
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        console.error('[CronSnapshot] Error during cleanup:', result.reason);
+      }
+    }
   };
 
   return {
@@ -174,7 +181,11 @@ async function main(): Promise<void> {
 
   // Task 2: Check if money/metallurgy snapshot should be taken
   // This only runs if EQ database is configured and conditions are met
-  await checkAndCreateSnapshot(dependencies);
+  try {
+    await checkAndCreateSnapshot(dependencies);
+  } catch (error) {
+    console.error('[CronJob] Error checking/creating snapshot:', error);
+  }
 }
 
 async function checkAndCreateSnapshot({
