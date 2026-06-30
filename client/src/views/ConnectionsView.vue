@@ -1565,6 +1565,10 @@ async function loadConnections(isRefresh = false) {
 }
 
 async function syncIpAssociations(conns: typeof connections.value) {
+  if (!authStore.isAdmin) {
+    return;
+  }
+
   // Only sync if there are multi-account IP groups
   const ipGroups = new Map<string, typeof conns>();
   for (const conn of conns) {
