@@ -225,7 +225,7 @@ function buildUsageTask() {
     commitPrefix: 'chore(railway)',
     prTitlePrefix: 'Optimize Railway usage',
     telegramTitle: 'CW Nexus usage PR',
-    buildPrompt: (workingRepoRoot) => [
+    buildPrompt: (workingRepoRoot, resultFile) => [
       'You are Codex running the daily CW Nexus Railway usage maintenance automation.',
       '',
       'Goal:',
@@ -244,7 +244,7 @@ function buildUsageTask() {
       '',
       sharedPromptContext(workingRepoRoot),
       '',
-      `Before finishing, write JSON to ${join(runDir, 'codex-result-usage.json')} with this shape:`,
+      `Before finishing, write JSON to ${resultFile} with this shape:`,
       resultSchemaText(),
       '',
       'Use action "no_change" when no safe usage optimization is warranted.'
@@ -263,7 +263,7 @@ function buildBugTask() {
     commitPrefix: 'fix(railway-logs)',
     prTitlePrefix: 'Fix issue found in Railway logs',
     telegramTitle: 'CW Nexus log-fix PR',
-    buildPrompt: (workingRepoRoot) => [
+    buildPrompt: (workingRepoRoot, resultFile) => [
       'You are Codex running the daily CW Nexus Railway log maintenance automation.',
       '',
       'Goal:',
@@ -282,7 +282,7 @@ function buildBugTask() {
       '',
       sharedPromptContext(workingRepoRoot),
       '',
-      `Before finishing, write JSON to ${join(runDir, 'codex-result-bugs.json')} with this shape:`,
+      `Before finishing, write JSON to ${resultFile} with this shape:`,
       resultSchemaText(),
       '',
       'Use action "no_change" when no safe bug fix is warranted.'
@@ -343,9 +343,11 @@ async function runCodexTask(task) {
     repoDir: join(workspacesDir, task.id, 'repo')
   };
   await log(`Starting Codex task: ${task.title}`);
+  let childResultFile = null;
 
   try {
     await prepareWorkspace(taskState);
+    childResultFile = join(taskState.repoDir, `.codex-railway-result-${task.id}.json`);
 
     const codex = await run(codexBin, [
       '-a',
@@ -360,7 +362,7 @@ async function runCodexTask(task) {
       '--json',
       '--output-last-message',
       task.lastMessageFile,
-      task.buildPrompt(taskState.repoDir)
+      task.buildPrompt(taskState.repoDir, childResultFile)
     ], {
       allowFailure: true,
       timeoutMs: Number(process.env.CODEX_RAILWAY_MAINTENANCE_CODEX_TIMEOUT_MS || 90 * 60 * 1000),
@@ -370,11 +372,15 @@ async function runCodexTask(task) {
 
     taskState.codexExitCode = codex.code;
     if (codex.code !== 0) {
+      await removeChildResultFile(childResultFile);
       taskState.status = 'failed';
       taskState.error = `Codex exited with ${codex.code}`;
       await preserveWorkspacePatch(taskState);
       return taskState;
     }
+
+    taskState.result = await consumeResultFile(task, childResultFile);
+    childResultFile = null;
 
     const aheadCount = await getBranchAheadCount(taskState.repoDir);
     taskState.branchCommitsAhead = aheadCount;
@@ -388,12 +394,10 @@ async function runCodexTask(task) {
     const diffStatus = (await runGitIn(taskState.repoDir, ['status', '--porcelain'])).stdout.trim();
     if (!diffStatus) {
       taskState.status = 'no_change';
-      taskState.result = await readResultFile(task.resultFile);
       await appendHistory(`task_${task.id}_no_change`);
       return taskState;
     }
 
-    taskState.result = await readResultFile(task.resultFile);
     if (taskState.result.action !== 'pr') {
       taskState.status = 'failed';
       taskState.error = `Codex left a diff but result action was ${JSON.stringify(taskState.result.action)}`;
@@ -449,11 +453,29 @@ async function runCodexTask(task) {
     await appendHistory(`task_${task.id}_pr_created`);
     return taskState;
   } catch (error) {
+    await removeChildResultFile(childResultFile);
     taskState.status = 'failed';
     taskState.error = stringifyError(error);
     await preserveWorkspacePatch(taskState);
     await appendHistory(`task_${task.id}_failed`);
     return taskState;
+  }
+}
+
+async function consumeResultFile(task, childResultFile) {
+  let result;
+  try {
+    result = await readResultFile(childResultFile);
+  } finally {
+    await removeChildResultFile(childResultFile);
+  }
+  await writeJson(task.resultFile, result);
+  return result;
+}
+
+async function removeChildResultFile(childResultFile) {
+  if (childResultFile) {
+    await rm(childResultFile, { force: true });
   }
 }
 
