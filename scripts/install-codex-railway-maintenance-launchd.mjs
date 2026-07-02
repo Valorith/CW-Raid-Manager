@@ -3,7 +3,7 @@ import { spawnSync } from 'child_process';
 import { existsSync } from 'fs';
 import { mkdir, rm, writeFile } from 'fs/promises';
 import { homedir } from 'os';
-import { dirname, join, resolve } from 'path';
+import { dirname, isAbsolute, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -31,6 +31,11 @@ await mkdir(launchAgentsDir, { recursive: true });
 await mkdir(logsDir, { recursive: true });
 
 const nodeBin = process.execPath;
+const commandBins = {
+  codexBin: resolveCommand('codex'),
+  ghBin: resolveCommand('gh'),
+  railwayBin: resolveCommand('railway')
+};
 const scriptPath = join(repoRoot, 'scripts', 'codex-railway-maintenance.mjs');
 if (!existsSync(scriptPath)) {
   throw new Error(`Missing automation script: ${scriptPath}`);
@@ -39,6 +44,7 @@ if (!existsSync(scriptPath)) {
 const plist = buildPlist({
   label,
   nodeBin,
+  ...commandBins,
   scriptPath,
   repoRoot,
   automationRoot,
@@ -79,10 +85,23 @@ function runLaunchctl(commandArgs) {
   });
 }
 
+function resolveCommand(command) {
+  const result = spawnSync('/usr/bin/which', [command], {
+    encoding: 'utf8'
+  });
+  if (result.status !== 0) return command;
+  return result.stdout.trim().split('\n')[0] || command;
+}
+
 function buildPlist(config) {
-  const pathValue = [
+  const pathValue = dedupePathEntries([
     join(homedir(), '.railway', 'bin'),
+    join(homedir(), '.npm-global', 'bin'),
+    join(homedir(), '.local', 'bin'),
     join(homedir(), 'homebrew', 'bin'),
+    commandDir(config.codexBin),
+    commandDir(config.ghBin),
+    commandDir(config.railwayBin),
     dirname(config.nodeBin),
     '/opt/homebrew/bin',
     '/usr/local/bin',
@@ -90,7 +109,7 @@ function buildPlist(config) {
     '/bin',
     '/usr/sbin',
     '/sbin'
-  ].join(':');
+  ]).join(':');
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -108,6 +127,9 @@ function buildPlist(config) {
     <string>SHELL=${escapeXml(process.env.SHELL || '/bin/zsh')}</string>
     <string>PATH=${escapeXml(pathValue)}</string>
     <string>CODEX_RAILWAY_MAINTENANCE_HOME=${escapeXml(config.automationRoot)}</string>
+    <string>CODEX_BIN=${escapeXml(config.codexBin)}</string>
+    <string>GH_BIN=${escapeXml(config.ghBin)}</string>
+    <string>RAILWAY_BIN=${escapeXml(config.railwayBin)}</string>
     <string>${escapeXml(config.nodeBin)}</string>
     <string>${escapeXml(config.scriptPath)}</string>
   </array>
@@ -129,6 +151,14 @@ function buildPlist(config) {
 </dict>
 </plist>
 `;
+}
+
+function commandDir(commandPath) {
+  return isAbsolute(commandPath) ? dirname(commandPath) : null;
+}
+
+function dedupePathEntries(entries) {
+  return [...new Set(entries.filter(Boolean))];
 }
 
 function escapeXml(value) {
