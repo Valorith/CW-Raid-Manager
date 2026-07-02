@@ -32,9 +32,18 @@ await mkdir(logsDir, { recursive: true });
 
 const nodeBin = process.execPath;
 const commandBins = {
-  codexBin: resolveCommand('codex'),
-  ghBin: resolveCommand('gh'),
-  railwayBin: resolveCommand('railway')
+  codexBin: resolveCommand('codex', [join(homedir(), '.npm-global', 'bin', 'codex')]),
+  ghBin: resolveCommand('gh', [
+    join(homedir(), 'homebrew', 'bin', 'gh'),
+    '/opt/homebrew/bin/gh',
+    '/usr/local/bin/gh'
+  ]),
+  railwayBin: resolveCommand('railway', [
+    join(homedir(), '.railway', 'bin', 'railway'),
+    join(homedir(), 'homebrew', 'bin', 'railway'),
+    '/opt/homebrew/bin/railway',
+    '/usr/local/bin/railway'
+  ])
 };
 const scriptPath = join(repoRoot, 'scripts', 'codex-railway-maintenance.mjs');
 if (!existsSync(scriptPath)) {
@@ -85,7 +94,13 @@ function runLaunchctl(commandArgs) {
   });
 }
 
-function resolveCommand(command) {
+function resolveCommand(command, candidates = []) {
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
   const result = spawnSync('/usr/bin/which', [command], {
     encoding: 'utf8'
   });
