@@ -65,6 +65,8 @@ const marketTraderListingsRefreshModes = [
   'force'
 ] as const satisfies readonly MarketTraderListingsRefreshMode[];
 
+const quietPublicMarketRoute = { logLevel: 'warn' as const };
+
 export async function marketRoutes(server: FastifyInstance): Promise<void> {
   const itemTypeValues = new Set<number>(EQEMU_ITEM_TYPE_VALUES);
   const itemSlotIds = new Set<number>(EQEMU_ITEM_SLOT_IDS);
@@ -80,7 +82,7 @@ export async function marketRoutes(server: FastifyInstance): Promise<void> {
   };
   let publicMarketListingsRefreshPromise: Promise<void> | null = null;
 
-  server.options('/public/items/:itemId', async (_request, reply) => {
+  server.options('/public/items/:itemId', quietPublicMarketRoute, async (_request, reply) => {
     applyPublicMarketCors(reply);
     return reply.code(204).send();
   });
@@ -88,6 +90,7 @@ export async function marketRoutes(server: FastifyInstance): Promise<void> {
   server.get(
     '/public/items/:itemId',
     {
+      ...quietPublicMarketRoute,
       preHandler: [publicMarketItemRateLimit]
     },
     async (request, reply) => {
