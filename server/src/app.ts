@@ -13,6 +13,7 @@ import { appConfig } from './config/appConfig.js';
 import { discordOAuthPlugin } from './plugins/discordOAuth.js';
 import { googleOAuthPlugin } from './plugins/googleOAuth.js';
 import { registerRoutes } from './routes/index.js';
+import { redactRequestLogUrl } from './utils/logRedaction.js';
 import { captureException, initSentry } from './utils/sentry.js';
 
 // Initialize Sentry before anything else
@@ -21,7 +22,21 @@ initSentry();
 export function buildServer(): FastifyInstance {
   const server = fastify({
     logger: {
-      level: appConfig.nodeEnv === 'development' ? 'debug' : 'info'
+      level: appConfig.nodeEnv === 'development' ? 'debug' : 'info',
+      serializers: {
+        req(request) {
+          const acceptVersion = request.headers['accept-version'];
+
+          return {
+            method: request.method,
+            url: redactRequestLogUrl(request.url),
+            version: Array.isArray(acceptVersion) ? acceptVersion.join(',') : acceptVersion,
+            host: request.host,
+            remoteAddress: request.ip,
+            remotePort: request.socket?.remotePort
+          };
+        }
+      }
     },
     trustProxy: true
   });
