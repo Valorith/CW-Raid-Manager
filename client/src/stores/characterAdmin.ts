@@ -144,6 +144,21 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
     await loadCharacterById(id);
   }
 
+  // Focus another character without changing the modal's current tab
+  async function focusById(id: number) {
+    const activeTab = modalState.value.activeTab;
+
+    modalState.value = {
+      open: true,
+      characterName: null,
+      characterId: id,
+      activeTab
+    };
+
+    resetData();
+    await loadCharacterById(id);
+  }
+
   // Open the modal by character ID with a pre-applied event type filter
   async function openByIdWithEventFilter(id: number, eventTypeName: string) {
     modalState.value = {
@@ -607,6 +622,7 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
     // Actions
     openByName,
     openById,
+    focusById,
     openByIdWithEventFilter,
     close,
     setActiveTab,

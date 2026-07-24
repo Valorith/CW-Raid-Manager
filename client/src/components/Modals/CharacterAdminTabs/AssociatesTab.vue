@@ -112,7 +112,14 @@
         >
           <div class="associate-info">
             <div class="associate-header">
-              <span class="associate-name">{{ getDisplayName(associate.characterName) }}</span>
+              <button
+                type="button"
+                class="associate-name"
+                :title="`View ${getDisplayName(associate.characterName)} in Character Admin`"
+                @click="store.focusById(associate.characterId)"
+              >
+                {{ getDisplayName(associate.characterName) }}
+              </button>
               <span v-if="isDeleted(associate.characterName)" class="deleted-badge">Deleted</span>
               <span class="association-badge" :class="`badge--${associate.associationType}`">
                 {{ getAssociationLabel(associate.associationType) }}
@@ -678,8 +685,28 @@ function formatDate(dateStr: string): string {
 }
 
 .associate-name {
+  padding: 0;
+  background: none;
+  border: none;
+  font: inherit;
   font-weight: 600;
-  color: #f8fafc;
+  color: #38bdf8;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    text-shadow 0.15s ease;
+
+  &:hover,
+  &:focus-visible {
+    color: #f8fafc;
+    text-shadow: 0 0 6px rgba(56, 189, 248, 0.6);
+  }
+
+  &:focus-visible {
+    outline: 2px solid #38bdf8;
+    outline-offset: 3px;
+    border-radius: 0.125rem;
+  }
 }
 
 .deleted-badge {
