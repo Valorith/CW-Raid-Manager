@@ -88,6 +88,7 @@ export async function marketRoutes(server: FastifyInstance): Promise<void> {
   server.get(
     '/public/items/:itemId',
     {
+      logLevel: 'warn',
       preHandler: [publicMarketItemRateLimit]
     },
     async (request, reply) => {
