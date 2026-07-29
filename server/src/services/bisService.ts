@@ -203,6 +203,34 @@ export interface BisBanSummary {
   };
 }
 
+export function buildBisVoteUpsert(
+  userId: string,
+  candidate: {
+    id: string;
+    characterClass: CharacterClass;
+    slotId: number;
+  }
+): Prisma.BisVoteUpsertArgs {
+  return {
+    where: {
+      userId_characterClass_slotId: {
+        userId,
+        characterClass: candidate.characterClass,
+        slotId: candidate.slotId
+      }
+    },
+    update: {
+      candidateId: candidate.id
+    },
+    create: {
+      candidateId: candidate.id,
+      userId,
+      characterClass: candidate.characterClass,
+      slotId: candidate.slotId
+    }
+  };
+}
+
 type ActiveBisBanRecord = Awaited<ReturnType<typeof getActiveBisBan>>;
 
 function isPlayableBisClass(value: CharacterClass): value is (typeof BIS_PLAYABLE_CLASSES)[number] {
@@ -548,24 +576,7 @@ export async function nominateBisCandidate(
       submittedById: userId
     });
 
-    await tx.bisVote.upsert({
-      where: {
-        userId_characterClass_slotId: {
-          userId,
-          characterClass: input.characterClass,
-          slotId: input.slotId
-        }
-      },
-      update: {
-        candidateId: createdCandidate.id
-      },
-      create: {
-        candidateId: createdCandidate.id,
-        userId,
-        characterClass: input.characterClass,
-        slotId: input.slotId
-      }
-    });
+    await tx.bisVote.upsert(buildBisVoteUpsert(userId, createdCandidate));
 
     return createdCandidate;
   });
@@ -592,24 +603,7 @@ export async function voteForBisCandidate(
     throw new Error('BiS candidate not found.');
   }
 
-  await prisma.bisVote.upsert({
-    where: {
-      userId_characterClass_slotId: {
-        userId,
-        characterClass: candidate.characterClass,
-        slotId: candidate.slotId
-      }
-    },
-    update: {
-      candidateId: candidate.id
-    },
-    create: {
-      candidateId: candidate.id,
-      userId,
-      characterClass: candidate.characterClass,
-      slotId: candidate.slotId
-    }
-  });
+  await prisma.bisVote.upsert(buildBisVoteUpsert(userId, candidate));
 
   return {
     candidateId: candidate.id,

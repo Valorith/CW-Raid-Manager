@@ -400,23 +400,20 @@
                   <button
                     type="button"
                     class="btn"
+                    :aria-pressed="selectedSlot.viewerVoteCandidateId === candidate.id"
                     :class="
                       selectedSlot.viewerVoteCandidateId === candidate.id
                         ? 'btn--secondary'
                         : 'btn--primary'
                     "
                     :disabled="
-                      candidateVoteLoadingId === candidate.id || !board?.permissions.canVote
+                      candidateVoteLoadingId !== null ||
+                      selectedSlot.viewerVoteCandidateId === candidate.id ||
+                      !board?.permissions.canVote
                     "
                     @click="voteForCandidate(candidate.id)"
                   >
-                    {{
-                      selectedSlot.viewerVoteCandidateId === candidate.id
-                        ? 'Voted'
-                        : candidateVoteLoadingId === candidate.id
-                          ? 'Voting…'
-                          : 'Vote'
-                    }}
+                    {{ candidateVoteLabel(candidate.id) }}
                   </button>
                 </div>
                 <div class="bis-planner__vote-bar" aria-hidden="true">
@@ -756,7 +753,13 @@ const compareItemActionLabel = computed(() => {
 
   if (selectedCompareCandidate.value) {
     if (candidateVoteLoadingId.value === selectedCompareCandidate.value.id) {
-      return 'Voting…';
+      return selectedSlot.value?.viewerVoteCandidateId ? 'Changing Vote…' : 'Voting…';
+    }
+
+    if (selectedSlot.value?.viewerVoteCandidateId) {
+      return selectedCompareCandidate.value.isWinner
+        ? 'Change Vote To Current BiS'
+        : 'Change Vote To Candidate';
     }
 
     return selectedCompareCandidate.value.isWinner ? 'Vote For Current BiS' : 'Vote For Candidate';
@@ -854,7 +857,26 @@ function handleSelectSlot(slotId: number) {
   selectedSlotId.value = slotId;
 }
 
+function candidateVoteLabel(candidateId: string) {
+  if (selectedSlot.value?.viewerVoteCandidateId === candidateId) {
+    return 'Voted';
+  }
+
+  if (candidateVoteLoadingId.value === candidateId) {
+    return selectedSlot.value?.viewerVoteCandidateId ? 'Changing…' : 'Voting…';
+  }
+
+  return selectedSlot.value?.viewerVoteCandidateId ? 'Change Vote' : 'Vote';
+}
+
 async function voteForCandidate(candidateId: string) {
+  const slotLabel = selectedSlot.value?.slotLabel ?? 'slot';
+  const targetItemName =
+    selectedSlot.value?.candidates.find((candidate) => candidate.id === candidateId)?.itemName ??
+    'the selected item';
+  const previousCandidateId = selectedSlot.value?.viewerVoteCandidateId ?? null;
+  const isVoteChange = Boolean(previousCandidateId && previousCandidateId !== candidateId);
+
   candidateVoteLoadingId.value = candidateId;
   try {
     await api.voteBisCandidate(candidateId);
@@ -867,8 +889,10 @@ async function voteForCandidate(candidateId: string) {
       justVotedCandidateId.value = null;
     }, 900);
     emitToast(
-      'Vote Recorded',
-      `Your ${selectedSlot.value?.slotLabel ?? 'slot'} vote has been updated.`
+      isVoteChange ? 'Vote Changed' : 'Vote Recorded',
+      isVoteChange
+        ? `Your ${slotLabel} vote has moved to ${targetItemName}.`
+        : `Your ${slotLabel} vote has been recorded.`
     );
   } catch (error: any) {
     emitToast(
@@ -886,6 +910,15 @@ async function nominateItem(item: BisDiscoveredItem) {
     return;
   }
 
+  const slotLabel = selectedSlot.value?.slotLabel ?? 'slot';
+  const existingCandidate = selectedSlot.value?.candidates.find(
+    (candidate) => candidate.itemId === item.itemId
+  );
+  const previousCandidateId = selectedSlot.value?.viewerVoteCandidateId ?? null;
+  const isVoteChange = Boolean(
+    previousCandidateId && previousCandidateId !== existingCandidate?.id
+  );
+
   nominationLoadingItemId.value = item.itemId;
   try {
     await api.nominateBisCandidate({
@@ -895,8 +928,16 @@ async function nominateItem(item: BisDiscoveredItem) {
     });
     await loadBoard();
     emitToast(
-      'Candidate Submitted',
-      `${item.itemName} is now on the board for ${selectedSlot.value?.slotLabel}.`
+      existingCandidate
+        ? isVoteChange
+          ? 'Vote Changed'
+          : 'Vote Recorded'
+        : isVoteChange
+          ? 'Candidate Submitted + Vote Changed'
+          : 'Candidate Submitted',
+      isVoteChange
+        ? `Your ${slotLabel} vote has moved to ${item.itemName}.`
+        : `${item.itemName} is now your ${slotLabel} vote.`
     );
   } catch (error: any) {
     emitToast(
