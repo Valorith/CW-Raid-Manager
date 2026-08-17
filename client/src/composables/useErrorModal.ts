@@ -12,6 +12,28 @@ const state = ref<ErrorModalState>({
   message: ''
 });
 
+function copyTextWithSelectionFallback(text: string): boolean {
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.setAttribute('aria-hidden', 'true');
+  textarea.style.position = 'fixed';
+  textarea.style.inset = '0 auto auto 0';
+  textarea.style.opacity = '0';
+  textarea.style.pointerEvents = 'none';
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
+  try {
+    return document.execCommand('copy');
+  } catch {
+    return false;
+  } finally {
+    textarea.remove();
+  }
+}
+
 export function useErrorModal() {
   function showError(message: string, title = 'Error') {
     state.value = {
@@ -32,12 +54,16 @@ export function useErrorModal() {
   }
 
   async function copyErrorToClipboard() {
+    const message = state.value.message;
     try {
-      await navigator.clipboard.writeText(state.value.message);
-      return true;
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(message);
+        return true;
+      }
     } catch {
-      return false;
+      // Some embedded browsers expose the Clipboard API but reject writes.
     }
+    return copyTextWithSelectionFallback(message);
   }
 
   return {

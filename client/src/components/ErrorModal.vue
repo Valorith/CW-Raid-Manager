@@ -4,7 +4,14 @@
       <div class="error-modal">
         <header class="error-modal__header">
           <h3>{{ state.title }}</h3>
-          <button class="error-modal__close" @click="closeError">&times;</button>
+          <button
+            class="error-modal__close"
+            type="button"
+            aria-label="Close error"
+            @click="closeError"
+          >
+            &times;
+          </button>
         </header>
         <div class="error-modal__body">
           <div class="error-modal__icon">
@@ -17,7 +24,7 @@
           <div class="error-modal__message">{{ state.message }}</div>
         </div>
         <footer class="error-modal__actions">
-          <button class="btn btn--outline" @click="handleCopy">
+          <button class="btn btn--outline" type="button" aria-live="polite" @click="handleCopy">
             <svg
               viewBox="0 0 24 24"
               fill="none"
@@ -30,7 +37,7 @@
             </svg>
             {{ copyButtonText }}
           </button>
-          <button class="btn btn--primary" @click="closeError">Close</button>
+          <button class="btn btn--primary" type="button" @click="closeError">Close</button>
         </footer>
       </div>
     </div>
@@ -38,7 +45,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import { useErrorModal } from '../composables/useErrorModal';
 
 const { state, closeError, copyErrorToClipboard } = useErrorModal();
@@ -47,13 +54,18 @@ const copyButtonText = ref('Copy Error');
 
 async function handleCopy() {
   const success = await copyErrorToClipboard();
-  if (success) {
-    copyButtonText.value = 'Copied!';
-    setTimeout(() => {
-      copyButtonText.value = 'Copy Error';
-    }, 2000);
-  }
+  copyButtonText.value = success ? 'Copied!' : 'Copy failed';
+  window.setTimeout(() => {
+    copyButtonText.value = 'Copy Error';
+  }, 2000);
 }
+
+watch(
+  () => [state.value.isOpen, state.value.message],
+  () => {
+    copyButtonText.value = 'Copy Error';
+  }
+);
 </script>
 
 <style scoped>

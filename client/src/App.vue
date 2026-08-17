@@ -76,7 +76,13 @@
           @mouseenter="onNavDropdownMouseEnter('guild')"
           @mouseleave="onNavDropdownMouseLeave('guild')"
         >
-          <RouterLink :to="guildNavTo" class="nav__tab">
+          <RouterLink
+            :to="guildNavTo"
+            class="nav__tab"
+            :aria-expanded="primaryGuild ? activeDropdown === 'guild' : undefined"
+            :aria-haspopup="primaryGuild ? 'true' : undefined"
+            @focus="primaryGuild && openDropdown('guild')"
+          >
             <svg
               class="nav__tab-ico"
               viewBox="0 0 24 24"
@@ -631,6 +637,12 @@
             Bank
           </RouterLink>
           <RouterLink
+            :to="{ name: 'GuildBosses', params: { guildId: primaryGuild.id } }"
+            class="nav__dropdown-item"
+          >
+            Bosses
+          </RouterLink>
+          <RouterLink
             :to="{ name: 'GuildQuestTracker', params: { guildId: primaryGuild.id } }"
             class="nav__dropdown-item"
           >
@@ -949,6 +961,8 @@ const ROUTE_LABELS: Record<string, string> = {
   GuildSettings: 'Guild Settings',
   GuildMetrics: 'Guild Metrics',
   GuildBank: 'Guild Bank',
+  GuildBosses: 'Bosses',
+  GuildBossDetail: 'Boss Notes',
   GuildQuestTracker: 'Quest Tracker',
   GuildNpcRespawn: 'NPC Respawn',
   GuildNpcManagement: 'NPC Management',

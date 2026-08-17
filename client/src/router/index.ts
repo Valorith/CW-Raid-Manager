@@ -65,6 +65,18 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/guilds/:guildId/bosses',
+      name: 'GuildBosses',
+      component: () => import('../views/GuildBossesView.vue'),
+      meta: { requiresAuth: true, title: 'Bosses' }
+    },
+    {
+      path: '/guilds/:guildId/bosses/:bossId',
+      name: 'GuildBossDetail',
+      component: () => import('../views/GuildBossesView.vue'),
+      meta: { requiresAuth: true, title: 'Boss Notes' }
+    },
+    {
       path: '/guilds/:guildId/metrics',
       name: 'GuildMetrics',
       component: () => import('../views/GuildMetricsView.vue'),

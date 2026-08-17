@@ -6,6 +6,7 @@ import { attendanceRoutes } from './attendance.js';
 import { authRoutes } from './auth.js';
 import { availabilityRoutes } from './availability.js';
 import { bisRoutes } from './bis.js';
+import { bossRoutes } from './bosses.js';
 import { charactersRoutes } from './characters.js';
 import { cliAuthRoutes } from './cliAuth.js';
 import { codexRunnerRoutes } from './codexRunner.js';
@@ -53,6 +54,7 @@ export function registerRoutes(server: FastifyInstance): void {
   server.register(adminRoutes, { prefix: '/api/admin' });
   server.register(itemRoutes, { prefix: '/api' });
   server.register(bisRoutes, { prefix: '/api/bis' });
+  server.register(bossRoutes, { prefix: '/api/guilds' });
   server.register(marketRoutes, { prefix: '/api/market' });
   server.register(integrationRoutes, { prefix: '/api/integrations' });
   server.register(moneyTrackerRoutes, { prefix: '/api/admin/money-tracker' });

@@ -110,6 +110,8 @@ model Guild {
   npcKillRecords     NpcKillRecord[]
   pendingNpcKillClarifications PendingNpcKillClarification[]
   npcFavorites       NpcFavorite[]
+  bossGroups         GuildBossGroup[]
+  bosses             GuildBoss[]
 
   @@index([createdById], map: "Guild_createdById_fkey")
 }
@@ -150,17 +152,63 @@ model GuildDiscordWebhook {
 }
 
 model GuildMembership {
-  id        String    @id @default(cuid())
-  guildId   String
-  userId    String
-  role      GuildRole
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  guild     Guild     @relation(fields: [guildId], references: [id])
-  user      User      @relation(fields: [userId], references: [id])
+  id                String    @id @default(cuid())
+  guildId           String
+  userId            String
+  role              GuildRole
+  isBossContributor Boolean   @default(false)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  guild             Guild     @relation(fields: [guildId], references: [id])
+  user              User      @relation(fields: [userId], references: [id])
 
   @@unique([guildId, userId])
   @@index([userId], map: "GuildMembership_userId_fkey")
+}
+
+model GuildBossGroup {
+  id        String      @id @default(cuid())
+  guildId   String
+  name      String      @db.VarChar(120)
+  sortOrder Int         @default(0)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  guild     Guild       @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  bosses    GuildBoss[]
+
+  @@unique([guildId, name], map: "GuildBossGroup_guild_name_key")
+  @@index([guildId, sortOrder], map: "GuildBossGroup_guild_sort_idx")
+}
+
+model GuildBoss {
+  id               String         @id @default(cuid())
+  guildId          String
+  groupId          String
+  name             String         @db.VarChar(191)
+  imageUrl         String?        @db.VarChar(2048)
+  notes            String?        @db.LongText
+  sortOrder        Int            @default(0)
+  lastEditedById   String?
+  lastEditedByName String?        @db.VarChar(191)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  guild            Guild          @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  group            GuildBossGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  image            GuildBossImage?
+
+  @@unique([guildId, name], map: "GuildBoss_guild_name_key")
+  @@index([guildId, groupId, sortOrder], map: "GuildBoss_guild_group_sort_idx")
+  @@index([groupId], map: "GuildBoss_group_idx")
+}
+
+model GuildBossImage {
+  bossId    String    @id
+  mimeType  String    @db.VarChar(100)
+  fileName  String?   @db.VarChar(191)
+  data      Bytes     @db.LongBlob
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  boss      GuildBoss @relation(fields: [bossId], references: [id], onDelete: Cascade)
 }
 
 model GuildApplication {

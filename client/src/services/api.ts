@@ -65,6 +65,68 @@ export interface GuildDetail extends GuildSummary {
   viewerApplication?: GuildApplicationSummary | null;
 }
 
+export interface BossLibraryPermissions {
+  role: GuildRole;
+  isContributor: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
+  canManageContributors: boolean;
+}
+
+export interface GuildBossSummary {
+  id: string;
+  name: string;
+  imageUrl: string | null;
+  imageSource: 'upload' | 'url' | null;
+  sortOrder: number;
+  updatedAt: string;
+}
+
+export interface GuildBossGroup {
+  id: string;
+  name: string;
+  sortOrder: number;
+  bosses: GuildBossSummary[];
+}
+
+export interface GuildBoss extends GuildBossSummary {
+  guildId: string;
+  groupId: string;
+  notes: string | null;
+  lastEditedById: string | null;
+  lastEditedByName: string | null;
+  createdAt: string;
+  group: {
+    id: string;
+    name: string;
+  };
+}
+
+export interface GuildBossLibrary {
+  guild: {
+    id: string;
+    name: string;
+  };
+  groups: GuildBossGroup[];
+  permissions: BossLibraryPermissions;
+}
+
+export interface GuildBossInput {
+  groupId: string;
+  name: string;
+  imageUrl?: string | null;
+  notes?: string | null;
+  sortOrder?: number;
+}
+
+export interface BossContributor {
+  userId: string;
+  displayName: string;
+  role: GuildRole;
+  isContributor: boolean;
+  hasImplicitAccess: boolean;
+}
+
 export interface CharacterPayload {
   name: string;
   level: number;
@@ -3752,6 +3814,67 @@ export interface CliDeviceLogin {
   expiresAt: string;
 }
 
+function isTransientBossUploadError(error: unknown): boolean {
+  if (!axios.isAxiosError(error)) return false;
+  return !error.response || [502, 503, 504].includes(error.response.status);
+}
+
+function waitForBossUploadRecovery(delayMs: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, delayMs));
+}
+
+async function findBossCreatedByName(guildId: string, name: string): Promise<GuildBoss | null> {
+  try {
+    const libraryResponse = await axios.get<GuildBossLibrary>(`/api/guilds/${guildId}/bosses`);
+    const normalizedName = name.trim().toLocaleLowerCase();
+    const summary = libraryResponse.data.groups
+      .flatMap((group) => group.bosses)
+      .find((boss) => boss.name.trim().toLocaleLowerCase() === normalizedName);
+    if (!summary) return null;
+    const detailResponse = await axios.get<{ boss: GuildBoss }>(
+      `/api/guilds/${guildId}/bosses/${summary.id}`
+    );
+    return detailResponse.data.boss;
+  } catch {
+    return null;
+  }
+}
+
+async function createBossImageWithRecovery(
+  guildId: string,
+  name: string,
+  submit: () => Promise<GuildBoss>
+): Promise<GuildBoss> {
+  try {
+    return await submit();
+  } catch (error) {
+    if (!isTransientBossUploadError(error)) throw error;
+    await waitForBossUploadRecovery(700);
+    const created = await findBossCreatedByName(guildId, name);
+    if (created) return created;
+    try {
+      return await submit();
+    } catch (retryError) {
+      if (axios.isAxiosError(retryError) && retryError.response?.status === 409) {
+        await waitForBossUploadRecovery(250);
+        const reconciled = await findBossCreatedByName(guildId, name);
+        if (reconciled) return reconciled;
+      }
+      throw retryError;
+    }
+  }
+}
+
+async function retryTransientBossImageUpdate(submit: () => Promise<GuildBoss>): Promise<GuildBoss> {
+  try {
+    return await submit();
+  } catch (error) {
+    if (!isTransientBossUploadError(error)) throw error;
+    await waitForBossUploadRecovery(700);
+    return submit();
+  }
+}
+
 export const api = {
   async fetchCurrentUser() {
     const response = await axios.get('/api/auth/me');
@@ -5198,6 +5321,116 @@ export const api = {
       role
     });
     return response.data.membership;
+  },
+
+  async fetchGuildBossLibrary(guildId: string): Promise<GuildBossLibrary> {
+    const response = await axios.get(`/api/guilds/${guildId}/bosses`);
+    return response.data;
+  },
+
+  async fetchGuildBoss(
+    guildId: string,
+    bossId: string
+  ): Promise<{ boss: GuildBoss; permissions: BossLibraryPermissions }> {
+    const response = await axios.get(`/api/guilds/${guildId}/bosses/${bossId}`);
+    return response.data;
+  },
+
+  async createGuildBossGroup(guildId: string, name: string): Promise<GuildBossGroup> {
+    const response = await axios.post(`/api/guilds/${guildId}/boss-groups`, { name });
+    return response.data.group;
+  },
+
+  async updateGuildBossGroup(
+    guildId: string,
+    groupId: string,
+    payload: { name?: string; sortOrder?: number }
+  ): Promise<GuildBossGroup> {
+    const response = await axios.patch(`/api/guilds/${guildId}/boss-groups/${groupId}`, payload);
+    return response.data.group;
+  },
+
+  async reorderGuildBossGroups(guildId: string, groupIds: string[]): Promise<void> {
+    await axios.post(`/api/guilds/${guildId}/boss-groups/reorder`, { groupIds });
+  },
+
+  async deleteGuildBossGroup(guildId: string, groupId: string): Promise<void> {
+    await axios.delete(`/api/guilds/${guildId}/boss-groups/${groupId}`);
+  },
+
+  async createGuildBoss(guildId: string, payload: GuildBossInput): Promise<GuildBoss> {
+    const response = await axios.post(`/api/guilds/${guildId}/bosses`, payload);
+    return response.data.boss;
+  },
+
+  async createGuildBossWithImage(
+    guildId: string,
+    payload: Omit<GuildBossInput, 'imageUrl'>,
+    image: File
+  ): Promise<GuildBoss> {
+    return createBossImageWithRecovery(guildId, payload.name, async () => {
+      const formData = new FormData();
+      formData.append('name', payload.name);
+      formData.append('groupId', payload.groupId);
+      if (payload.notes !== undefined && payload.notes !== null) {
+        formData.append('notes', payload.notes);
+      }
+      if (payload.sortOrder !== undefined) {
+        formData.append('sortOrder', String(payload.sortOrder));
+      }
+      formData.append('image', image);
+      const response = await axios.post(`/api/guilds/${guildId}/bosses/with-image`, formData);
+      return response.data.boss;
+    });
+  },
+
+  async updateGuildBoss(
+    guildId: string,
+    bossId: string,
+    payload: Partial<GuildBossInput>
+  ): Promise<GuildBoss> {
+    const response = await axios.patch(`/api/guilds/${guildId}/bosses/${bossId}`, payload);
+    return response.data.boss;
+  },
+
+  async updateGuildBossWithImage(
+    guildId: string,
+    bossId: string,
+    payload: Omit<Partial<GuildBossInput>, 'imageUrl'>,
+    image: File
+  ): Promise<GuildBoss> {
+    return retryTransientBossImageUpdate(async () => {
+      const formData = new FormData();
+      if (payload.name !== undefined) formData.append('name', payload.name);
+      if (payload.groupId !== undefined) formData.append('groupId', payload.groupId);
+      if (payload.notes !== undefined && payload.notes !== null) {
+        formData.append('notes', payload.notes);
+      }
+      if (payload.sortOrder !== undefined) {
+        formData.append('sortOrder', String(payload.sortOrder));
+      }
+      formData.append('image', image);
+      const response = await axios.patch(
+        `/api/guilds/${guildId}/bosses/${bossId}/with-image`,
+        formData
+      );
+      return response.data.boss;
+    });
+  },
+
+  async deleteGuildBoss(guildId: string, bossId: string): Promise<void> {
+    await axios.delete(`/api/guilds/${guildId}/bosses/${bossId}`);
+  },
+
+  async fetchBossContributors(guildId: string): Promise<BossContributor[]> {
+    const response = await axios.get(`/api/guilds/${guildId}/bosses/contributors`);
+    return response.data.contributors ?? [];
+  },
+
+  async setBossContributor(guildId: string, userId: string, isContributor: boolean): Promise<void> {
+    await axios.patch(`/api/guilds/${guildId}/bosses/contributors/${userId}`, {
+      isContributor
+    });
   },
 
   async assignGuildMemberCharacter(
