@@ -75,6 +75,14 @@ export function getBossLibraryPermissions(role: GuildRole, isContributor: boolea
   };
 }
 
+export function serializeBossLibraryGuild(guild: { id: string; name: string; slug: string }) {
+  return {
+    id: guild.id,
+    name: guild.name,
+    slug: guild.slug
+  };
+}
+
 export function buildBossGroupOrderUpdates(existingIds: string[], orderedIds: string[]) {
   const existingIdSet = new Set(existingIds);
   const orderedIdSet = new Set(orderedIds);
@@ -282,10 +290,7 @@ export async function listGuildBossLibrary(guildId: string, userId: string) {
   }
 
   return {
-    guild: {
-      id: guild.id,
-      name: guild.name
-    },
+    guild: serializeBossLibraryGuild(guild),
     groups: guild.bossGroups.map((group) => ({
       ...group,
       bosses: group.bosses.map((boss) => serializeBossImage(guildId, boss))

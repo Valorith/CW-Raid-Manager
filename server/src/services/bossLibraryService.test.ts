@@ -10,7 +10,8 @@ import {
   buildUniqueBossSlug,
   detectBossImageMime,
   prepareBossImageUpload,
-  getBossLibraryPermissions
+  getBossLibraryPermissions,
+  serializeBossLibraryGuild
 } from './bossLibraryService.js';
 
 test('guild leaders and officers have full boss library access without a contributor flag', () => {
@@ -50,6 +51,13 @@ test('an ordinary guild member receives read-only boss library access', () => {
     canDelete: false,
     canManageContributors: false
   });
+});
+
+test('boss library guild data includes the canonical guild slug', () => {
+  assert.deepEqual(
+    serializeBossLibraryGuild({ id: 'guild-1', name: 'Resurgence', slug: 'resurgence' }),
+    { id: 'guild-1', name: 'Resurgence', slug: 'resurgence' }
+  );
 });
 
 test('boss slugs stay readable, deterministic, and unique within a guild', () => {
