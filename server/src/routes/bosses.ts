@@ -11,12 +11,14 @@ import {
   getGuildBoss,
   getGuildBossBySlug,
   getGuildBossImage,
+  getGuildBossPlainNotes,
   listBossContributors,
   listGuildBossLibrary,
   prepareBossImageUpload,
   reorderGuildBossGroups,
   setBossContributor,
   updateGuildBoss,
+  updateGuildBossPlainNotes,
   updateGuildBossGroup
 } from '../services/bossLibraryService.js';
 
@@ -89,6 +91,11 @@ const bossImageUpdateSchema = z.object({
   name: z.string().trim().min(1).max(191).optional(),
   notes: z.string().max(200000).optional(),
   sortOrder: z.coerce.number().int().min(0).max(10000).optional()
+});
+
+const bossPlainNotesUpdateSchema = z.object({
+  revision: z.string().regex(/^[a-f0-9]{64}$/),
+  fields: z.record(z.string().max(200000))
 });
 
 function sendBossError(reply: FastifyReply, error: unknown) {
@@ -197,6 +204,38 @@ export async function bossRoutes(server: FastifyInstance): Promise<void> {
       return sendBossError(reply, error);
     }
   });
+
+  server.get(
+    '/:guildId/bosses/:bossId/plain-notes',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      const { guildId, bossId } = bossParamsSchema.parse(request.params);
+      try {
+        return { document: await getGuildBossPlainNotes(guildId, bossId, request.user.userId) };
+      } catch (error) {
+        return sendBossError(reply, error);
+      }
+    }
+  );
+
+  server.patch(
+    '/:guildId/bosses/:bossId/plain-notes',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      const { guildId, bossId } = bossParamsSchema.parse(request.params);
+      const parsed = bossPlainNotesUpdateSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.badRequest(
+          'Invalid plain-text notes update. Reload the editor and try again.'
+        );
+      }
+      try {
+        return await updateGuildBossPlainNotes(guildId, bossId, request.user.userId, parsed.data);
+      } catch (error) {
+        return sendBossError(reply, error);
+      }
+    }
+  );
 
   server.get(
     '/:guildId/bosses/:bossId/image',

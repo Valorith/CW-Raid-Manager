@@ -121,6 +121,42 @@ export interface GuildBossInput {
   sortOrder?: number;
 }
 
+export type PlainBossNotesSegment =
+  | {
+      type: 'editable';
+      id: string;
+      value: string;
+      role: 'link-label' | 'text';
+    }
+  | {
+      type: 'protected';
+      kind:
+        | 'category'
+        | 'comment'
+        | 'formatting'
+        | 'link'
+        | 'media'
+        | 'reference'
+        | 'structure'
+        | 'template';
+      label: string;
+    };
+
+export interface PlainBossNotesLine {
+  id: string;
+  kind: 'append' | 'blank' | 'heading' | 'list-item' | 'paragraph' | 'protected' | 'table-cell';
+  label: string;
+  depth: number;
+  segments: PlainBossNotesSegment[];
+}
+
+export interface PlainBossNotesDocument {
+  revision: string;
+  lines: PlainBossNotesLine[];
+  fieldCount: number;
+  protectedCount: number;
+}
+
 export interface BossContributor {
   userId: string;
   displayName: string;
@@ -5407,6 +5443,23 @@ export const api = {
   ): Promise<GuildBoss> {
     const response = await axios.patch(`/api/guilds/${guildId}/bosses/${bossId}`, payload);
     return response.data.boss;
+  },
+
+  async fetchGuildBossPlainNotes(guildId: string, bossId: string): Promise<PlainBossNotesDocument> {
+    const response = await axios.get(`/api/guilds/${guildId}/bosses/${bossId}/plain-notes`);
+    return response.data.document;
+  },
+
+  async updateGuildBossPlainNotes(
+    guildId: string,
+    bossId: string,
+    payload: { revision: string; fields: Record<string, string> }
+  ): Promise<{ boss: GuildBoss; document: PlainBossNotesDocument }> {
+    const response = await axios.patch(
+      `/api/guilds/${guildId}/bosses/${bossId}/plain-notes`,
+      payload
+    );
+    return response.data;
   },
 
   async updateGuildBossWithImage(

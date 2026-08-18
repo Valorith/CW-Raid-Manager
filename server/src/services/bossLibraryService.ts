@@ -1,6 +1,11 @@
 import { GuildRole } from '@prisma/client';
 
 import { withPreferredDisplayName } from '../utils/displayName.js';
+import {
+  PlainBossNotesConversionError,
+  applyPlainBossNotesEdits,
+  createPlainBossNotesDocument
+} from '../utils/plainBossNotes.js';
 import { prisma } from '../utils/prisma.js';
 import { slugify } from '../utils/slugify.js';
 
@@ -326,6 +331,87 @@ export async function getGuildBoss(guildId: string, bossId: string, userId: stri
   return {
     boss: serializeBossImage(guildId, boss),
     permissions: access
+  };
+}
+
+export async function getGuildBossPlainNotes(guildId: string, bossId: string, userId: string) {
+  await ensureBossEditor(userId, guildId);
+  const boss = await prisma.guildBoss.findFirst({
+    where: { id: bossId, guildId },
+    select: { notes: true }
+  });
+  if (!boss) {
+    throw new BossLibraryError('Boss not found.', 404);
+  }
+  return createPlainBossNotesDocument(boss.notes);
+}
+
+function convertPlainNotesError(error: unknown): never {
+  if (!(error instanceof PlainBossNotesConversionError)) throw error;
+  if (error.code === 'revision_conflict') {
+    throw new BossLibraryError(error.message, 409);
+  }
+  if (error.code === 'too_large') {
+    throw new BossLibraryError(error.message, 413);
+  }
+  throw new BossLibraryError(error.message, 400);
+}
+
+export async function updateGuildBossPlainNotes(
+  guildId: string,
+  bossId: string,
+  userId: string,
+  input: { revision: string; fields: Record<string, string> }
+) {
+  await ensureBossEditor(userId, guildId);
+  const existing = await prisma.guildBoss.findFirst({ where: { id: bossId, guildId } });
+  if (!existing) {
+    throw new BossLibraryError('Boss not found.', 404);
+  }
+
+  let conversion: ReturnType<typeof applyPlainBossNotesEdits>;
+  try {
+    conversion = applyPlainBossNotesEdits(existing.notes, input.revision, input.fields);
+  } catch (error) {
+    return convertPlainNotesError(error);
+  }
+
+  const editor = conversion.changed ? await resolveBossEditor(guildId, userId) : null;
+  const boss = await prisma.$transaction(async (transaction) => {
+    if (editor) {
+      const update = await transaction.guildBoss.updateMany({
+        where: {
+          id: bossId,
+          guildId,
+          notes: existing.notes
+        },
+        data: {
+          notes: conversion.notes,
+          lastEditedById: editor.userId,
+          lastEditedByName: editor.displayName
+        }
+      });
+      if (update.count !== 1) {
+        throw new BossLibraryError(
+          'These notes changed while you were editing. Reload before saving.',
+          409
+        );
+      }
+    }
+    return transaction.guildBoss.findUniqueOrThrow({
+      where: { id: bossId },
+      include: {
+        group: { select: { id: true, name: true } },
+        image: { select: { updatedAt: true } }
+      }
+    });
+  });
+
+  return {
+    boss: serializeBossImage(guildId, boss),
+    document: conversion.changed
+      ? createPlainBossNotesDocument(conversion.notes)
+      : conversion.document
   };
 }
 

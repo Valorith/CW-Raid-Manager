@@ -1,5 +1,11 @@
 <template>
-  <section class="bosses-page" :class="{ 'bosses-page--detail': isDetail }">
+  <section
+    class="bosses-page"
+    :class="{
+      'bosses-page--detail': isDetail,
+      'bosses-page--editing': isDetail && mode !== 'view'
+    }"
+  >
     <div class="bosses-page__atmosphere" aria-hidden="true"></div>
 
     <div v-if="loading" class="bosses-loading">
@@ -165,10 +171,7 @@
                 class="boss-card-shell"
                 :style="{ '--card-delay': `${groupIndex * 55 + bossIndex * 35}ms` }"
               >
-                <RouterLink
-                  :to="bossRoute(bossItem)"
-                  class="boss-card"
-                >
+                <RouterLink :to="bossRoute(bossItem)" class="boss-card">
                   <div class="boss-card__media">
                     <img
                       v-if="bossItem.imageUrl && !failedImages.has(bossItem.id)"
@@ -193,10 +196,12 @@
                   <div class="boss-card__body">
                     <div class="boss-card__meta">
                       <span class="boss-card__label">Raid dossier</span>
-                      <time :datetime="bossItem.updatedAt">{{ formatCompactDate(bossItem.updatedAt) }}</time>
+                      <time :datetime="bossItem.updatedAt">{{
+                        formatCompactDate(bossItem.updatedAt)
+                      }}</time>
                     </div>
-                    <div>
-                      <h3>{{ bossItem.name }}</h3>
+                    <div class="boss-card__title-row">
+                      <h3 :title="bossItem.name">{{ bossItem.name }}</h3>
                       <span class="boss-card__arrow" aria-hidden="true">↗</span>
                     </div>
                   </div>
@@ -288,7 +293,7 @@
                 <span>{{ formatDate(boss.updatedAt) }}</span>
               </div>
             </div>
-            <div v-if="permissions?.canEdit" class="boss-detail-actions">
+            <div v-if="permissions?.canEdit && mode === 'view'" class="boss-detail-actions">
               <button
                 type="button"
                 class="boss-detail-action"
@@ -320,18 +325,30 @@
                   type="button"
                   :class="{ 'is-active': mode === 'view' }"
                   :aria-pressed="mode === 'view'"
+                  title="Preview the saved page"
                   @click="cancelEditing"
                 >
-                  View
+                  Preview
+                </button>
+                <button
+                  v-if="permissions?.canEdit"
+                  type="button"
+                  :class="{ 'is-active': mode === 'plain' }"
+                  :aria-pressed="mode === 'plain'"
+                  title="Edit the page visually"
+                  @click="beginPlainEditing"
+                >
+                  Edit
                 </button>
                 <button
                   v-if="permissions?.canEdit"
                   type="button"
                   :class="{ 'is-active': mode === 'edit' }"
                   :aria-pressed="mode === 'edit'"
+                  title="Edit advanced MediaWiki source"
                   @click="beginEditing"
                 >
-                  Edit
+                  Source
                 </button>
               </div>
             </div>
@@ -355,7 +372,7 @@
                       v-if="permissions?.canEdit"
                       type="button"
                       class="boss-button boss-button--primary"
-                      @click="beginEditing"
+                      @click="beginPlainEditing"
                     >
                       Write notes
                     </button>
@@ -364,7 +381,7 @@
               </MediaWikiContent>
             </article>
 
-            <div v-else key="edit" class="boss-notes-edit">
+            <div v-else-if="mode === 'edit'" key="edit" class="boss-notes-edit">
               <MediaWikiEditor v-model="notesDraft" :links="wikiLinks" />
               <div class="boss-notes-edit__footer">
                 <p>
@@ -387,6 +404,60 @@
                     @click="saveNotes"
                   >
                     {{ savingNotes ? 'Saving…' : 'Save notes' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div v-else key="plain" class="boss-notes-edit boss-notes-edit--plain">
+              <div v-if="loadingPlainNotes" class="boss-plain-loading">
+                <GlobalLoadingSpinner />
+                <p>Preparing the visual editor…</p>
+              </div>
+              <div v-else-if="plainLoadError" class="boss-plain-error">
+                <strong>The visual editor is unavailable</strong>
+                <p>{{ plainLoadError }}</p>
+                <button
+                  type="button"
+                  class="boss-button boss-button--quiet"
+                  @click="loadPlainNotes"
+                >
+                  Try again
+                </button>
+              </div>
+              <PlainBossNotesEditor
+                v-else-if="plainDocument"
+                v-model="plainFields"
+                :document="plainDocument"
+                @request-source="beginEditing"
+              />
+              <div class="boss-notes-edit__footer boss-notes-edit__footer--sticky">
+                <p>
+                  <span v-if="plainNotesDirty" class="boss-notes-edit__unsaved"
+                    >Unsaved changes</span
+                  >
+                  <span v-else>Ready to edit</span>
+                  <span class="boss-notes-edit__shortcuts">
+                    <kbd>⌘S</kbd> save <span aria-hidden="true">·</span> <kbd>Esc</kbd> close
+                  </span>
+                </p>
+                <div>
+                  <button
+                    type="button"
+                    class="boss-button boss-button--quiet"
+                    :disabled="savingPlainNotes"
+                    @click="cancelEditing"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    class="boss-button boss-button--primary"
+                    :disabled="savingPlainNotes || loadingPlainNotes || !plainNotesDirty"
+                    title="Save notes (Command or Control + S)"
+                    @click="savePlainNotes"
+                  >
+                    {{ savingPlainNotes ? 'Saving…' : 'Save notes' }}
                   </button>
                 </div>
               </div>
@@ -505,7 +576,9 @@
                 <div class="boss-image-field">
                   <div class="boss-image-field__heading">
                     <span>Cover image <small>Optional</small></span>
-                    <span>{{ bossImageMode === 'upload' ? 'Stored securely' : 'Linked externally' }}</span>
+                    <span>{{
+                      bossImageMode === 'upload' ? 'Stored securely' : 'Linked externally'
+                    }}</span>
                   </div>
                   <div class="boss-image-source-switch" aria-label="Cover image source">
                     <button
@@ -515,7 +588,9 @@
                       @click="setBossImageMode('upload')"
                     >
                       <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" />
+                        <path
+                          d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"
+                        />
                       </svg>
                       Upload image
                     </button>
@@ -526,7 +601,9 @@
                       @click="setBossImageMode('url')"
                     >
                       <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="m10 13.5 4-4m-6.2 7.7-1 .9a3.5 3.5 0 0 1-4.9-4.9l3-3a3.5 3.5 0 0 1 4.9 0m6.4-3.4 1-.9a3.5 3.5 0 0 1 4.9 4.9l-3 3a3.5 3.5 0 0 1-4.9 0" />
+                        <path
+                          d="m10 13.5 4-4m-6.2 7.7-1 .9a3.5 3.5 0 0 1-4.9-4.9l3-3a3.5 3.5 0 0 1 4.9 0m6.4-3.4 1-.9a3.5 3.5 0 0 1 4.9 4.9l-3 3a3.5 3.5 0 0 1-4.9 0"
+                        />
                       </svg>
                       Image URL
                     </button>
@@ -558,15 +635,25 @@
                     >
                       <span class="boss-image-dropzone__icon" aria-hidden="true">
                         <svg viewBox="0 0 24 24">
-                          <path d="M12 16V5m0 0L8 9m4-4 4 4M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3" />
+                          <path
+                            d="M12 16V5m0 0L8 9m4-4 4 4M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"
+                          />
                         </svg>
                       </span>
                       <span class="boss-image-dropzone__copy">
-                        <strong>{{ bossImageFile ? bossImageFile.name : existingBossUploadUrl ? 'Current uploaded image' : 'Choose a cover image' }}</strong>
+                        <strong>{{
+                          bossImageFile
+                            ? bossImageFile.name
+                            : existingBossUploadUrl
+                              ? 'Current uploaded image'
+                              : 'Choose a cover image'
+                        }}</strong>
                         <small v-if="bossImageFile">
                           {{ formatBossImageSize(bossImageFile.size) }} · Ready to upload
                         </small>
-                        <small v-else-if="existingBossUploadUrl">Click or drop a file to replace it</small>
+                        <small v-else-if="existingBossUploadUrl"
+                          >Click or drop a file to replace it</small
+                        >
                         <small v-else>Drop, browse, or paste · PNG, JPEG, GIF or WebP</small>
                       </span>
                       <span class="boss-image-dropzone__action">
@@ -592,7 +679,9 @@
                     <span class="sr-only">Image URL</span>
                     <span class="boss-image-url-field__icon" aria-hidden="true">
                       <svg viewBox="0 0 24 24">
-                        <path d="m10 13.5 4-4m-6.2 7.7-1 .9a3.5 3.5 0 0 1-4.9-4.9l3-3a3.5 3.5 0 0 1 4.9 0m6.4-3.4 1-.9a3.5 3.5 0 0 1 4.9 4.9l-3 3a3.5 3.5 0 0 1-4.9 0" />
+                        <path
+                          d="m10 13.5 4-4m-6.2 7.7-1 .9a3.5 3.5 0 0 1-4.9-4.9l3-3a3.5 3.5 0 0 1 4.9 0m6.4-3.4 1-.9a3.5 3.5 0 0 1 4.9 4.9l-3 3a3.5 3.5 0 0 1-4.9 0"
+                        />
                       </svg>
                     </span>
                     <input
@@ -953,7 +1042,9 @@
             <p id="boss-delete-description">
               This permanently removes
               <strong class="boss-confirm__subject">{{ deletePrompt.name }}</strong>
-              {{ deletePrompt.kind === 'boss' ? 'and all of its strategy notes' : 'from the library' }}.
+              {{
+                deletePrompt.kind === 'boss' ? 'and all of its strategy notes' : 'from the library'
+              }}.
             </p>
             <small>This action cannot be undone.</small>
             <div>
@@ -1038,6 +1129,7 @@ import ErrorModal from '../components/ErrorModal.vue';
 import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
 import MediaWikiContent from '../components/MediaWikiContent.vue';
 import MediaWikiEditor from '../components/MediaWikiEditor.vue';
+import PlainBossNotesEditor from '../components/PlainBossNotesEditor.vue';
 import { useToastBus } from '../components/ToastBus';
 import { useErrorModal } from '../composables/useErrorModal';
 import {
@@ -1048,9 +1140,11 @@ import {
   type GuildBossGroup,
   type GuildBossLibrary,
   type GuildBossSummary,
-  type GuildRole
+  type GuildRole,
+  type PlainBossNotesDocument
 } from '../services/api';
 import { copyBossShareLink } from '../utils/bossLinks';
+import { plainBossNotesChanged, plainBossNotesValues } from '../utils/plainBossNotes';
 
 const route = useRoute();
 const router = useRouter();
@@ -1158,7 +1252,7 @@ async function loadPage() {
   }
 
   if (boss.value && permissions.value?.canEdit && route.query.edit === '1') {
-    beginEditing();
+    beginPlainEditing();
   }
 }
 
@@ -1237,24 +1331,70 @@ function formatCompactDate(value: string) {
   }).format(new Date(value));
 }
 
-const mode = ref<'view' | 'edit'>('view');
+const mode = ref<'view' | 'edit' | 'plain'>('view');
 const notesDraft = ref('');
 const notesOriginal = ref('');
 const savingNotes = ref(false);
 const notesDirty = computed(() => notesDraft.value !== notesOriginal.value);
+const plainDocument = ref<PlainBossNotesDocument | null>(null);
+const plainFields = ref<Record<string, string>>({});
+const plainOriginalFields = ref<Record<string, string>>({});
+const loadingPlainNotes = ref(false);
+const savingPlainNotes = ref(false);
+const plainLoadError = ref('');
+const plainNotesDirty = computed(() =>
+  plainBossNotesChanged(plainFields.value, plainOriginalFields.value)
+);
+const activeNotesDirty = computed(() =>
+  mode.value === 'edit' ? notesDirty.value : mode.value === 'plain' && plainNotesDirty.value
+);
 
-function beginEditing() {
+async function beginEditing() {
   if (!boss.value || !permissions.value?.canEdit) return;
+  if (mode.value === 'edit') return;
+  if (mode.value === 'plain' && !(await confirmDiscardNotes())) return;
   notesDraft.value = boss.value.notes ?? '';
   notesOriginal.value = boss.value.notes ?? '';
   mode.value = 'edit';
+}
+
+async function loadPlainNotes() {
+  if (!boss.value || !permissions.value?.canEdit || loadingPlainNotes.value) return;
+  loadingPlainNotes.value = true;
+  plainLoadError.value = '';
+  try {
+    const document = await api.fetchGuildBossPlainNotes(guildId.value, boss.value.id);
+    const values = plainBossNotesValues(document);
+    plainDocument.value = document;
+    plainFields.value = { ...values };
+    plainOriginalFields.value = { ...values };
+  } catch (error) {
+    const typedError = error as { response?: { data?: { message?: string } }; message?: string };
+    plainLoadError.value =
+      typedError.response?.data?.message ??
+      typedError.message ??
+      'The safe editor could not prepare these notes.';
+  } finally {
+    loadingPlainNotes.value = false;
+  }
+}
+
+async function beginPlainEditing() {
+  if (!boss.value || !permissions.value?.canEdit) return;
+  if (mode.value === 'plain') return;
+  if (mode.value === 'edit' && !(await confirmDiscardNotes())) return;
+  mode.value = 'plain';
+  plainDocument.value = null;
+  plainFields.value = {};
+  plainOriginalFields.value = {};
+  await loadPlainNotes();
 }
 
 const discardPrompt = ref(false);
 let discardResolver: ((shouldDiscard: boolean) => void) | null = null;
 
 function confirmDiscardNotes(): boolean | Promise<boolean> {
-  if (!notesDirty.value) return true;
+  if (!activeNotesDirty.value) return true;
   discardPrompt.value = true;
   return new Promise<boolean>((resolve) => {
     discardResolver = resolve;
@@ -1269,12 +1409,13 @@ function resolveDiscardNotes(shouldDiscard: boolean) {
 }
 
 async function cancelEditing() {
-  if (mode.value !== 'edit') {
+  if (mode.value === 'view') {
     mode.value = 'view';
     return;
   }
   if (!(await confirmDiscardNotes())) return;
-  notesDraft.value = notesOriginal.value;
+  if (mode.value === 'edit') notesDraft.value = notesOriginal.value;
+  if (mode.value === 'plain') plainFields.value = { ...plainOriginalFields.value };
   mode.value = 'view';
 }
 
@@ -1288,6 +1429,7 @@ async function saveNotes() {
     boss.value = updated;
     notesOriginal.value = updated.notes ?? '';
     notesDraft.value = updated.notes ?? '';
+    plainDocument.value = null;
     mode.value = 'view';
     await refreshLibrary();
     if (route.query.edit === '1') {
@@ -1305,8 +1447,42 @@ async function saveNotes() {
   }
 }
 
+async function savePlainNotes() {
+  if (!boss.value || !plainDocument.value || !plainNotesDirty.value || savingPlainNotes.value) {
+    return;
+  }
+  savingPlainNotes.value = true;
+  try {
+    const result = await api.updateGuildBossPlainNotes(guildId.value, boss.value.id, {
+      revision: plainDocument.value.revision,
+      fields: plainFields.value
+    });
+    const values = plainBossNotesValues(result.document);
+    boss.value = result.boss;
+    plainDocument.value = result.document;
+    plainFields.value = { ...values };
+    plainOriginalFields.value = { ...values };
+    notesDraft.value = result.boss.notes ?? '';
+    notesOriginal.value = result.boss.notes ?? '';
+    mode.value = 'view';
+    await refreshLibrary();
+    addToast({
+      title: 'Boss notes saved',
+      message: `${result.boss.name} was converted safely and updated for your guild.`,
+      variant: 'success'
+    });
+  } catch (error) {
+    showErrorFromException(
+      error,
+      'Unable to save plain-text boss notes. Your edits are still here.'
+    );
+  } finally {
+    savingPlainNotes.value = false;
+  }
+}
+
 function handleBeforeUnload(event: BeforeUnloadEvent) {
-  if (!notesDirty.value) return;
+  if (!activeNotesDirty.value) return;
   event.preventDefault();
   event.returnValue = '';
 }
@@ -1318,6 +1494,9 @@ function handleGlobalKeydown(event: KeyboardEvent) {
     if (mode.value === 'edit' && notesDirty.value && !savingNotes.value) {
       event.preventDefault();
       void saveNotes();
+    } else if (mode.value === 'plain' && plainNotesDirty.value && !savingPlainNotes.value) {
+      event.preventDefault();
+      void savePlainNotes();
     }
     return;
   }
@@ -1333,7 +1512,7 @@ function handleGlobalKeydown(event: KeyboardEvent) {
     closeGroups();
   } else if (showContributorsModal.value) {
     closeContributors();
-  } else if (mode.value === 'edit') {
+  } else if (mode.value !== 'view') {
     cancelEditing();
   }
 }
@@ -1498,9 +1677,7 @@ async function saveBossDetails() {
           : await api.updateGuildBoss(guildId.value, editingBossId.value, {
               name: bossForm.name.trim(),
               groupId: bossForm.groupId,
-              ...(bossImageMode.value === 'url' || !existingBossUploadUrl.value
-                ? { imageUrl }
-                : {})
+              ...(bossImageMode.value === 'url' || !existingBossUploadUrl.value ? { imageUrl } : {})
             });
       if (boss.value?.id === updated.id) boss.value = updated;
       await refreshLibrary();
@@ -1785,7 +1962,8 @@ const contributorsLoading = ref(false);
 const contributorSaving = ref(new Set<string>());
 const contributorSearch = ref('');
 const customContributorCount = computed(
-  () => contributors.value.filter((member) => !member.hasImplicitAccess && member.isContributor).length
+  () =>
+    contributors.value.filter((member) => !member.hasImplicitAccess && member.isContributor).length
 );
 const filteredContributors = computed(() => {
   const query = contributorSearch.value.trim().toLocaleLowerCase();
@@ -1944,7 +2122,8 @@ function focusActiveModal() {
 
 watch(hasOpenModal, (isOpen) => {
   if (isOpen) {
-    focusBeforeModal = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    focusBeforeModal =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     bodyOverflowBeforeModal = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
   } else {
@@ -1959,13 +2138,16 @@ watch(activeModalKey, async (key) => {
   focusActiveModal();
 });
 
-watch([routeGuildKey, routeBossKey], ([nextGuildKey, nextBossKey], [previousGuildKey, previousBossKey]) => {
-  if (nextGuildKey === previousGuildKey && nextBossKey === previousBossKey) return;
-  mode.value = 'view';
-  shareStatus.value = 'idle';
-  window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
-  void loadPage();
-});
+watch(
+  [routeGuildKey, routeBossKey],
+  ([nextGuildKey, nextBossKey], [previousGuildKey, previousBossKey]) => {
+    if (nextGuildKey === previousGuildKey && nextBossKey === previousBossKey) return;
+    mode.value = 'view';
+    shareStatus.value = 'idle';
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    void loadPage();
+  }
+);
 
 function requestBossDelete() {
   if (!editingBossId.value) return;
@@ -2366,6 +2548,7 @@ onBeforeUnmount(() => {
 }
 
 .boss-grid {
+  align-items: stretch;
   display: grid;
   gap: clamp(0.85rem, 1.5vw, 1.2rem);
   grid-template-columns: repeat(auto-fill, minmax(235px, 1fr));
@@ -2374,6 +2557,8 @@ onBeforeUnmount(() => {
 .boss-card-shell {
   animation: card-in 480ms both;
   animation-delay: var(--card-delay);
+  display: flex;
+  height: 100%;
   min-width: 0;
   position: relative;
 }
@@ -2390,7 +2575,9 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(109, 147, 193, 0.21);
   border-radius: 17px;
   box-shadow: 0 14px 35px rgba(0, 0, 0, 0.17);
-  display: block;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
   overflow: hidden;
   text-decoration: none;
   transform: translateZ(0);
@@ -2398,6 +2585,7 @@ onBeforeUnmount(() => {
     transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
     border-color 180ms ease,
     box-shadow 220ms ease;
+  width: 100%;
 }
 
 .boss-card:hover {
@@ -2416,6 +2604,7 @@ onBeforeUnmount(() => {
 .boss-card__media {
   aspect-ratio: 16 / 10;
   background: #101a2b;
+  flex: 0 0 auto;
   overflow: hidden;
   position: relative;
 }
@@ -2504,6 +2693,11 @@ onBeforeUnmount(() => {
 }
 
 .boss-card__body {
+  box-sizing: border-box;
+  display: flex;
+  flex: 0 0 5.8rem;
+  flex-direction: column;
+  height: 5.8rem;
   padding: 0.9rem 1.05rem 1.1rem;
 }
 
@@ -2528,24 +2722,31 @@ onBeforeUnmount(() => {
   text-transform: uppercase;
 }
 
-.boss-card__body > div {
+.boss-card__title-row {
   align-items: end;
   display: flex;
+  flex: 1;
   gap: 1rem;
   justify-content: space-between;
   margin-top: 0.35rem;
+  min-height: 2.4em;
 }
 
 .boss-card h3 {
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   color: #eff5fb;
+  display: -webkit-box;
   font-family: var(--nx-font-display);
   font-size: 1.08rem;
   letter-spacing: -0.015em;
   line-height: 1.2;
   margin: 0;
+  overflow: hidden;
 }
 
 .boss-card__arrow {
+  flex: 0 0 auto;
   color: #68809b;
   transition: 170ms ease;
 }
@@ -2984,8 +3185,7 @@ onBeforeUnmount(() => {
 
 .boss-notes-document {
   background:
-    linear-gradient(180deg, rgba(16, 26, 45, 0.78), rgba(9, 16, 29, 0.88)),
-    var(--boss-surface);
+    linear-gradient(180deg, rgba(16, 26, 45, 0.78), rgba(9, 16, 29, 0.88)), var(--boss-surface);
   border: 1px solid rgba(103, 146, 194, 0.2);
   border-radius: 18px;
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.16);
@@ -3028,10 +3228,70 @@ onBeforeUnmount(() => {
   padding: 1rem 0;
 }
 
+.boss-notes-edit__footer--sticky {
+  backdrop-filter: blur(16px);
+  background: rgba(7, 14, 26, 0.92);
+  border: 1px solid rgba(103, 146, 194, 0.2);
+  border-radius: 12px;
+  bottom: 0.75rem;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.3);
+  margin-top: 0.65rem;
+  padding: 0.72rem 0.8rem;
+  position: sticky;
+  z-index: 8;
+}
+
+.boss-notes-edit--plain {
+  min-height: 24rem;
+}
+
+.boss-plain-loading,
+.boss-plain-error {
+  align-items: center;
+  background: rgba(9, 16, 29, 0.72);
+  border: 1px solid rgba(103, 146, 194, 0.18);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 18rem;
+  padding: 2rem;
+  text-align: center;
+}
+
+.boss-plain-loading p,
+.boss-plain-error p {
+  color: #8296ad;
+  font-size: 0.8rem;
+  line-height: 1.55;
+  margin: 0.75rem 0 0;
+}
+
+.boss-plain-error strong {
+  color: #dce7f2;
+}
+
+.boss-plain-error .boss-button {
+  margin-top: 1rem;
+}
+
 .boss-notes-edit__footer p {
   color: #72859f;
   font-size: 0.72rem;
   margin: 0;
+}
+
+.boss-notes-edit__shortcuts {
+  margin-left: 0.75rem;
+}
+
+.boss-notes-edit__shortcuts kbd {
+  background: rgba(119, 157, 195, 0.08);
+  border: 1px solid rgba(119, 157, 195, 0.16);
+  border-radius: 4px;
+  color: #9bb0c8;
+  font: inherit;
+  padding: 0.12rem 0.28rem;
 }
 
 .boss-notes-edit__unsaved {
@@ -3157,7 +3417,12 @@ onBeforeUnmount(() => {
 
 .boss-modal::before,
 .boss-confirm::before {
-  background: linear-gradient(90deg, var(--boss-accent), rgba(129, 140, 248, 0.22), transparent 82%);
+  background: linear-gradient(
+    90deg,
+    var(--boss-accent),
+    rgba(129, 140, 248, 0.22),
+    transparent 82%
+  );
   content: '';
   height: 2px;
   left: 0;
@@ -4205,6 +4470,15 @@ onBeforeUnmount(() => {
     gap: 0.8rem;
   }
 
+  .boss-notes-edit__footer--sticky,
+  .boss-notes-edit__footer--sticky > div {
+    width: 100%;
+  }
+
+  .boss-notes-edit__footer--sticky .boss-button {
+    flex: 1;
+  }
+
   .boss-modal:not(.boss-modal--compact) .boss-modal__body {
     grid-template-columns: 1fr;
   }
@@ -4224,6 +4498,19 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 540px) {
+  .boss-notes-edit__shortcuts {
+    display: none;
+  }
+
+  .boss-notes-edit__footer--sticky {
+    gap: 0.5rem;
+    padding: 0.55rem;
+  }
+
+  .boss-notes-edit__footer--sticky > p {
+    display: none;
+  }
+
   .bosses-page {
     padding-inline: 0;
     padding-top: 1rem;
@@ -4464,6 +4751,70 @@ onBeforeUnmount(() => {
 
   .contributor-tools > p {
     padding-left: 0.15rem;
+  }
+}
+
+.boss-detail-hero,
+.boss-detail-hero__title h1,
+.boss-detail-hero__content,
+.boss-detail-actions {
+  transition:
+    min-height 220ms ease,
+    font-size 220ms ease,
+    padding 220ms ease,
+    inset 220ms ease;
+}
+
+.bosses-page--editing .boss-detail-hero {
+  min-height: 12rem;
+}
+
+.bosses-page--editing .boss-detail-hero__veil {
+  background:
+    linear-gradient(90deg, rgba(4, 9, 18, 0.98), rgba(4, 9, 18, 0.76) 62%, rgba(4, 9, 18, 0.45)),
+    linear-gradient(0deg, rgba(5, 10, 20, 0.78), transparent 60%);
+}
+
+.bosses-page--editing .boss-detail-hero__content {
+  padding: 1.1rem 1.5rem;
+}
+
+.bosses-page--editing .boss-detail-hero__title h1 {
+  font-size: clamp(2rem, 4vw, 3.1rem);
+  letter-spacing: -0.04em;
+}
+
+.bosses-page--editing .boss-detail-hero__title > p,
+.bosses-page--editing .boss-detail-meta {
+  margin-block: 0.35rem 0;
+}
+
+.bosses-page--editing .boss-detail-actions {
+  bottom: 1rem;
+  right: 1.2rem;
+}
+
+@media (max-width: 540px) {
+  .bosses-page--editing .boss-detail-hero {
+    min-height: 12.5rem;
+  }
+
+  .bosses-page--editing .boss-detail-hero__content {
+    padding: 0.9rem 1rem;
+  }
+
+  .bosses-page--editing .boss-detail-hero__title h1 {
+    font-size: clamp(1.7rem, 9vw, 2.4rem);
+  }
+
+  .bosses-page--editing .boss-detail-actions {
+    right: 0.8rem;
+    top: 0.8rem;
+  }
+
+  .bosses-page--editing .boss-detail-action {
+    font-size: 0;
+    padding: 0.55rem;
   }
 }
 
