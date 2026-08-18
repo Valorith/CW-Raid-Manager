@@ -46,6 +46,10 @@ function safeResolvedUrl(value: string): string | null {
   return safeExternalUrl(value);
 }
 
+function linkNavigationAttributes(href: string): string {
+  return href.startsWith('#') ? '' : ' target="_blank" rel="noopener noreferrer"';
+}
+
 function wikiUrl(options: MediaWikiRenderOptions, target: string): string | null {
   if (!options.wikiBaseUrl) return null;
 
@@ -246,9 +250,9 @@ function renderFile(
   let linkedImage = image;
 
   if (linkSpecified && linkTarget !== '') {
-    const explicitLink = safeExternalUrl(linkTarget) ?? wikiUrl(options, linkTarget);
+    const explicitLink = safeResolvedUrl(linkTarget) ?? wikiUrl(options, linkTarget);
     if (explicitLink) {
-      linkedImage = `<a class="wiki-file__link" href="${escapeHtml(explicitLink)}" target="_blank" rel="noopener noreferrer">${image}</a>`;
+      linkedImage = `<a class="wiki-file__link" href="${escapeHtml(explicitLink)}"${linkNavigationAttributes(explicitLink)}>${image}</a>`;
     }
   } else if (!linkSpecified) {
     const filePage = wikiUrl(options, `File:${fileName}`);
@@ -288,10 +292,15 @@ function renderInternalLink(source: string, options: MediaWikiRenderOptions): st
 
   if (/^Category\s*:/i.test(target)) return '';
 
+  if (target.startsWith('#')) {
+    const href = `#${headingAnchorBase(target.slice(1))}`;
+    return `<a class="wiki-link" href="${escapeHtml(href)}">${renderInline(label, options)}</a>`;
+  }
+
   const resolved = options.resolveWikiLink?.(target) ?? null;
   const safeResolved = resolved ? safeResolvedUrl(resolved) : null;
   if (safeResolved) {
-    return `<a class="wiki-link" href="${escapeHtml(safeResolved)}">${renderInline(label, options)}</a>`;
+    return `<a class="wiki-link" href="${escapeHtml(safeResolved)}"${linkNavigationAttributes(safeResolved)}>${renderInline(label, options)}</a>`;
   }
 
   const fallback = wikiUrl(options, target);
@@ -579,14 +588,19 @@ function renderListEntries(
   return output;
 }
 
-function headingId(source: string, counts: Map<string, number>): string {
-  const base =
+function headingAnchorBase(source: string): string {
+  return (
     plainWikiText(source)
       .normalize('NFKD')
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '') || 'section';
+      .replace(/^-+|-+$/g, '') || 'section'
+  );
+}
+
+function headingId(source: string, counts: Map<string, number>): string {
+  const base = headingAnchorBase(source);
   const count = (counts.get(base) ?? 0) + 1;
   counts.set(base, count);
   return count === 1 ? base : `${base}-${count}`;

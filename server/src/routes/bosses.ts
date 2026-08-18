@@ -9,6 +9,7 @@ import {
   deleteGuildBoss,
   deleteGuildBossGroup,
   getGuildBoss,
+  getGuildBossBySlug,
   getGuildBossImage,
   listBossContributors,
   listGuildBossLibrary,
@@ -22,6 +23,10 @@ import {
 const guildParamsSchema = z.object({ guildId: z.string().min(1) });
 const groupParamsSchema = z.object({ guildId: z.string().min(1), groupId: z.string().min(1) });
 const bossParamsSchema = z.object({ guildId: z.string().min(1), bossId: z.string().min(1) });
+const bossSlugParamsSchema = z.object({
+  guildSlug: z.string().min(1).max(191),
+  bossSlug: z.string().min(1).max(191)
+});
 const contributorParamsSchema = z.object({
   guildId: z.string().min(1),
   userId: z.string().min(1)
@@ -126,6 +131,19 @@ async function readBossImageForm(request: FastifyRequest) {
 }
 
 export async function bossRoutes(server: FastifyInstance): Promise<void> {
+  server.get(
+    '/by-slug/:guildSlug/bosses/:bossSlug',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      const { guildSlug, bossSlug } = bossSlugParamsSchema.parse(request.params);
+      try {
+        return await getGuildBossBySlug(guildSlug, bossSlug, request.user.userId);
+      } catch (error) {
+        return sendBossError(reply, error);
+      }
+    }
+  );
+
   server.get('/:guildId/bosses', { preHandler: [authenticate] }, async (request, reply) => {
     const { guildId } = guildParamsSchema.parse(request.params);
     try {

@@ -7,6 +7,7 @@ import {
   BOSS_IMAGE_MAX_BYTES,
   BossLibraryError,
   buildBossGroupOrderUpdates,
+  buildUniqueBossSlug,
   detectBossImageMime,
   prepareBossImageUpload,
   getBossLibraryPermissions
@@ -49,6 +50,25 @@ test('an ordinary guild member receives read-only boss library access', () => {
     canDelete: false,
     canManageContributors: false
   });
+});
+
+test('boss slugs stay readable, deterministic, and unique within a guild', () => {
+  assert.equal(buildUniqueBossSlug("Grand Magus D'Nor", []), 'grand-magus-d-nor');
+  assert.equal(
+    buildUniqueBossSlug('Braag the Morphling', ['braag-the-morphling']),
+    'braag-the-morphling-2'
+  );
+  assert.equal(buildUniqueBossSlug('***', []), 'boss');
+});
+
+test('boss slug suffixes remain within the database column limit', () => {
+  const name = 'A'.repeat(250);
+  const first = buildUniqueBossSlug(name, []);
+  const second = buildUniqueBossSlug(name, [first]);
+
+  assert.equal(first.length, 191);
+  assert.equal(second.length, 191);
+  assert.match(second, /-2$/);
 });
 
 test('boss group ordering produces contiguous sort positions', () => {

@@ -166,10 +166,7 @@
                 :style="{ '--card-delay': `${groupIndex * 55 + bossIndex * 35}ms` }"
               >
                 <RouterLink
-                  :to="{
-                    name: 'GuildBossDetail',
-                    params: { guildId: library.guild.id, bossId: bossItem.id }
-                  }"
+                  :to="bossRoute(bossItem)"
                   class="boss-card"
                 >
                   <div class="boss-card__media">
@@ -259,25 +256,52 @@
             </RouterLink>
             <div class="boss-detail-hero__title">
               <p>{{ boss.group.name }}</p>
-              <h1>{{ boss.name }}</h1>
+              <div class="boss-detail-title-line">
+                <h1>{{ boss.name }}</h1>
+                <div class="boss-detail-share">
+                  <button
+                    type="button"
+                    class="boss-detail-copy-link"
+                    :class="{ 'is-copied': shareStatus === 'copied' }"
+                    :aria-label="`Copy direct link to ${boss.name}`"
+                    :title="shareStatus === 'copied' ? 'Link copied' : 'Copy direct link'"
+                    @click="copyBossLink"
+                  >
+                    <svg v-if="shareStatus === 'copied'" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="m5 12 4 4L19 6" />
+                    </svg>
+                    <svg v-else viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M10.5 13.5a4 4 0 0 0 5.7 0l2.3-2.3a4 4 0 0 0-5.7-5.7l-1.3 1.3" />
+                      <path d="M13.5 10.5a4 4 0 0 0-5.7 0l-2.3 2.3a4 4 0 0 0 5.7 5.7l1.3-1.3" />
+                    </svg>
+                  </button>
+                  <Transition name="boss-share-feedback">
+                    <span v-if="shareStatus === 'copied'" class="boss-detail-copy-feedback">
+                      Copied
+                    </span>
+                  </Transition>
+                  <span class="sr-only" aria-live="polite">{{ shareAnnouncement }}</span>
+                </div>
+              </div>
               <div class="boss-detail-meta">
                 <span v-if="boss.lastEditedByName">Updated by {{ boss.lastEditedByName }}</span>
                 <span>{{ formatDate(boss.updatedAt) }}</span>
               </div>
             </div>
-            <button
-              v-if="permissions?.canEdit"
-              type="button"
-              class="boss-detail-settings"
-              aria-label="Edit boss details"
-              @click="openEditBoss(boss, boss.groupId)"
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="m4 20 4.5-1 10-10-3.5-3.5-10 10L4 20Z" />
-                <path d="m13.5 7 3.5 3.5" />
-              </svg>
-              Details
-            </button>
+            <div v-if="permissions?.canEdit" class="boss-detail-actions">
+              <button
+                type="button"
+                class="boss-detail-action"
+                aria-label="Edit boss details"
+                @click="openEditBoss(boss, boss.groupId)"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="m4 20 4.5-1 10-10-3.5-3.5-10 10L4 20Z" />
+                  <path d="m13.5 7 3.5 3.5" />
+                </svg>
+                Details
+              </button>
+            </div>
           </div>
         </header>
 
@@ -376,7 +400,7 @@
           >
             <RouterLink
               v-if="previousBoss"
-              :to="bossRoute(previousBoss.id)"
+              :to="bossRoute(previousBoss)"
               class="boss-adjacent__link boss-adjacent__link--previous"
             >
               <span>← Previous encounter</span>
@@ -385,7 +409,7 @@
             <span v-else></span>
             <RouterLink
               v-if="nextBoss"
-              :to="bossRoute(nextBoss.id)"
+              :to="bossRoute(nextBoss)"
               class="boss-adjacent__link boss-adjacent__link--next"
             >
               <span>Next encounter →</span>
@@ -1026,17 +1050,21 @@ import {
   type GuildBossSummary,
   type GuildRole
 } from '../services/api';
+import { copyBossShareLink } from '../utils/bossLinks';
 
 const route = useRoute();
 const router = useRouter();
 const { addToast } = useToastBus();
 const { showErrorFromException } = useErrorModal();
 
-const guildId = computed(() => String(route.params.guildId ?? ''));
-const bossId = computed(() => (route.params.bossId ? String(route.params.bossId) : null));
-const isDetail = computed(() => Boolean(bossId.value));
 const library = ref<GuildBossLibrary | null>(null);
 const boss = ref<GuildBoss | null>(null);
+const guildId = computed(() => String(route.params.guildId ?? library.value?.guild.id ?? ''));
+const guildSlug = computed(() => String(route.params.guildSlug ?? library.value?.guild.slug ?? ''));
+const bossId = computed(() => String(route.params.bossId ?? boss.value?.id ?? '') || null);
+const routeGuildKey = computed(() => String(route.params.guildId ?? route.params.guildSlug ?? ''));
+const routeBossKey = computed(() => String(route.params.bossId ?? route.params.bossSlug ?? ''));
+const isDetail = computed(() => Boolean(routeBossKey.value));
 const detailPermissions = ref<BossLibraryPermissions | null>(null);
 const loading = ref(true);
 const loadError = ref('');
@@ -1066,7 +1094,7 @@ const orderedBosses = computed(() =>
   )
 );
 const currentBossIndex = computed(() =>
-  orderedBosses.value.findIndex((item) => item.id === bossId.value)
+  orderedBosses.value.findIndex((item) => item.id === boss.value?.id)
 );
 const previousBoss = computed(() =>
   currentBossIndex.value > 0 ? (orderedBosses.value[currentBossIndex.value - 1] ?? null) : null
@@ -1077,18 +1105,18 @@ const nextBoss = computed(() =>
     : null
 );
 
-function bossRoute(id: string) {
-  return { name: 'GuildBossDetail', params: { guildId: guildId.value, bossId: id } };
+function bossRoute(item: Pick<GuildBossSummary, 'slug'>) {
+  return {
+    name: 'GuildBossShare',
+    params: { guildSlug: guildSlug.value, bossSlug: item.slug }
+  };
 }
 
 const wikiLinks = computed(() => {
   const links: Record<string, string> = {};
   for (const group of library.value?.groups ?? []) {
     for (const item of group.bosses) {
-      links[item.name.trim().toLocaleLowerCase()] = router.resolve({
-        name: 'GuildBossDetail',
-        params: { guildId: guildId.value, bossId: item.id }
-      }).href;
+      links[item.name.trim().toLocaleLowerCase()] = router.resolve(bossRoute(item)).href;
     }
   }
   return links;
@@ -1098,7 +1126,15 @@ async function loadPage() {
   loading.value = true;
   loadError.value = '';
   try {
-    if (bossId.value) {
+    const routeGuildSlug = String(route.params.guildSlug ?? '');
+    const routeBossSlug = String(route.params.bossSlug ?? '');
+    if (routeGuildSlug && routeBossSlug) {
+      const detailResult = await api.fetchGuildBossBySlug(routeGuildSlug, routeBossSlug);
+      const libraryResult = await api.fetchGuildBossLibrary(detailResult.guild.id);
+      library.value = libraryResult;
+      boss.value = detailResult.boss;
+      detailPermissions.value = detailResult.permissions;
+    } else if (bossId.value) {
       const [libraryResult, detailResult] = await Promise.all([
         api.fetchGuildBossLibrary(guildId.value),
         api.fetchGuildBoss(guildId.value, bossId.value)
@@ -1124,6 +1160,62 @@ async function loadPage() {
   if (boss.value && permissions.value?.canEdit && route.query.edit === '1') {
     beginEditing();
   }
+}
+
+const shareStatus = ref<'idle' | 'copied' | 'error'>('idle');
+const shareAnnouncement = computed(() => {
+  if (shareStatus.value === 'copied') return 'Boss link copied to clipboard.';
+  if (shareStatus.value === 'error') return 'Unable to copy the boss link.';
+  return '';
+});
+let shareStatusTimeout: ReturnType<typeof window.setTimeout> | null = null;
+
+async function copyBossLink() {
+  if (!boss.value || !guildSlug.value) return;
+
+  try {
+    await copyBossShareLink(
+      window.location.origin,
+      guildSlug.value,
+      boss.value.slug,
+      async (url) => {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(url);
+          return;
+        }
+
+        const textarea = document.createElement('textarea');
+        textarea.value = url;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        const copied = document.execCommand('copy');
+        document.body.removeChild(textarea);
+        if (!copied) throw new Error('Clipboard copy was blocked.');
+      }
+    );
+    shareStatus.value = 'copied';
+    addToast({
+      title: 'Link copied',
+      message: `${boss.value.name} is ready to share.`,
+      variant: 'success'
+    });
+  } catch (error) {
+    console.warn('Failed to copy boss link', error);
+    shareStatus.value = 'error';
+    addToast({
+      title: 'Unable to copy link',
+      message: 'Copy the address from your browser and try again.',
+      variant: 'error'
+    });
+  }
+
+  if (shareStatusTimeout) window.clearTimeout(shareStatusTimeout);
+  shareStatusTimeout = window.setTimeout(() => {
+    shareStatus.value = 'idle';
+    shareStatusTimeout = null;
+  }, 3000);
 }
 
 function markImageFailed(id: string) {
@@ -1199,10 +1291,7 @@ async function saveNotes() {
     mode.value = 'view';
     await refreshLibrary();
     if (route.query.edit === '1') {
-      await router.replace({
-        name: 'GuildBossDetail',
-        params: { guildId: guildId.value, bossId: updated.id }
-      });
+      await router.replace(bossRoute(updated));
     }
     addToast({
       title: 'Boss notes saved',
@@ -1445,11 +1534,7 @@ async function saveBossDetails() {
         message: `Add strategy notes for ${created.name}.`,
         variant: 'success'
       });
-      await router.push({
-        name: 'GuildBossDetail',
-        params: { guildId: guildId.value, bossId: created.id },
-        query: { edit: '1' }
-      });
+      await router.push({ ...bossRoute(created), query: { edit: '1' } });
     }
   } catch (error) {
     showErrorFromException(error, 'Unable to save boss details.');
@@ -1874,9 +1959,10 @@ watch(activeModalKey, async (key) => {
   focusActiveModal();
 });
 
-watch([guildId, bossId], ([nextGuildId, nextBossId], [previousGuildId, previousBossId]) => {
-  if (nextGuildId === previousGuildId && nextBossId === previousBossId) return;
+watch([routeGuildKey, routeBossKey], ([nextGuildKey, nextBossKey], [previousGuildKey, previousBossKey]) => {
+  if (nextGuildKey === previousGuildKey && nextBossKey === previousBossKey) return;
   mode.value = 'view';
+  shareStatus.value = 'idle';
   window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   void loadPage();
 });
@@ -1939,6 +2025,7 @@ onBeforeUnmount(() => {
   releaseBossImageObjectUrl();
   window.removeEventListener('beforeunload', handleBeforeUnload);
   window.removeEventListener('keydown', handleGlobalKeydown);
+  if (shareStatusTimeout) window.clearTimeout(shareStatusTimeout);
   document.body.style.overflow = bodyOverflowBeforeModal;
 });
 </script>
@@ -2045,7 +2132,8 @@ onBeforeUnmount(() => {
 .boss-button:focus-visible,
 .boss-icon-button:focus-visible,
 .boss-card__edit:focus-visible,
-.boss-detail-settings:focus-visible,
+.boss-detail-copy-link:focus-visible,
+.boss-detail-action:focus-visible,
 .boss-mode-switch button:focus-visible,
 .boss-search button:focus-visible,
 .boss-modal__header > button:focus-visible,
@@ -2668,14 +2756,101 @@ onBeforeUnmount(() => {
   max-width: 48rem;
 }
 
+.boss-detail-title-line {
+  align-items: flex-end;
+  display: flex;
+  gap: 0.8rem;
+}
+
 .boss-detail-hero__title h1 {
   color: #f7fafc;
+  flex: 0 1 auto;
   font-family: var(--nx-font-display);
   font-size: clamp(2.6rem, 6vw, 5.5rem);
   letter-spacing: -0.055em;
   line-height: 0.95;
   margin: 0;
   text-wrap: balance;
+}
+
+.boss-detail-share {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  margin-bottom: 0.28rem;
+  position: relative;
+}
+
+.boss-detail-copy-link {
+  align-items: center;
+  backdrop-filter: blur(12px);
+  background: rgba(7, 13, 25, 0.54);
+  border: 1px solid rgba(175, 203, 231, 0.24);
+  border-radius: 999px;
+  color: #b9c9da;
+  cursor: pointer;
+  display: inline-flex;
+  height: 2.15rem;
+  justify-content: center;
+  padding: 0;
+  transition:
+    background 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
+  width: 2.15rem;
+}
+
+.boss-detail-copy-link:hover {
+  background: rgba(69, 215, 223, 0.13);
+  border-color: rgba(69, 215, 223, 0.42);
+  color: #67e8f9;
+  transform: translateY(-1px);
+}
+
+.boss-detail-copy-link.is-copied {
+  background: rgba(69, 215, 150, 0.14);
+  border-color: rgba(94, 234, 169, 0.4);
+  color: #7df0b4;
+}
+
+.boss-detail-copy-link svg {
+  fill: none;
+  height: 1rem;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+  width: 1rem;
+}
+
+.boss-detail-copy-feedback {
+  background: rgba(6, 13, 24, 0.9);
+  border: 1px solid rgba(94, 234, 169, 0.28);
+  border-radius: 999px;
+  color: #9ff4c7;
+  font-size: 0.65rem;
+  font-weight: 750;
+  left: calc(100% + 0.45rem);
+  letter-spacing: 0.04em;
+  padding: 0.28rem 0.5rem;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  white-space: nowrap;
+}
+
+.boss-share-feedback-enter-active,
+.boss-share-feedback-leave-active {
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
+}
+
+.boss-share-feedback-enter-from,
+.boss-share-feedback-leave-to {
+  opacity: 0;
+  transform: translate(-0.2rem, -50%);
 }
 
 .boss-detail-meta {
@@ -2698,30 +2873,35 @@ onBeforeUnmount(() => {
   position: absolute;
 }
 
-.boss-detail-settings {
+.boss-detail-actions {
   align-items: center;
-  align-self: flex-end;
+  bottom: 2.6rem;
+  display: flex;
+  gap: 0.55rem;
+  position: absolute;
+  right: 2.6rem;
+}
+
+.boss-detail-action {
+  align-items: center;
   backdrop-filter: blur(12px);
   background: rgba(7, 13, 25, 0.6);
   border: 1px solid rgba(175, 203, 231, 0.25);
   border-radius: 9px;
-  bottom: 2.6rem;
   color: #d4e0ec;
   cursor: pointer;
   display: flex;
   font-size: 0.76rem;
   gap: 0.4rem;
   padding: 0.6rem 0.8rem;
-  position: absolute;
-  right: 2.6rem;
 }
 
-.boss-detail-settings:hover {
+.boss-detail-action:hover {
   background: rgba(69, 215, 223, 0.13);
   border-color: rgba(69, 215, 223, 0.42);
 }
 
-.boss-detail-settings svg {
+.boss-detail-action svg {
   fill: none;
   height: 0.95rem;
   stroke: currentColor;
@@ -4013,7 +4193,7 @@ onBeforeUnmount(() => {
     background: linear-gradient(0deg, rgba(5, 10, 20, 0.96), rgba(5, 10, 20, 0.35));
   }
 
-  .boss-detail-settings {
+  .boss-detail-actions {
     bottom: auto;
     right: 1.2rem;
     top: 1.2rem;
@@ -4108,7 +4288,7 @@ onBeforeUnmount(() => {
   }
 
   .boss-detail-back,
-  .boss-detail-settings {
+  .boss-detail-action {
     background: rgba(5, 11, 22, 0.68);
     border: 1px solid rgba(175, 203, 231, 0.2);
     border-radius: 8px;
@@ -4119,13 +4299,35 @@ onBeforeUnmount(() => {
     padding: 0.52rem 0.62rem;
   }
 
-  .boss-detail-settings {
+  .boss-detail-actions {
     right: 1rem;
     top: 1rem;
   }
 
+  .boss-detail-action {
+    font-size: 0.68rem;
+    padding: 0.52rem 0.6rem;
+  }
+
   .boss-detail-hero__title h1 {
     font-size: clamp(2.4rem, 13vw, 4rem);
+  }
+
+  .boss-detail-title-line {
+    align-items: center;
+    gap: 0.55rem;
+  }
+
+  .boss-detail-copy-feedback {
+    left: auto;
+    right: 0;
+    top: calc(100% + 0.35rem);
+    transform: none;
+  }
+
+  .boss-share-feedback-enter-from,
+  .boss-share-feedback-leave-to {
+    transform: translateY(-0.2rem);
   }
 
   .boss-detail-meta {

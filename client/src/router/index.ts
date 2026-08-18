@@ -77,6 +77,12 @@ const router = createRouter({
       meta: { requiresAuth: true, title: 'Boss Notes' }
     },
     {
+      path: '/b/:guildSlug/:bossSlug',
+      name: 'GuildBossShare',
+      component: () => import('../views/GuildBossesView.vue'),
+      meta: { requiresAuth: true, title: 'Boss Notes' }
+    },
+    {
       path: '/guilds/:guildId/metrics',
       name: 'GuildMetrics',
       component: () => import('../views/GuildMetricsView.vue'),

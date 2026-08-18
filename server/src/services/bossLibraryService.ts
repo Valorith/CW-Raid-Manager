@@ -2,6 +2,7 @@ import { GuildRole } from '@prisma/client';
 
 import { withPreferredDisplayName } from '../utils/displayName.js';
 import { prisma } from '../utils/prisma.js';
+import { slugify } from '../utils/slugify.js';
 
 export class BossLibraryError extends Error {
   constructor(
@@ -42,6 +43,22 @@ export interface BossImageUpload {
 }
 
 export const BOSS_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
+export const BOSS_SLUG_MAX_LENGTH = 191;
+
+export function buildUniqueBossSlug(name: string, existingSlugs: Iterable<string>): string {
+  const usedSlugs = new Set(Array.from(existingSlugs, (slug) => slug.toLocaleLowerCase()));
+  const base = slugify(name).slice(0, BOSS_SLUG_MAX_LENGTH) || 'boss';
+  let candidate = base;
+  let counter = 2;
+
+  while (usedSlugs.has(candidate.toLocaleLowerCase())) {
+    const suffix = `-${counter}`;
+    candidate = `${base.slice(0, BOSS_SLUG_MAX_LENGTH - suffix.length)}${suffix}`;
+    counter += 1;
+  }
+
+  return candidate;
+}
 
 function isBossOfficer(role: GuildRole): boolean {
   return role === GuildRole.LEADER || role === GuildRole.OFFICER;
@@ -169,6 +186,17 @@ async function getBossAccess(userId: string, guildId: string) {
   return getBossLibraryPermissions(membership.role, membership.isBossContributor);
 }
 
+async function createBossSlug(guildId: string, name: string) {
+  const bosses = await prisma.guildBoss.findMany({
+    where: { guildId },
+    select: { slug: true }
+  });
+  return buildUniqueBossSlug(
+    name,
+    bosses.map((boss) => boss.slug)
+  );
+}
+
 export async function ensureBossEditor(userId: string, guildId: string) {
   const access = await getBossAccess(userId, guildId);
   if (!access.canEdit) {
@@ -223,6 +251,7 @@ export async function listGuildBossLibrary(guildId: string, userId: string) {
     select: {
       id: true,
       name: true,
+      slug: true,
       bossGroups: {
         orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
         select: {
@@ -234,6 +263,7 @@ export async function listGuildBossLibrary(guildId: string, userId: string) {
             select: {
               id: true,
               name: true,
+              slug: true,
               imageUrl: true,
               image: {
                 select: { updatedAt: true }
@@ -290,6 +320,47 @@ export async function getGuildBoss(guildId: string, bossId: string, userId: stri
 
   return {
     boss: serializeBossImage(guildId, boss),
+    permissions: access
+  };
+}
+
+export async function getGuildBossBySlug(guildSlug: string, bossSlug: string, userId: string) {
+  const guild = await prisma.guild.findUnique({
+    where: { slug: guildSlug },
+    select: { id: true, name: true, slug: true }
+  });
+  if (!guild) {
+    throw new BossLibraryError('Guild not found.', 404);
+  }
+
+  const access = await getBossAccess(userId, guild.id);
+  const boss = await prisma.guildBoss.findUnique({
+    where: {
+      guildId_slug: {
+        guildId: guild.id,
+        slug: bossSlug
+      }
+    },
+    include: {
+      group: {
+        select: {
+          id: true,
+          name: true
+        }
+      },
+      image: {
+        select: { updatedAt: true }
+      }
+    }
+  });
+
+  if (!boss) {
+    throw new BossLibraryError('Boss not found.', 404);
+  }
+
+  return {
+    guild,
+    boss: serializeBossImage(guild.id, boss),
     permissions: access
   };
 }
@@ -409,6 +480,7 @@ export async function createGuildBoss(guildId: string, userId: string, input: Bo
   }
 
   const editor = await resolveBossEditor(guildId, userId);
+  const slug = await createBossSlug(guildId, name);
   const highest = await prisma.guildBoss.aggregate({
     where: { guildId, groupId: input.groupId },
     _max: { sortOrder: true }
@@ -420,6 +492,7 @@ export async function createGuildBoss(guildId: string, userId: string, input: Bo
         guildId,
         groupId: input.groupId,
         name,
+        slug,
         imageUrl: input.imageUpload ? null : normalizeOptionalText(input.imageUrl),
         notes: normalizeOptionalText(input.notes),
         sortOrder: input.sortOrder ?? (highest._max.sortOrder ?? -1) + 1,

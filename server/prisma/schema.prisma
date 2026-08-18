@@ -185,6 +185,7 @@ model GuildBoss {
   guildId          String
   groupId          String
   name             String         @db.VarChar(191)
+  slug             String         @db.VarChar(191)
   imageUrl         String?        @db.VarChar(2048)
   notes            String?        @db.LongText
   sortOrder        Int            @default(0)
@@ -197,6 +198,7 @@ model GuildBoss {
   image            GuildBossImage?
 
   @@unique([guildId, name], map: "GuildBoss_guild_name_key")
+  @@unique([guildId, slug], map: "GuildBoss_guild_slug_key")
   @@index([guildId, groupId, sortOrder], map: "GuildBoss_guild_group_sort_idx")
   @@index([groupId], map: "GuildBoss_group_idx")
 }

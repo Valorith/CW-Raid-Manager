@@ -963,6 +963,7 @@ const ROUTE_LABELS: Record<string, string> = {
   GuildBank: 'Guild Bank',
   GuildBosses: 'Bosses',
   GuildBossDetail: 'Boss Notes',
+  GuildBossShare: 'Boss Notes',
   GuildQuestTracker: 'Quest Tracker',
   GuildNpcRespawn: 'NPC Respawn',
   GuildNpcManagement: 'NPC Management',

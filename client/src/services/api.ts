@@ -76,6 +76,7 @@ export interface BossLibraryPermissions {
 export interface GuildBossSummary {
   id: string;
   name: string;
+  slug: string;
   imageUrl: string | null;
   imageSource: 'upload' | 'url' | null;
   sortOrder: number;
@@ -106,6 +107,7 @@ export interface GuildBossLibrary {
   guild: {
     id: string;
     name: string;
+    slug: string;
   };
   groups: GuildBossGroup[];
   permissions: BossLibraryPermissions;
@@ -5333,6 +5335,20 @@ export const api = {
     bossId: string
   ): Promise<{ boss: GuildBoss; permissions: BossLibraryPermissions }> {
     const response = await axios.get(`/api/guilds/${guildId}/bosses/${bossId}`);
+    return response.data;
+  },
+
+  async fetchGuildBossBySlug(
+    guildSlug: string,
+    bossSlug: string
+  ): Promise<{
+    guild: { id: string; name: string; slug: string };
+    boss: GuildBoss;
+    permissions: BossLibraryPermissions;
+  }> {
+    const response = await axios.get(
+      `/api/guilds/by-slug/${encodeURIComponent(guildSlug)}/bosses/${encodeURIComponent(bossSlug)}`
+    );
     return response.data;
   },
 

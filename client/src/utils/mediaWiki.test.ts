@@ -47,7 +47,7 @@ test('renders the Blacksmith Yragbor MediaWiki constructs structurally', () => {
   assert.match(html, /wiki-file--inline/);
   assert.match(
     html,
-    /<ul><li>Already Spawned at Start - <a class="wiki-link" href="\/guilds\/guild-1\/bosses\/yragbor">Blacksmith Yragbor<\/a><ul>/
+    /<ul><li>Already Spawned at Start - <a class="wiki-link" href="\/guilds\/guild-1\/bosses\/yragbor" target="_blank" rel="noopener noreferrer">Blacksmith Yragbor<\/a><ul>/
   );
   assert.match(html, /Muscle Spawm<\/a><ul><li>Snare<\/li><li>5 Poison Counters<\/li><\/ul>/);
   assert.match(html, /title=CH_Chain_and_Audio_Triggers#2_Person_CH_Chain/);
@@ -56,6 +56,38 @@ test('renders the Blacksmith Yragbor MediaWiki constructs structurally', () => {
   assert.match(html, />NPC<\/a>/);
   assert.match(html, />Ancients<\/a>/);
   assert.doesNotMatch(html, /Category:NPC|colspan=&quot;|<br&gt;/);
+});
+
+test('opens rendered links in a new tab while preserving same-document anchors', () => {
+  const html = renderMediaWiki(`=== Encounter NPCs ===
+[[#Encounter NPCs|Jump to encounter]]
+[[Blacksmith Yragbor|Boss page]]
+[https://example.com External page]
+[[Category:Ancients]]`, {
+    resolveWikiLink(target) {
+      return target === 'Blacksmith Yragbor'
+        ? '/b/clumsy-s-world/blacksmith-yragbor'
+        : null;
+    }
+  });
+
+  assert.match(
+    html,
+    /href="#encounter-npcs">Jump to encounter<\/a>/
+  );
+  assert.doesNotMatch(html, /href="#encounter-npcs" target=/);
+  assert.match(
+    html,
+    /href="\/b\/clumsy-s-world\/blacksmith-yragbor" target="_blank" rel="noopener noreferrer">Boss page<\/a>/
+  );
+  assert.match(
+    html,
+    /href="https:\/\/example\.com\/" target="_blank" rel="noopener noreferrer">External page<\/a>/
+  );
+  assert.match(
+    html,
+    /title=Category%3AAncients" target="_blank" rel="noopener noreferrer">Ancients<\/a>/
+  );
 });
 
 test('keeps untrusted HTML and table styles inert', () => {

@@ -7,7 +7,7 @@
     "dev": "vite --open",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "tsx --test src/utils/mediaWiki.test.ts",
+    "test": "tsx --test src/utils/*.test.ts",
     "lint": "eslint \"src/**/*.{ts,tsx,vue}\"",
     "format": "prettier --write \"src/**/*.{ts,tsx,vue,json,css,scss}\"",
     "type-check": "vue-tsc --noEmit"
