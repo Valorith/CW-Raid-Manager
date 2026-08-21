@@ -1116,6 +1116,23 @@
                         placeholder="https://example.com/webhook"
                       />
                     </label>
+                    <label v-if="action.type === 'CUSTOM_WEBHOOK'" class="form-field">
+                      <span>Auth Secret (optional)</span>
+                      <input
+                        v-model="action.config.customWebhookSecret"
+                        class="input"
+                        type="password"
+                        placeholder="crsr_... or Bearer token"
+                      />
+                    </label>
+                    <label v-if="action.type === 'CUSTOM_WEBHOOK'" class="form-field">
+                      <span>Auth Header Name (optional)</span>
+                      <input
+                        v-model="action.config.customWebhookSecretHeaderName"
+                        class="input"
+                        placeholder="Authorization (default)"
+                      />
+                    </label>
                     <div v-if="action.type === 'SLACK_RELAY'" class="form-field endpoint-field-wide">
                       <span>Slack Connection</span>
                       <div class="endpoint-control-row">
@@ -1377,6 +1394,29 @@
                       v-model="actionDrafts[selectedWebhook.id].customWebhookUrl"
                       class="input"
                       placeholder="https://example.com/webhook"
+                    />
+                  </label>
+                  <label
+                    v-if="actionDrafts[selectedWebhook.id].type === 'CUSTOM_WEBHOOK'"
+                    class="form-field"
+                  >
+                    <span>Auth Secret (optional)</span>
+                    <input
+                      v-model="actionDrafts[selectedWebhook.id].customWebhookSecret"
+                      class="input"
+                      type="password"
+                      placeholder="crsr_... or Bearer token"
+                    />
+                  </label>
+                  <label
+                    v-if="actionDrafts[selectedWebhook.id].type === 'CUSTOM_WEBHOOK'"
+                    class="form-field"
+                  >
+                    <span>Auth Header Name (optional)</span>
+                    <input
+                      v-model="actionDrafts[selectedWebhook.id].customWebhookSecretHeaderName"
+                      class="input"
+                      placeholder="Authorization (default)"
                     />
                   </label>
                   <label
@@ -5756,6 +5796,8 @@ function buildActionDraft() {
     slackCodexBaseBranch: DEFAULT_SLACK_CODEX_BASE_BRANCH,
     slackCodexInstructions: DEFAULT_SLACK_CODEX_INSTRUCTIONS,
     customWebhookUrl: '',
+    customWebhookSecret: '',
+    customWebhookSecretHeaderName: '',
     crashModel: 'gemini-2.5-flash-lite',
     crashMaxInputChars: 250000,
     crashMaxOutputTokens: 4096,
@@ -5784,6 +5826,8 @@ function normalizeClientActionConfig(
       connectedAt: null
     },
     customWebhookUrl: config?.customWebhookUrl ?? '',
+    customWebhookSecret: config?.customWebhookSecret ?? '',
+    customWebhookSecretHeaderName: config?.customWebhookSecretHeaderName ?? '',
     slackCodexHandoffEnabled: config?.slackCodexHandoffEnabled ?? false,
     slackCodexRepository: config?.slackCodexRepository ?? DEFAULT_SLACK_CODEX_REPOSITORY,
     slackCodexBaseBranch: config?.slackCodexBaseBranch ?? DEFAULT_SLACK_CODEX_BASE_BRANCH,
@@ -5810,7 +5854,9 @@ function buildActionConfigFromDraft(draft: any): InboundWebhookActionConfig {
 
   if (draft.type === 'CUSTOM_WEBHOOK') {
     return {
-      customWebhookUrl: draft.customWebhookUrl?.trim() || undefined
+      customWebhookUrl: draft.customWebhookUrl?.trim() || undefined,
+      customWebhookSecret: draft.customWebhookSecret?.trim() || undefined,
+      customWebhookSecretHeaderName: draft.customWebhookSecretHeaderName?.trim() || undefined
     };
   }
 
@@ -5853,7 +5899,9 @@ function buildActionConfigFromAction(action: InboundWebhookAction): InboundWebho
 
   if (action.type === 'CUSTOM_WEBHOOK') {
     return {
-      customWebhookUrl: action.config.customWebhookUrl?.trim() || undefined
+      customWebhookUrl: action.config.customWebhookUrl?.trim() || undefined,
+      customWebhookSecret: action.config.customWebhookSecret?.trim() || undefined,
+      customWebhookSecretHeaderName: action.config.customWebhookSecretHeaderName?.trim() || undefined
     };
   }
 

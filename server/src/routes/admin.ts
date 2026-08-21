@@ -1618,6 +1618,8 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
     slackCodexBaseBranch: z.string().max(120).optional().nullable(),
     slackCodexInstructions: z.string().max(8000).optional().nullable(),
     customWebhookUrl: z.string().url().max(512).optional().nullable(),
+    customWebhookSecret: z.string().max(512).optional().nullable(),
+    customWebhookSecretHeaderName: z.string().max(120).optional().nullable(),
     crashModel: z.string().max(120).optional().nullable(),
     crashMaxInputChars: z.coerce.number().int().positive().optional().nullable(),
     crashMaxOutputTokens: z.coerce.number().int().positive().optional().nullable(),
@@ -1947,6 +1949,14 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
           typeof config.customWebhookUrl === 'string'
             ? config.customWebhookUrl.trim() || undefined
             : undefined,
+        customWebhookSecret:
+          typeof config.customWebhookSecret === 'string'
+            ? config.customWebhookSecret.trim() || undefined
+            : undefined,
+        customWebhookSecretHeaderName:
+          typeof config.customWebhookSecretHeaderName === 'string'
+            ? config.customWebhookSecretHeaderName.trim() || undefined
+            : undefined,
         crashModel:
           typeof config.crashModel === 'string' ? config.crashModel.trim() || undefined : undefined,
         crashMaxInputChars:
@@ -2011,7 +2021,8 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
           name: z.string().min(2).max(120).optional(),
           isEnabled: z.boolean().optional(),
           sortOrder: z.coerce.number().int().optional(),
-          config: actionConfigSchema.optional().nullable()
+          config: actionConfigSchema.optional().nullable(),
+          clearCustomWebhookSecret: z.boolean().optional()
         })
         .refine((value) => Object.keys(value).length > 0, {
           message: 'No fields provided for update.'
@@ -2027,6 +2038,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
         isEnabled?: boolean;
         sortOrder?: number;
         config?: ActionConfig | null;
+        clearCustomWebhookSecret?: boolean;
       };
 
       const config = parsedData.config ? (parsedData.config as ActionConfig) : undefined;
@@ -2073,6 +2085,14 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
               typeof config.customWebhookUrl === 'string'
                 ? config.customWebhookUrl.trim() || undefined
                 : undefined,
+            customWebhookSecret:
+              typeof config.customWebhookSecret === 'string'
+                ? config.customWebhookSecret.trim() || undefined
+                : undefined,
+            customWebhookSecretHeaderName:
+              typeof config.customWebhookSecretHeaderName === 'string'
+                ? config.customWebhookSecretHeaderName.trim() || undefined
+                : undefined,
             crashModel:
               typeof config.crashModel === 'string'
                 ? config.crashModel.trim() || undefined
@@ -2096,10 +2116,39 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
           } satisfies InboundWebhookActionConfig)
         : undefined;
 
-      const configForUpdate =
-        action.type === InboundWebhookActionType.SLACK_RELAY && normalizedConfig
-          ? preserveSlackConnectionConfig(action.config, normalizedConfig)
-          : normalizedConfig;
+      let configForUpdate: InboundWebhookActionConfig | undefined = normalizedConfig;
+      
+      if (action.type === InboundWebhookActionType.SLACK_RELAY && normalizedConfig) {
+        configForUpdate = preserveSlackConnectionConfig(action.config, normalizedConfig);
+      } else if (action.type === InboundWebhookActionType.CUSTOM_WEBHOOK) {
+        // Handle clearCustomWebhookSecret flag even when config is not provided
+        if (parsedData.clearCustomWebhookSecret) {
+          const existing =
+            action.config && typeof action.config === 'object' && !Array.isArray(action.config)
+              ? (action.config as InboundWebhookActionConfig)
+              : {};
+          configForUpdate = {
+            ...existing,
+            ...(normalizedConfig || {}),
+            customWebhookSecret: undefined
+          } as InboundWebhookActionConfig;
+        } else if (normalizedConfig) {
+          // Preserve existing secret when not provided in update
+          const existing =
+            action.config && typeof action.config === 'object' && !Array.isArray(action.config)
+              ? (action.config as Record<string, unknown>)
+              : {};
+          
+          const secretForUpdate =
+            normalizedConfig.customWebhookSecret ||
+            (typeof existing.customWebhookSecret === 'string' ? existing.customWebhookSecret : undefined);
+          
+          configForUpdate = {
+            ...normalizedConfig,
+            customWebhookSecret: secretForUpdate
+          } as InboundWebhookActionConfig;
+        }
+      }
 
       if (
         action.type === InboundWebhookActionType.CUSTOM_WEBHOOK &&

@@ -1724,6 +1724,9 @@ export interface InboundWebhookActionConfig {
   slackCodexBaseBranch?: string;
   slackCodexInstructions?: string;
   customWebhookUrl?: string;
+  customWebhookSecret?: string;
+  customWebhookSecretHeaderName?: string;
+  hasCustomWebhookSecret?: boolean;
   crashModel?: string;
   crashMaxInputChars?: number;
   crashMaxOutputTokens?: number;

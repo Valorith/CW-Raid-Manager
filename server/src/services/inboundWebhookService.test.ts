@@ -4,7 +4,8 @@ import test from 'node:test';
 import {
   buildCrashReviewInput,
   dispatchCrashTelemetryAutoFix,
-  looksLikeCrashReport
+  looksLikeCrashReport,
+  sendCustomWebhookRelay
 } from './inboundWebhookService.js';
 import { renderNotificationEvent } from './notificationEventRenderer.js';
 
@@ -133,4 +134,138 @@ test('renders crash Auto-Fix trigger notifications', () => {
   assert.match(rendered.text, /Crash Telemetry/);
   assert.match(rendered.text, /SIGSEGV/);
   assert.match(rendered.text, /message-codex/);
+});
+
+test('sendCustomWebhookRelay sends no auth header when secret is not provided', async () => {
+  const originalFetch = globalThis.fetch;
+  let capturedHeaders: Record<string, string> | undefined;
+  
+  try {
+    globalThis.fetch = async (url: string | URL | Request, init?: RequestInit) => {
+      capturedHeaders = init?.headers as Record<string, string>;
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    };
+
+    await sendCustomWebhookRelay('https://example.com/webhook', { test: 'payload' });
+
+    assert.ok(capturedHeaders);
+    assert.equal(capturedHeaders['Content-Type'], 'application/json');
+    assert.equal(capturedHeaders['Authorization'], undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('sendCustomWebhookRelay sends Authorization Bearer header by default when secret is provided', async () => {
+  const originalFetch = globalThis.fetch;
+  let capturedHeaders: Record<string, string> | undefined;
+  
+  try {
+    globalThis.fetch = async (url: string | URL | Request, init?: RequestInit) => {
+      capturedHeaders = init?.headers as Record<string, string>;
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    };
+
+    await sendCustomWebhookRelay('https://example.com/webhook', { test: 'payload' }, {
+      secret: 'crsr_test_token_123'
+    });
+
+    assert.ok(capturedHeaders);
+    assert.equal(capturedHeaders['Content-Type'], 'application/json');
+    assert.equal(capturedHeaders['Authorization'], 'Bearer crsr_test_token_123');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('sendCustomWebhookRelay does not double-prefix Bearer when secret already starts with Bearer', async () => {
+  const originalFetch = globalThis.fetch;
+  let capturedHeaders: Record<string, string> | undefined;
+  
+  try {
+    globalThis.fetch = async (url: string | URL | Request, init?: RequestInit) => {
+      capturedHeaders = init?.headers as Record<string, string>;
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    };
+
+    await sendCustomWebhookRelay('https://example.com/webhook', { test: 'payload' }, {
+      secret: 'Bearer crsr_test_token_123'
+    });
+
+    assert.ok(capturedHeaders);
+    assert.equal(capturedHeaders['Authorization'], 'Bearer crsr_test_token_123');
+    assert.ok(!capturedHeaders['Authorization'].includes('Bearer Bearer'));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('sendCustomWebhookRelay uses custom header name when provided', async () => {
+  const originalFetch = globalThis.fetch;
+  let capturedHeaders: Record<string, string> | undefined;
+  
+  try {
+    globalThis.fetch = async (url: string | URL | Request, init?: RequestInit) => {
+      capturedHeaders = init?.headers as Record<string, string>;
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    };
+
+    await sendCustomWebhookRelay('https://example.com/webhook', { test: 'payload' }, {
+      secret: 'my-secret-key',
+      secretHeaderName: 'X-Webhook-Secret'
+    });
+
+    assert.ok(capturedHeaders);
+    assert.equal(capturedHeaders['Content-Type'], 'application/json');
+    assert.equal(capturedHeaders['X-Webhook-Secret'], 'my-secret-key');
+    assert.equal(capturedHeaders['Authorization'], undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('sendCustomWebhookRelay does not add Bearer prefix for custom header names', async () => {
+  const originalFetch = globalThis.fetch;
+  let capturedHeaders: Record<string, string> | undefined;
+  
+  try {
+    globalThis.fetch = async (url: string | URL | Request, init?: RequestInit) => {
+      capturedHeaders = init?.headers as Record<string, string>;
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    };
+
+    await sendCustomWebhookRelay('https://example.com/webhook', { test: 'payload' }, {
+      secret: 'plain-secret',
+      secretHeaderName: 'X-API-Key'
+    });
+
+    assert.ok(capturedHeaders);
+    assert.equal(capturedHeaders['X-API-Key'], 'plain-secret');
+    assert.ok(!capturedHeaders['X-API-Key'].startsWith('Bearer'));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('sendCustomWebhookRelay works with existing URL-only action (backward compatibility)', async () => {
+  const originalFetch = globalThis.fetch;
+  let capturedHeaders: Record<string, string> | undefined;
+  let capturedUrl: string | undefined;
+  
+  try {
+    globalThis.fetch = async (url: string | URL | Request, init?: RequestInit) => {
+      capturedUrl = typeof url === 'string' ? url : url.toString();
+      capturedHeaders = init?.headers as Record<string, string>;
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    };
+
+    await sendCustomWebhookRelay('https://example.com/webhook', { test: 'payload' });
+
+    assert.equal(capturedUrl, 'https://example.com/webhook');
+    assert.ok(capturedHeaders);
+    assert.equal(capturedHeaders['Content-Type'], 'application/json');
+    assert.equal(Object.keys(capturedHeaders).length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

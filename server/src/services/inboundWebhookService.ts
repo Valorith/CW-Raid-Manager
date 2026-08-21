@@ -384,6 +384,8 @@ export interface InboundWebhookActionConfig {
   slackCodexBaseBranch?: string;
   slackCodexInstructions?: string;
   customWebhookUrl?: string;
+  customWebhookSecret?: string;
+  customWebhookSecretHeaderName?: string;
   crashModel?: string;
   crashMaxInputChars?: number;
   crashMaxOutputTokens?: number;
@@ -653,15 +655,36 @@ type InboundWebhookActionRecord = {
   config: Prisma.JsonValue;
 };
 
+function redactCustomWebhookConfig(config: unknown): unknown {
+  if (!config || Array.isArray(config) || typeof config !== 'object') {
+    return config;
+  }
+  const typedConfig = config as Record<string, unknown>;
+  const { customWebhookSecret, ...rest } = typedConfig;
+  return {
+    ...rest,
+    hasCustomWebhookSecret: Boolean(
+      typeof customWebhookSecret === 'string' && customWebhookSecret.trim()
+    )
+  };
+}
+
 function redactInboundWebhookActionConfig<T extends InboundWebhookActionRecord>(action: T): T {
-  if (action.type !== 'SLACK_RELAY') {
-    return action;
+  if (action.type === 'SLACK_RELAY') {
+    return {
+      ...action,
+      config: redactSlackConfig(action.config) as Prisma.JsonValue
+    };
   }
 
-  return {
-    ...action,
-    config: redactSlackConfig(action.config) as Prisma.JsonValue
-  };
+  if (action.type === 'CUSTOM_WEBHOOK') {
+    return {
+      ...action,
+      config: redactCustomWebhookConfig(action.config) as Prisma.JsonValue
+    };
+  }
+
+  return action;
 }
 
 function redactInboundWebhookActions<T extends { actions?: InboundWebhookActionRecord[] }>(
@@ -2222,7 +2245,10 @@ async function runInboundWebhookActions(
         if (!config.customWebhookUrl) {
           throw new Error('Custom webhook POST URL is missing.');
         }
-        await sendCustomWebhookRelay(config.customWebhookUrl, payloadForActions);
+        await sendCustomWebhookRelay(config.customWebhookUrl, payloadForActions, {
+          secret: config.customWebhookSecret,
+          secretHeaderName: config.customWebhookSecretHeaderName
+        });
         await prisma.inboundWebhookActionRun.create({
           data: {
             messageId,
@@ -3673,6 +3699,11 @@ function normalizeActionConfig(config: unknown): InboundWebhookActionConfig {
     slackCodexInstructions:
       typeof raw.slackCodexInstructions === 'string' ? raw.slackCodexInstructions : undefined,
     customWebhookUrl: typeof raw.customWebhookUrl === 'string' ? raw.customWebhookUrl : undefined,
+    customWebhookSecret: typeof raw.customWebhookSecret === 'string' ? raw.customWebhookSecret : undefined,
+    customWebhookSecretHeaderName:
+      typeof raw.customWebhookSecretHeaderName === 'string'
+        ? raw.customWebhookSecretHeaderName
+        : undefined,
     crashModel: typeof raw.crashModel === 'string' ? raw.crashModel : undefined,
     crashMaxInputChars: typeof raw.crashMaxInputChars === 'number' ? raw.crashMaxInputChars : undefined,
     crashMaxOutputTokens:
@@ -3859,10 +3890,31 @@ function truncateSlackMrkdwnText(value: string, maxLength: number): string {
     : trimmed;
 }
 
-async function sendCustomWebhookRelay(url: string, payload: unknown) {
+export async function sendCustomWebhookRelay(
+  url: string,
+  payload: unknown,
+  options?: {
+    secret?: string;
+    secretHeaderName?: string;
+  }
+) {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json'
+  };
+
+  if (options?.secret) {
+    const headerName = options.secretHeaderName || 'Authorization';
+    const secret = options.secret.trim();
+    const headerValue =
+      headerName === 'Authorization' && !secret.startsWith('Bearer ')
+        ? `Bearer ${secret}`
+        : secret;
+    headers[headerName] = headerValue;
+  }
+
   const response = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(payload)
   });
 
