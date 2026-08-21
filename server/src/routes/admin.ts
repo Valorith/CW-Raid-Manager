@@ -2120,26 +2120,34 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
       
       if (action.type === InboundWebhookActionType.SLACK_RELAY && normalizedConfig) {
         configForUpdate = preserveSlackConnectionConfig(action.config, normalizedConfig);
-      } else if (action.type === InboundWebhookActionType.CUSTOM_WEBHOOK && normalizedConfig) {
-        // Preserve existing secret when not provided, or explicitly clear it
-        const existing =
-          action.config && typeof action.config === 'object' && !Array.isArray(action.config)
-            ? (action.config as Record<string, unknown>)
-            : {};
-        
-        let secretForUpdate: string | undefined;
+      } else if (action.type === InboundWebhookActionType.CUSTOM_WEBHOOK) {
+        // Handle clearCustomWebhookSecret flag even when config is not provided
         if (parsedData.clearCustomWebhookSecret) {
-          secretForUpdate = undefined;
-        } else if (normalizedConfig.customWebhookSecret) {
-          secretForUpdate = normalizedConfig.customWebhookSecret;
-        } else {
-          secretForUpdate = typeof existing.customWebhookSecret === 'string' ? existing.customWebhookSecret : undefined;
+          const existing =
+            action.config && typeof action.config === 'object' && !Array.isArray(action.config)
+              ? (action.config as InboundWebhookActionConfig)
+              : {};
+          configForUpdate = {
+            ...existing,
+            ...(normalizedConfig || {}),
+            customWebhookSecret: undefined
+          } as InboundWebhookActionConfig;
+        } else if (normalizedConfig) {
+          // Preserve existing secret when not provided in update
+          const existing =
+            action.config && typeof action.config === 'object' && !Array.isArray(action.config)
+              ? (action.config as Record<string, unknown>)
+              : {};
+          
+          const secretForUpdate =
+            normalizedConfig.customWebhookSecret ||
+            (typeof existing.customWebhookSecret === 'string' ? existing.customWebhookSecret : undefined);
+          
+          configForUpdate = {
+            ...normalizedConfig,
+            customWebhookSecret: secretForUpdate
+          } as InboundWebhookActionConfig;
         }
-        
-        configForUpdate = {
-          ...normalizedConfig,
-          customWebhookSecret: secretForUpdate
-        } as InboundWebhookActionConfig;
       }
 
       if (
