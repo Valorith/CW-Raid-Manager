@@ -1618,6 +1618,8 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
     slackCodexBaseBranch: z.string().max(120).optional().nullable(),
     slackCodexInstructions: z.string().max(8000).optional().nullable(),
     customWebhookUrl: z.string().url().max(512).optional().nullable(),
+    customWebhookSecret: z.string().max(512).optional().nullable(),
+    customWebhookSecretHeaderName: z.string().max(120).optional().nullable(),
     crashModel: z.string().max(120).optional().nullable(),
     crashMaxInputChars: z.coerce.number().int().positive().optional().nullable(),
     crashMaxOutputTokens: z.coerce.number().int().positive().optional().nullable(),
@@ -1947,6 +1949,14 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
           typeof config.customWebhookUrl === 'string'
             ? config.customWebhookUrl.trim() || undefined
             : undefined,
+        customWebhookSecret:
+          typeof config.customWebhookSecret === 'string'
+            ? config.customWebhookSecret.trim() || undefined
+            : undefined,
+        customWebhookSecretHeaderName:
+          typeof config.customWebhookSecretHeaderName === 'string'
+            ? config.customWebhookSecretHeaderName.trim() || undefined
+            : undefined,
         crashModel:
           typeof config.crashModel === 'string' ? config.crashModel.trim() || undefined : undefined,
         crashMaxInputChars:
@@ -2072,6 +2082,14 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
             customWebhookUrl:
               typeof config.customWebhookUrl === 'string'
                 ? config.customWebhookUrl.trim() || undefined
+                : undefined,
+            customWebhookSecret:
+              typeof config.customWebhookSecret === 'string'
+                ? config.customWebhookSecret.trim() || undefined
+                : undefined,
+            customWebhookSecretHeaderName:
+              typeof config.customWebhookSecretHeaderName === 'string'
+                ? config.customWebhookSecretHeaderName.trim() || undefined
                 : undefined,
             crashModel:
               typeof config.crashModel === 'string'
