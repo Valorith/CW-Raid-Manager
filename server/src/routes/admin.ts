@@ -2114,10 +2114,23 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
           } satisfies InboundWebhookActionConfig)
         : undefined;
 
-      const configForUpdate =
-        action.type === InboundWebhookActionType.SLACK_RELAY && normalizedConfig
-          ? preserveSlackConnectionConfig(action.config, normalizedConfig)
-          : normalizedConfig;
+      let configForUpdate: InboundWebhookActionConfig | undefined = normalizedConfig;
+      
+      if (action.type === InboundWebhookActionType.SLACK_RELAY && normalizedConfig) {
+        configForUpdate = preserveSlackConnectionConfig(action.config, normalizedConfig);
+      } else if (action.type === InboundWebhookActionType.CUSTOM_WEBHOOK && normalizedConfig) {
+        // Preserve existing secret when not provided in update (password field is empty when redacted)
+        const existing =
+          action.config && typeof action.config === 'object' && !Array.isArray(action.config)
+            ? (action.config as Record<string, unknown>)
+            : {};
+        configForUpdate = {
+          ...normalizedConfig,
+          customWebhookSecret:
+            normalizedConfig.customWebhookSecret ||
+            (typeof existing.customWebhookSecret === 'string' ? existing.customWebhookSecret : undefined)
+        } as InboundWebhookActionConfig;
+      }
 
       if (
         action.type === InboundWebhookActionType.CUSTOM_WEBHOOK &&
