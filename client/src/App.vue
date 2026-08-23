@@ -9,7 +9,13 @@
       </div>
       <nav class="nav">
         <!-- Dashboard -->
-        <RouterLink v-if="authStore.isAuthenticated" to="/dashboard" class="nav__tab">
+        <RouterLink
+          v-if="authStore.isAuthenticated"
+          to="/dashboard"
+          class="nav__tab nav__tab--priority"
+          aria-label="Dashboard"
+          title="Dashboard"
+        >
           <svg
             class="nav__tab-ico"
             viewBox="0 0 24 24"
@@ -23,14 +29,14 @@
             <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
             <polyline points="9 22 9 12 15 12 15 22" />
           </svg>
-          Dashboard
+          <span class="nav__label">Dashboard</span>
         </RouterLink>
 
         <!-- Favorites -->
         <div
           v-if="authStore.isAuthenticated"
           ref="favoritesDropdownNavRef"
-          class="nav__item nav__item--has-dropdown nav__item--favorites"
+          class="nav__item nav__item--has-dropdown nav__item--favorites nav__item--priority"
           @mouseenter="onNavDropdownMouseEnter('favorites')"
           @mouseleave="onNavDropdownMouseLeave('favorites')"
         >
@@ -41,6 +47,7 @@
             :aria-expanded="activeDropdown === 'favorites'"
             aria-haspopup="true"
             aria-label="Open favorites menu"
+            title="Favorites"
             @click.stop="toggleDropdownFromTrigger('favorites')"
             @keydown.down.prevent="openDropdown('favorites')"
           >
@@ -58,7 +65,7 @@
                 d="m12 3.5 2.7 5.47 6.04.88-4.37 4.26 1.03 6.01L12 17.28l-5.4 2.84 1.03-6.01-4.37-4.26 6.04-.88L12 3.5Z"
               />
             </svg>
-            Favorites
+            <span class="nav__label">Favorites</span>
             <svg class="nav__chevron" viewBox="0 0 20 20" aria-hidden="true">
               <path
                 d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
@@ -71,7 +78,7 @@
         <div
           v-if="authStore.isAuthenticated"
           ref="guildDropdownNavRef"
-          class="nav__item"
+          class="nav__item nav__item--priority"
           :class="{ 'nav__item--has-dropdown': primaryGuild }"
           @mouseenter="onNavDropdownMouseEnter('guild')"
           @mouseleave="onNavDropdownMouseLeave('guild')"
@@ -81,6 +88,8 @@
             class="nav__tab"
             :aria-expanded="primaryGuild ? activeDropdown === 'guild' : undefined"
             :aria-haspopup="primaryGuild ? 'true' : undefined"
+            :aria-label="guildNavLabel"
+            :title="guildNavLabel"
             @focus="primaryGuild && openDropdown('guild')"
           >
             <svg
@@ -95,7 +104,7 @@
             >
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
             </svg>
-            {{ guildNavLabel }}
+            <span class="nav__label">{{ guildNavLabel }}</span>
             <svg
               v-if="primaryGuild && prefersHoverDropdowns"
               class="nav__chevron"
@@ -125,7 +134,13 @@
         </div>
 
         <!-- Raids -->
-        <RouterLink v-if="authStore.isAuthenticated" to="/raids" class="nav__tab">
+        <RouterLink
+          v-if="authStore.isAuthenticated"
+          to="/raids"
+          class="nav__tab nav__tab--priority"
+          aria-label="Raids"
+          title="Raids"
+        >
           <svg
             class="nav__tab-ico"
             viewBox="0 0 24 24"
@@ -140,9 +155,15 @@
             <path d="m3 21 2.5-2.5M13 6l1.5-1.5" />
             <path d="M9 3H3v6l9 9 6-6-9-9Z" />
           </svg>
-          Raids
+          <span class="nav__label">Raids</span>
         </RouterLink>
-        <RouterLink v-if="authStore.canViewTestManager" to="/test-manager" class="nav__tab">
+        <RouterLink
+          v-if="authStore.canViewTestManager"
+          to="/test-manager"
+          class="nav__tab nav__tab--secondary"
+          aria-label="Test Manager"
+          title="Test Manager"
+        >
           <svg
             class="nav__tab-ico"
             viewBox="0 0 24 24"
@@ -157,12 +178,14 @@
             <path d="m5 19 2-6 10-10 4 4-10 10-6 2Z" />
             <path d="M15 5 19 9" />
           </svg>
-          Test Manager
+          <span class="nav__label">Test Manager</span>
         </RouterLink>
         <RouterLink
           v-if="authStore.isAuthenticated"
           :to="{ name: 'BisPlanner', params: { characterClass: 'WARRIOR' } }"
-          class="nav__tab"
+          class="nav__tab nav__tab--secondary"
+          aria-label="BiS"
+          title="BiS"
         >
           <svg
             class="nav__tab-ico"
@@ -178,9 +201,15 @@
             <circle cx="12" cy="12" r="6" />
             <circle cx="12" cy="12" r="2" />
           </svg>
-          BiS
+          <span class="nav__label">BiS</span>
         </RouterLink>
-        <RouterLink v-if="authStore.isAuthenticated" to="/market" class="nav__tab">
+        <RouterLink
+          v-if="authStore.isAuthenticated"
+          to="/market"
+          class="nav__tab nav__tab--secondary"
+          aria-label="Market"
+          title="Market"
+        >
           <svg
             class="nav__tab-ico"
             viewBox="0 0 24 24"
@@ -196,14 +225,14 @@
             />
             <line x1="7" y1="7" x2="7.01" y2="7" />
           </svg>
-          Market
+          <span class="nav__label">Market</span>
         </RouterLink>
 
         <!-- Admin - With dropdown (different items for admin vs guide) -->
         <div
           v-if="authStore.isAdminOrGuide"
           ref="adminDropdownNavRef"
-          class="nav__item nav__item--has-dropdown"
+          class="nav__item nav__item--has-dropdown nav__item--secondary"
           @mouseenter="onNavDropdownMouseEnter('admin')"
           @mouseleave="onNavDropdownMouseLeave('admin')"
         >
@@ -212,6 +241,8 @@
             :to="authStore.isAdmin ? '/admin' : undefined"
             class="nav__tab"
             :class="{ 'nav__tab--no-click': !authStore.isAdmin }"
+            aria-label="Admin"
+            title="Admin"
           >
             <svg
               class="nav__tab-ico"
@@ -228,7 +259,7 @@
                 d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
               />
             </svg>
-            Admin
+            <span class="nav__label">Admin</span>
             <span
               v-if="webhookPendingActionCount > 0"
               class="nav__pending-badge"
@@ -256,6 +287,50 @@
             aria-label="Open admin menu"
             @click.stop="toggleTouchDropdown('admin')"
           >
+            <svg class="nav__chevron" viewBox="0 0 20 20" aria-hidden="true">
+              <path
+                d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+              />
+            </svg>
+          </button>
+        </div>
+
+        <!-- Compact overflow menu for narrower header phases -->
+        <div
+          v-if="authStore.isAuthenticated"
+          ref="moreDropdownNavRef"
+          class="nav__item nav__item--has-dropdown nav__item--more"
+          @mouseenter="onNavDropdownMouseEnter('more')"
+          @mouseleave="onNavDropdownMouseLeave('more')"
+        >
+          <button
+            type="button"
+            class="nav__tab nav__tab--button"
+            :class="{
+              'nav__tab--open': activeDropdown === 'more',
+              'nav__tab--active': isMoreRouteActive
+            }"
+            :aria-expanded="activeDropdown === 'more'"
+            aria-haspopup="true"
+            aria-label="Open more navigation"
+            title="More navigation"
+            @click.stop="toggleDropdownFromTrigger('more')"
+            @keydown.down.prevent="openDropdown('more')"
+          >
+            <svg
+              class="nav__tab-ico"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              aria-hidden="true"
+            >
+              <circle cx="5" cy="12" r="1.35" fill="currentColor" stroke="none" />
+              <circle cx="12" cy="12" r="1.35" fill="currentColor" stroke="none" />
+              <circle cx="19" cy="12" r="1.35" fill="currentColor" stroke="none" />
+            </svg>
+            <span class="nav__label nav__label--more">More</span>
             <svg class="nav__chevron" viewBox="0 0 20 20" aria-hidden="true">
               <path
                 d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
@@ -380,7 +455,23 @@
             >
           </div>
 
-          <button class="nav__logout" @click="logout">Log Out</button>
+          <button class="nav__logout" aria-label="Log out" title="Log out" @click="logout">
+            <svg
+              class="nav__logout-icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M10 17l5-5-5-5" />
+              <path d="M15 12H3" />
+              <path d="M14 3h5a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-5" />
+            </svg>
+            <span class="nav__logout-label">Log Out</span>
+          </button>
         </template>
         <template v-else>
           <input
@@ -703,6 +794,114 @@
           </RouterLink>
         </div>
       </Transition>
+      <Transition name="dropdown">
+        <div
+          v-if="activeDropdown === 'more'"
+          ref="activeDropdownMenuRef"
+          class="nav__dropdown nav__dropdown--more"
+          :style="navDropdownStyle"
+          aria-label="More navigation"
+          @mouseenter="openDropdown('more')"
+          @mouseleave="closeDropdown('more')"
+        >
+          <RouterLink
+            v-if="authStore.canViewTestManager"
+            to="/test-manager"
+            class="nav__dropdown-item nav-more__item"
+            @click="activeDropdown = null"
+          >
+            Test Manager
+          </RouterLink>
+          <RouterLink
+            :to="{ name: 'BisPlanner', params: { characterClass: 'WARRIOR' } }"
+            class="nav__dropdown-item nav-more__item"
+            @click="activeDropdown = null"
+          >
+            BiS Planner
+          </RouterLink>
+          <RouterLink
+            to="/market"
+            class="nav__dropdown-item nav-more__item"
+            @click="activeDropdown = null"
+          >
+            Market
+          </RouterLink>
+
+          <template v-if="authStore.isAdminOrGuide">
+            <div class="nav-more__heading">Admin tools</div>
+            <RouterLink
+              v-if="authStore.isAdmin"
+              to="/admin"
+              class="nav__dropdown-item nav-more__item"
+              @click="activeDropdown = null"
+            >
+              Admin Home
+            </RouterLink>
+            <RouterLink
+              v-if="authStore.isAdmin"
+              to="/admin/player-event-logs"
+              class="nav__dropdown-item nav-more__item"
+              @click="activeDropdown = null"
+            >
+              Player Event Logs
+            </RouterLink>
+            <RouterLink
+              to="/admin/connections"
+              class="nav__dropdown-item nav-more__item"
+              @click="activeDropdown = null"
+            >
+              Server Connections
+            </RouterLink>
+            <RouterLink
+              v-if="authStore.isAdmin"
+              to="/admin/money-tracker"
+              class="nav__dropdown-item nav-more__item"
+              @click="activeDropdown = null"
+            >
+              Money Tracker
+            </RouterLink>
+            <RouterLink
+              v-if="authStore.isAdmin"
+              to="/admin/webhooks"
+              class="nav__dropdown-item nav-more__item"
+              @click="activeDropdown = null"
+            >
+              <span>Webhook Inbox</span>
+              <span
+                v-if="webhookPendingActionCount > 0"
+                class="nav__pending-badge nav__pending-badge--dropdown"
+                :title="webhookPendingActionLabel"
+              >
+                {{ formatCounter(webhookPendingActionCount) }}
+              </span>
+            </RouterLink>
+            <RouterLink
+              v-if="authStore.isAdmin"
+              to="/admin/bis"
+              class="nav__dropdown-item nav-more__item"
+              @click="activeDropdown = null"
+            >
+              BiS Moderation
+            </RouterLink>
+            <RouterLink
+              v-if="authStore.isAdmin"
+              to="/admin/metallurgy"
+              class="nav__dropdown-item nav-more__item"
+              @click="activeDropdown = null"
+            >
+              Metallurgy Tracker
+            </RouterLink>
+            <RouterLink
+              v-if="authStore.isAdmin"
+              to="/admin/loot-management"
+              class="nav__dropdown-item nav-more__item"
+              @click="activeDropdown = null"
+            >
+              ML Diagnostics
+            </RouterLink>
+          </template>
+        </div>
+      </Transition>
     </Teleport>
     <Teleport to="body">
       <Transition name="favorite-confirm">
@@ -942,6 +1141,7 @@ const prefersHoverDropdowns = ref(
 const guildDropdownNavRef = ref<HTMLElement | null>(null);
 const adminDropdownNavRef = ref<HTMLElement | null>(null);
 const favoritesDropdownNavRef = ref<HTMLElement | null>(null);
+const moreDropdownNavRef = ref<HTMLElement | null>(null);
 const activeDropdownMenuRef = ref<HTMLElement | null>(null);
 const navDropdownStyle = ref<CSSProperties>({});
 const passkeyAutofillInputRef = ref<HTMLInputElement | null>(null);
@@ -1016,6 +1216,11 @@ const favoritesPendingSyncKey = computed(() =>
 
 const currentFavoritePath = computed(() => route.fullPath);
 const currentFavoriteLabel = computed(() => buildFavoriteLabel(route));
+const isMoreRouteActive = computed(() =>
+  ['/test-manager', '/bis', '/market', '/admin'].some(
+    (path) => route.path === path || route.path.startsWith(`${path}/`)
+  )
+);
 const isCurrentPageFavorite = computed(() =>
   pageFavorites.value.some((favorite) => favorite.path === currentFavoritePath.value)
 );
@@ -1086,6 +1291,9 @@ function getDropdownAnchor(name: string) {
   }
   if (name === 'admin') {
     return adminDropdownNavRef.value;
+  }
+  if (name === 'more') {
+    return moreDropdownNavRef.value;
   }
   return null;
 }
@@ -1223,6 +1431,10 @@ async function toggleDropdownFromTrigger(name: string) {
 }
 
 function handleDropdownViewportChange() {
+  if (activeDropdown.value === 'more' && window.innerWidth > 1120) {
+    activeDropdown.value = null;
+    return;
+  }
   updateDropdownPosition();
 }
 
@@ -1237,6 +1449,9 @@ function closeDropdownsFromOutside(target: Node) {
     return;
   }
   if (favoritesDropdownNavRef.value?.contains(target)) {
+    return;
+  }
+  if (moreDropdownNavRef.value?.contains(target)) {
     return;
   }
   if (activeDropdownMenuRef.value?.contains(target)) {
@@ -2430,6 +2645,9 @@ function hasRaidStarted(raid: RaidEventSummary) {
   position: sticky;
   top: 0;
   z-index: 10000;
+  transition:
+    padding 0.18s ease,
+    gap 0.18s ease;
 }
 
 .brand {
@@ -2491,6 +2709,10 @@ function hasRaidStarted(raid: RaidEventSummary) {
 
 .nav__item {
   position: relative;
+}
+
+.nav__item.nav__item--more {
+  display: none;
 }
 
 .nav__item--has-dropdown {
@@ -2631,6 +2853,19 @@ function hasRaidStarted(raid: RaidEventSummary) {
   gap: 6px;
   white-space: nowrap;
   cursor: pointer;
+  min-width: 0;
+}
+
+.nav__label {
+  display: inline-block;
+  max-width: 10rem;
+  overflow: hidden;
+  opacity: 1;
+  text-overflow: ellipsis;
+  transition:
+    max-width 0.18s ease,
+    margin 0.18s ease,
+    opacity 0.14s ease;
 }
 
 .nav__tab:hover {
@@ -2654,6 +2889,7 @@ function hasRaidStarted(raid: RaidEventSummary) {
     0 0 18px rgba(20, 184, 166, 0.12);
 }
 
+.nav__tab--active,
 .nav__tab.router-link-active,
 .nav__tab.router-link-exact-active {
   color: var(--nx-ink-0, #f1f6fb);
@@ -2850,6 +3086,30 @@ function hasRaidStarted(raid: RaidEventSummary) {
     linear-gradient(145deg, rgba(248, 250, 252, 0.16), rgba(15, 23, 42, 0.92)),
     rgba(15, 23, 42, 0.96);
   border-color: rgba(186, 230, 253, 0.22);
+}
+
+.nav__dropdown--more {
+  width: min(290px, calc(100vw - 1.5rem));
+  max-height: min(70vh, 34rem);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(125, 211, 252, 0.34) rgba(15, 23, 42, 0.2);
+}
+
+.nav-more__heading {
+  margin: 0.45rem 0.35rem 0.25rem;
+  padding: 0.55rem 0.5rem 0.25rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.14);
+  color: #7dd3fc;
+  font-family: var(--nx-font-mono, 'JetBrains Mono', monospace);
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.nav-more__item {
+  min-height: 2.35rem;
 }
 
 .nav-favorites {
@@ -3822,6 +4082,12 @@ function hasRaidStarted(raid: RaidEventSummary) {
   white-space: nowrap;
 }
 
+.nav__logout-icon {
+  display: none;
+  width: 16px;
+  height: 16px;
+}
+
 .nav__logout:hover {
   color: var(--nx-ink-0, #f1f6fb);
   border-color: var(--nx-border-2, rgba(110, 150, 210, 0.32));
@@ -4063,149 +4329,37 @@ function hasRaidStarted(raid: RaidEventSummary) {
   border-color: rgba(59, 130, 246, 0.5);
 }
 
-@media (max-width: 1360px) {
+@media (max-width: 1700px) {
   .app-header {
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas:
-      'brand auth'
-      'nav alerts';
-    align-items: center;
-    column-gap: 1rem;
-    row-gap: 0.85rem;
+    gap: 14px;
+    padding: 12px 20px;
   }
 
   .brand {
-    grid-area: brand;
     margin-right: 0;
+    padding-right: 10px;
   }
 
   .nav {
-    grid-area: nav;
-    justify-content: flex-start;
-    gap: 0.5rem;
-  }
-
-  .nav-alerts {
-    grid-area: alerts;
-    margin-left: 0;
-    width: 100%;
-  }
-
-  .auth {
-    grid-area: auth;
-  }
-
-  .nav-monitor {
-    flex: 1 1 16rem;
-    margin-left: 0;
-  }
-
-  .nav-monitor__button {
-    width: 100%;
-    justify-content: center;
-  }
-
-  .nav-zone-pill {
-    flex: 1 1 12rem;
-    justify-content: center;
-    margin-left: 0;
-  }
-}
-
-@media (max-width: 1180px) {
-  .app-header {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    grid-template-areas:
-      'brand . auth'
-      'nav nav nav'
-      'alerts alerts alerts';
-    align-items: center;
-    column-gap: 0.9rem;
-    row-gap: 0.75rem;
-  }
-
-  .brand {
-    grid-area: brand;
-    flex: initial;
-    margin-right: 0;
-    padding-right: 0.75rem;
-  }
-
-  .nav {
-    grid-area: nav;
-    order: initial;
-    flex-wrap: nowrap;
-    justify-content: flex-start;
-    gap: 0.35rem;
-    width: 100%;
-    min-width: 0;
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: none;
-    padding-right: 0.35rem;
-  }
-
-  .nav::-webkit-scrollbar {
-    display: none;
-  }
-
-  .dropdown-enter-from,
-  .dropdown-leave-to {
-    transform: translateY(-8px) scale(0.96);
-  }
-
-  .nav-alerts {
-    grid-area: alerts;
-    order: initial;
-    width: 100%;
-    justify-content: flex-end;
-    align-self: center;
-    margin-left: 0;
-    gap: 0.65rem;
-  }
-
-  .nav-monitor {
-    flex: 1 1 18rem;
-    margin-left: 0;
-  }
-
-  .nav-monitor__button {
-    width: 100%;
-    justify-content: center;
-  }
-
-  .nav-zone-pill {
-    flex: 0 1 18rem;
-    justify-content: center;
-    margin-left: 0;
-  }
-
-  .auth {
-    grid-area: auth;
-    order: initial;
-    width: auto;
-    justify-content: flex-end;
-    flex-wrap: nowrap;
-    gap: 0.5rem;
+    gap: 0;
   }
 
   .nav__tab,
   .nav__link {
-    flex: 0 0 auto;
     padding: 7px 10px;
     font-size: 12.5px;
     gap: 5px;
   }
 
-  .nav__tab-ico,
-  .nav__chevron {
-    width: 13px;
-    height: 13px;
+  .nav-alerts,
+  .auth {
+    gap: 8px;
+    flex-wrap: nowrap;
   }
 
-  .nav__chevron-btn {
-    padding: 0.35rem 0.4rem;
+  .nav__user {
+    gap: 8px;
+    padding-right: 9px;
   }
 
   .nav__user-name {
@@ -4213,111 +4367,215 @@ function hasRaidStarted(raid: RaidEventSummary) {
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 1420px) {
   .app-header {
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    grid-template-areas:
-      'brand . auth'
-      'nav nav nav'
-      'alerts alerts alerts';
-    column-gap: 0.75rem;
-    row-gap: 0.7rem;
+    gap: 10px;
+    padding: 10px 16px;
   }
 
   .brand {
-    padding-right: 0.65rem;
+    min-height: 36px;
+  }
+
+  .brand__logo {
+    height: 36px;
+  }
+
+  .brand__tagline {
+    display: none;
+  }
+
+  .nav__tab,
+  .nav__link {
+    min-width: 34px;
+    justify-content: center;
+    gap: 0;
+    padding: 8px 9px;
+  }
+
+  .nav__label {
+    max-width: 0;
+    margin-left: 0;
+    opacity: 0;
+  }
+
+  .nav__tab--open .nav__label,
+  .nav__tab--active .nav__label,
+  .nav__tab.router-link-active .nav__label,
+  .nav__tab.router-link-exact-active .nav__label {
+    max-width: 9rem;
+    margin-left: 6px;
+    opacity: 1;
+  }
+
+  .nav__chevron {
+    margin-left: 4px;
+  }
+
+  .nav__user-name {
+    display: none;
+  }
+
+  .nav__logout {
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+  }
+
+  .nav__logout-icon {
+    display: block;
+  }
+
+  .nav__logout-label {
+    display: none;
+  }
+}
+
+@media (max-width: 1120px) {
+  .app-header {
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    gap: 8px;
+    padding-inline: 12px;
+  }
+
+  .nav__tab--secondary,
+  .nav__item--secondary {
+    display: none;
+  }
+
+  .nav__item.nav__item--more {
+    display: inline-flex;
+  }
+
+  .nav__label--more {
+    max-width: 4rem;
+    margin-left: 6px;
+    opacity: 1;
+  }
+
+  .nav__user {
+    padding-right: 4px;
+  }
+
+  .nav__user-role {
+    display: none;
+  }
+}
+
+@media (max-width: 860px) {
+  .app-header {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      'brand alerts auth'
+      'nav nav nav';
+    column-gap: 10px;
+    row-gap: 8px;
+    padding: 9px 12px;
+  }
+
+  .brand {
+    grid-area: brand;
+  }
+
+  .nav {
+    grid-area: nav;
+    justify-content: flex-start;
+    overflow-x: visible;
   }
 
   .nav-alerts {
-    justify-content: flex-start;
+    grid-area: alerts;
+    justify-content: flex-end;
+    min-width: 0;
+  }
+
+  .auth {
+    grid-area: auth;
+  }
+
+  .nav-monitor__content,
+  .nav-zone-pill__label {
+    display: none;
   }
 
   .nav-monitor,
   .nav-zone-pill {
-    flex: 1 1 100%;
+    margin-left: 0;
   }
 
-  .nav__user-name {
-    max-width: 6.5rem;
+  .nav-monitor__button,
+  .nav-zone-pill {
+    width: 36px;
+    height: 36px;
+    justify-content: center;
+    padding: 0;
   }
 }
 
-@media (max-width: 768px) {
+@media (max-width: 640px) {
   .app-shell {
     min-height: 100vh;
     min-height: 100dvh;
   }
 
   .app-header {
-    display: flex;
-    grid-template-columns: none;
-    grid-template-areas: none;
-    flex-wrap: wrap;
-    align-items: flex-start;
-    gap: 1rem;
-    padding: 0.75rem 1.25rem;
-    padding-top: max(0.75rem, env(safe-area-inset-top, 0px));
-    padding-left: max(1.25rem, env(safe-area-inset-left, 0px));
-    padding-right: max(1.25rem, env(safe-area-inset-right, 0px));
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      'brand alerts auth'
+      'nav nav nav';
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    padding-top: max(8px, env(safe-area-inset-top, 0px));
+    padding-left: max(10px, env(safe-area-inset-left, 0px));
+    padding-right: max(10px, env(safe-area-inset-right, 0px));
   }
 
   .brand {
-    flex: 1 1 100%;
+    grid-area: brand;
     padding-right: 0;
+    border-right: 0;
   }
 
   .brand__home {
-    gap: 0.35rem;
+    gap: 0;
   }
 
   .brand__logo {
-    width: min(8rem, 42vw);
-  }
-
-  .brand__tagline {
-    font-size: 0.58rem;
-    letter-spacing: 0.16em;
-    text-align: center;
+    width: auto;
+    height: 34px;
   }
 
   .nav {
-    order: 3;
-    justify-content: flex-start;
+    grid-area: nav;
+    width: 100%;
+    justify-content: space-between;
   }
 
   .nav-alerts {
-    order: 4;
+    grid-area: alerts;
     width: 100%;
-    justify-content: flex-start;
+    justify-content: flex-end;
+    overflow-x: auto;
+    scrollbar-width: none;
   }
 
-  .nav-monitor {
-    width: 100%;
+  .nav-alerts::-webkit-scrollbar {
+    display: none;
   }
 
-  .nav-monitor__button {
-    width: 100%;
-  }
-
-  .nav-zone-pill {
-    width: 100%;
+  .nav-alerts:empty {
+    display: none;
   }
 
   .auth {
-    order: 2;
-    width: 100%;
-    justify-content: space-between;
+    grid-area: auth;
+    width: auto;
+    justify-content: flex-end;
     align-items: center;
-    flex-wrap: wrap;
-  }
-
-  .nav__user-name {
-    max-width: 8rem;
-  }
-
-  .auth__user {
-    flex: 1 1 auto;
-    text-align: left;
+    flex-wrap: nowrap;
   }
 
   .auth .btn {
@@ -4358,30 +4616,47 @@ function hasRaidStarted(raid: RaidEventSummary) {
 
 @media (max-width: 480px) {
   .nav {
-    overflow-x: auto;
-    gap: 0.5rem;
-    padding-bottom: 0.25rem;
-    flex-wrap: nowrap;
+    gap: 2px;
+  }
+
+  .nav__tab.router-link-active .nav__label,
+  .nav__tab.router-link-exact-active .nav__label {
+    max-width: 0;
+    margin-left: 0;
+    opacity: 0;
+  }
+
+  .nav__label--more,
+  .nav__tab--open .nav__label--more,
+  .nav__tab--active .nav__label--more {
+    max-width: 4rem;
+    margin-left: 6px;
+    opacity: 1;
   }
 
   .nav__tab,
   .nav__link {
-    flex: 0 0 auto;
+    min-width: 32px;
+    padding-inline: 8px;
   }
 
-  .auth {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0.5rem;
+  .nav__chevron {
+    margin-left: 2px;
   }
 
-  .auth__user {
-    width: 100%;
-    text-align: center;
+  .nav__icon-btn,
+  .nav__logout {
+    width: 34px;
+    height: 34px;
   }
 
-  .auth .btn {
-    width: 100%;
+  .nav__user {
+    padding: 3px;
+  }
+
+  .nav__avatar {
+    width: 28px;
+    height: 28px;
   }
 }
 
