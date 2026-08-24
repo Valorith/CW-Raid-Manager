@@ -6923,6 +6923,11 @@ async function copyRaidLink() {
   gap: 1rem;
 }
 
+.raid-recurrence-card {
+  min-width: 0;
+  container-type: inline-size;
+}
+
 .raid-recurrence-card--collapsed {
   padding-top: 0.9rem;
   padding-bottom: 0.75rem;
@@ -6961,6 +6966,29 @@ async function copyRaidLink() {
 
 .raid-recurrence-card--collapsed .raid-recurrence-card__actions {
   gap: 0.5rem;
+}
+
+@container (max-width: 680px) {
+  .raid-recurrence-card__header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .raid-recurrence-card__title,
+  .raid-recurrence-card__title > div {
+    min-width: 0;
+  }
+
+  .raid-recurrence-card__actions {
+    flex-wrap: wrap;
+    width: 100%;
+    margin-left: 0;
+    gap: 0.5rem;
+  }
+
+  .raid-recurrence-card__actions .recurrence-toggle {
+    flex: 1 1 100%;
+  }
 }
 
 @media (max-width: 640px) {
@@ -7050,6 +7078,7 @@ async function copyRaidLink() {
 
 .recurrence-toggle__track {
   position: relative;
+  flex: 0 0 3.25rem;
   width: 3.25rem;
   height: 1.6rem;
   border-radius: 999px;
