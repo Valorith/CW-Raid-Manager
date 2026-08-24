@@ -447,8 +447,6 @@
 
           <Transition name="notes-mode" mode="out-in">
             <article v-if="mode === 'view'" key="view" class="boss-notes-document">
-              <BossCuresCard :cures="currentBossCures" />
-
               <div class="boss-notes-document__content">
                 <MediaWikiContent :source="boss.notes ?? ''" :links="wikiLinks">
                   <template #empty>
@@ -482,6 +480,8 @@
                   </template>
                 </MediaWikiContent>
               </div>
+
+              <BossCuresCard :cures="currentBossCures" />
             </article>
 
             <div v-else-if="mode === 'edit'" key="edit" class="boss-notes-edit-layout">
@@ -4335,9 +4335,14 @@ onBeforeUnmount(() => {
 .boss-notes-document__content :deep(.wiki-content)::before {
   content: '';
   float: right;
-  height: 14.75rem;
+  height: 16rem;
   margin: 0 0 1.25rem 2rem;
   width: 17.5rem;
+}
+
+.boss-notes-document__content
+  :deep(.wiki-content:has(> .wiki-file--right:first-of-type))::before {
+  content: none;
 }
 
 .boss-notes-document__content :deep(.wiki-content--empty) {
@@ -4349,14 +4354,19 @@ onBeforeUnmount(() => {
   content: none;
 }
 
-.boss-notes-document__content :deep(.wiki-file--right) {
-  clear: right;
+.boss-notes-document__content :deep(.wiki-content > .wiki-file--right:first-of-type) {
+  anchor-name: --boss-primary-media;
+  margin-bottom: calc(14.75rem + 2.5rem);
 }
 
 .boss-notes-document > .boss-cures-card {
   position: absolute;
   right: var(--boss-notes-document-padding);
   top: var(--boss-notes-document-padding);
+  position-anchor: --boss-primary-media;
+  right: anchor(right, var(--boss-notes-document-padding));
+  top: anchor(bottom, var(--boss-notes-document-padding));
+  margin-top: 1.25rem;
   z-index: 1;
 }
 
@@ -6006,22 +6016,21 @@ onBeforeUnmount(() => {
   }
 
   .boss-notes-document__content :deep(.wiki-content)::before {
+    display: block;
+    float: none;
+    height: 16rem;
+    margin: 0 0 1.25rem;
+    width: 100%;
+  }
+
+  .boss-notes-document__content
+    :deep(.wiki-content:has(> .wiki-file--right:first-of-type))::before {
     content: none;
   }
 
   .boss-notes-document__content :deep(.wiki-content--empty) {
+    padding-top: 16rem;
     padding-right: 0;
-  }
-
-  .boss-notes-document__content :deep(.wiki-file--right) {
-    clear: none;
-  }
-
-  .boss-notes-document > .boss-cures-card {
-    margin: 0 0 1.25rem auto;
-    position: relative;
-    right: auto;
-    top: auto;
   }
 
   .boss-cures-card {
