@@ -9,8 +9,9 @@ test('parses the recent outlier boss names without confusing the boss pet', () =
   const content = [
     '[Sun Aug 23 20:50:00 2026] You have entered The Field of Bone.',
     '[Sun Aug 23 20:56:54 2026] Vynoissu the Undying has been slain by Valgor!',
-    '[Sun Aug 23 22:54:26 2026] Grand Magus D`Nor`s pet has been slain by Valgor!',
-    '[Sun Aug 23 23:02:02 2026] You have slain Grand Magus D`Nor!'
+    '[Sun Aug 23 22:46:11 2026] You have entered Lake of Ill Omen.',
+    '[Sun Aug 23 22:54:26 2026] Grand Magus D`Nor`s pet has been slain by Dagara!',
+    '[Sun Aug 23 23:02:02 2026] Grand Magus D`Nor has been slain by Dirt!'
   ].join('\n');
 
   const kills = parseNpcKillEvents(content);
@@ -29,13 +30,13 @@ test('parses the recent outlier boss names without confusing the boss pet', () =
       },
       {
         npcName: 'Grand Magus D`Nor`s pet',
-        killerName: 'Valgor',
-        zoneName: 'The Field of Bone'
+        killerName: 'Dagara',
+        zoneName: 'Lake of Ill Omen'
       },
       {
         npcName: 'Grand Magus D`Nor',
-        killerName: 'You',
-        zoneName: 'The Field of Bone'
+        killerName: 'Dirt',
+        zoneName: 'Lake of Ill Omen'
       }
     ]
   );
