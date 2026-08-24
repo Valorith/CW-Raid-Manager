@@ -194,10 +194,12 @@ model GuildBoss {
   sortOrder        Int            @default(0)
   lastEditedById   String?
   lastEditedByName String?        @db.VarChar(191)
+  npcDefinitionId  String?
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
   guild            Guild          @relation(fields: [guildId], references: [id], onDelete: Cascade)
   group            GuildBossGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  npcDefinition    NpcDefinition? @relation("GuildBossTrackerDefinition", fields: [npcDefinitionId], references: [id], onDelete: SetNull)
   image            GuildBossImage?
   editLease        GuildBossEditLease?
   editHistory      GuildBossEditHistory[]
@@ -207,6 +209,7 @@ model GuildBoss {
   @@unique([guildId, slug], map: "GuildBoss_guild_slug_key")
   @@index([guildId, groupId, sortOrder], map: "GuildBoss_guild_group_sort_idx")
   @@index([groupId], map: "GuildBoss_group_idx")
+  @@index([npcDefinitionId], map: "GuildBoss_npcDefinition_idx")
 }
 
 model GuildBossEditHistory {
@@ -1249,6 +1252,7 @@ model NpcDefinition {
   subscriptions       NpcRespawnSubscription[]
   pendingClarifications PendingNpcKillClarification[]
   respawnNotifications NpcRespawnNotification[]
+  bossCards            GuildBoss[]            @relation("GuildBossTrackerDefinition")
 
   @@unique([guildId, npcNameNormalized, zoneName], map: "NpcDefinition_guild_npc_zone_unique")
   @@index([guildId])

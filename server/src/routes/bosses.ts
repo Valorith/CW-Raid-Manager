@@ -77,9 +77,14 @@ const bossCuresSchema = z.object({
   disease: z.boolean()
 });
 
+const bossTrackerDefinitionSchema = z
+  .union([z.string().trim().min(1), z.literal('').transform(() => null)])
+  .nullable();
+
 const bossBodySchema = z.object({
   groupId: z.string().min(1),
   name: z.string().trim().min(1).max(191),
+  npcDefinitionId: bossTrackerDefinitionSchema.optional(),
   imageUrl: imageUrlSchema.optional(),
   notes: z.string().max(200000).nullable().optional(),
   cures: bossCuresSchema.optional(),
@@ -90,6 +95,7 @@ const bossUpdateSchema = z
   .object({
     groupId: z.string().min(1).optional(),
     name: z.string().trim().min(1).max(191).optional(),
+    npcDefinitionId: bossTrackerDefinitionSchema.optional(),
     imageUrl: imageUrlSchema.optional(),
     notes: z.string().max(200000).nullable().optional(),
     cures: bossCuresSchema.optional(),
@@ -101,7 +107,7 @@ const bossUpdateSchema = z
       .optional()
   })
   .refine((value) =>
-    ['groupId', 'name', 'imageUrl', 'notes', 'cures', 'sortOrder'].some(
+    ['groupId', 'name', 'npcDefinitionId', 'imageUrl', 'notes', 'cures', 'sortOrder'].some(
       (field) => value[field as keyof typeof value] !== undefined
     )
   );
@@ -109,6 +115,7 @@ const bossUpdateSchema = z
 const bossImageCreateSchema = z.object({
   groupId: z.string().min(1),
   name: z.string().trim().min(1).max(191),
+  npcDefinitionId: bossTrackerDefinitionSchema.optional(),
   notes: z.string().max(200000).optional(),
   sortOrder: z.coerce.number().int().min(0).max(10000).optional()
 });
@@ -116,6 +123,7 @@ const bossImageCreateSchema = z.object({
 const bossImageUpdateSchema = z.object({
   groupId: z.string().min(1).optional(),
   name: z.string().trim().min(1).max(191).optional(),
+  npcDefinitionId: bossTrackerDefinitionSchema.optional(),
   notes: z.string().max(200000).optional(),
   sortOrder: z.coerce.number().int().min(0).max(10000).optional(),
   editLeaseToken: z.string().uuid().optional(),

@@ -19,6 +19,30 @@ import {
   serializeBossLibraryGuild
 } from './bossLibraryService.js';
 
+test('boss tracker backfill only selects canonicalized exact names with one definition', async () => {
+  // @ts-expect-error Knex migrations are JavaScript modules outside the server TypeScript project.
+  const migration = await import('../../knex/migrations/20260824120000_add_boss_respawn_tracker_links.js');
+  const { buildObviousBossTrackerLinks, canonicalizeTrackerLinkName } = migration;
+  assert.equal(canonicalizeTrackerLinkName(' Grand Magus D`Nor '), "grand magus d'nor");
+  assert.equal(canonicalizeTrackerLinkName('Grand Magus D’Nor'), "grand magus d'nor");
+
+  assert.deepEqual(
+    buildObviousBossTrackerLinks(
+      [
+        { id: 'boss-unique', guildId: 'guild-1', name: 'Grand Magus D’Nor' },
+        { id: 'boss-ambiguous', guildId: 'guild-1', name: 'Grand Arcanist Zhevan' },
+        { id: 'boss-foreign', guildId: 'guild-2', name: 'Grand Magus D’Nor' }
+      ],
+      [
+        { id: 'npc-unique', guildId: 'guild-1', npcName: 'Grand Magus D`Nor' },
+        { id: 'npc-zhevan-a', guildId: 'guild-1', npcName: 'Grand Arcanist Zhevan' },
+        { id: 'npc-zhevan-b', guildId: 'guild-1', npcName: 'Grand Arcanist Zhevan' }
+      ]
+    ),
+    [{ bossId: 'boss-unique', npcDefinitionId: 'npc-unique' }]
+  );
+});
+
 test('boss edit leases expire on a fixed two-minute window', () => {
   const now = new Date('2026-08-24T04:00:00.000Z');
   assert.equal(BOSS_EDIT_LEASE_TTL_MS, 120_000);
@@ -61,7 +85,8 @@ test('guild leaders and officers have full boss library access without a contrib
       canEdit: true,
       canSuggest: true,
       canDelete: true,
-      canManageContributors: true
+      canManageContributors: true,
+      canManageTrackerLink: true
     });
   }
 });
@@ -79,7 +104,8 @@ test('a contributor can edit without receiving officer-only destructive access',
       canEdit: true,
       canSuggest: true,
       canDelete: false,
-      canManageContributors: false
+      canManageContributors: false,
+      canManageTrackerLink: false
     });
   }
 });
@@ -91,7 +117,8 @@ test('an ordinary guild member receives read-only boss library access', () => {
     canEdit: false,
     canSuggest: true,
     canDelete: false,
-    canManageContributors: false
+    canManageContributors: false,
+    canManageTrackerLink: false
   });
 });
 
@@ -103,6 +130,10 @@ test('boss cure summaries are concise and stable for audit history', () => {
     'Updated cures (Poison)'
   );
   assert.equal(describeBossUpdate({ notes: 'new notes' }), 'Updated source notes');
+  assert.equal(
+    describeBossUpdate({ npcDefinitionId: 'npc-1' }),
+    'Updated respawn signal link'
+  );
 });
 
 test('boss library guild data includes the canonical guild slug', () => {

@@ -72,12 +72,14 @@ export interface BossLibraryPermissions {
   canSuggest: boolean;
   canDelete: boolean;
   canManageContributors: boolean;
+  canManageTrackerLink: boolean;
 }
 
 export interface GuildBossSummary {
   id: string;
   name: string;
   slug: string;
+  npcDefinitionId: string | null;
   imageUrl: string | null;
   imageSource: 'upload' | 'url' | null;
   sortOrder: number;
@@ -148,6 +150,7 @@ export interface GuildBossLibrary {
 export interface GuildBossInput {
   groupId: string;
   name: string;
+  npcDefinitionId?: string | null;
   imageUrl?: string | null;
   notes?: string | null;
   cures?: BossCures;
@@ -5477,6 +5480,9 @@ export const api = {
       const formData = new FormData();
       formData.append('name', payload.name);
       formData.append('groupId', payload.groupId);
+      if (payload.npcDefinitionId !== undefined) {
+        formData.append('npcDefinitionId', payload.npcDefinitionId ?? '');
+      }
       if (payload.notes !== undefined && payload.notes !== null) {
         formData.append('notes', payload.notes);
       }
@@ -5597,6 +5603,9 @@ export const api = {
       const formData = new FormData();
       if (payload.name !== undefined) formData.append('name', payload.name);
       if (payload.groupId !== undefined) formData.append('groupId', payload.groupId);
+      if (payload.npcDefinitionId !== undefined) {
+        formData.append('npcDefinitionId', payload.npcDefinitionId ?? '');
+      }
       if (payload.notes !== undefined && payload.notes !== null) {
         formData.append('notes', payload.notes);
       }

@@ -29,6 +29,7 @@ interface BossEditor {
 interface BossInput {
   groupId: string;
   name: string;
+  npcDefinitionId?: string | null;
   imageUrl?: string | null;
   imageUpload?: BossImageUpload;
   notes?: string | null;
@@ -39,6 +40,7 @@ interface BossInput {
 export interface BossUpdateInput {
   groupId?: string;
   name?: string;
+  npcDefinitionId?: string | null;
   imageUrl?: string | null;
   imageUpload?: BossImageUpload;
   notes?: string | null;
@@ -125,7 +127,8 @@ export function getBossLibraryPermissions(role: GuildRole, isContributor: boolea
     canEdit: isOfficer || isContributor,
     canSuggest: true,
     canDelete: isOfficer,
-    canManageContributors: isOfficer
+    canManageContributors: isOfficer,
+    canManageTrackerLink: isOfficer
   };
 }
 
@@ -148,6 +151,7 @@ export function describeBossUpdate(input: BossUpdateInput) {
   const changes: string[] = [];
   if (input.notes !== undefined) changes.push('source notes');
   if (input.cures !== undefined) changes.push(`cures (${formatBossCures(input.cures)})`);
+  if (input.npcDefinitionId !== undefined) changes.push('respawn signal link');
   if (
     input.groupId !== undefined ||
     input.name !== undefined ||
@@ -547,6 +551,7 @@ export async function listGuildBossLibrary(guildId: string, userId: string) {
               id: true,
               name: true,
               slug: true,
+              npcDefinitionId: true,
               imageUrl: true,
               image: {
                 select: { updatedAt: true }
@@ -1034,6 +1039,20 @@ async function ensureGroupBelongsToGuild(guildId: string, groupId: string) {
   return group;
 }
 
+async function ensureNpcDefinitionBelongsToGuild(
+  guildId: string,
+  npcDefinitionId: string | null | undefined
+) {
+  if (!npcDefinitionId) return;
+  const definition = await prisma.npcDefinition.findFirst({
+    where: { id: npcDefinitionId, guildId },
+    select: { id: true }
+  });
+  if (!definition) {
+    throw new BossLibraryError('Choose a respawn tracker entry from this guild.', 400);
+  }
+}
+
 export async function createGuildBossGroup(guildId: string, userId: string, name: string) {
   await ensureBossEditor(userId, guildId);
   const trimmedName = name.trim();
@@ -1129,6 +1148,10 @@ export async function deleteGuildBossGroup(guildId: string, groupId: string, use
 export async function createGuildBoss(guildId: string, userId: string, input: BossInput) {
   await ensureBossEditor(userId, guildId);
   await ensureGroupBelongsToGuild(guildId, input.groupId);
+  if (input.npcDefinitionId !== undefined) {
+    await ensureBossOfficer(userId, guildId);
+    await ensureNpcDefinitionBelongsToGuild(guildId, input.npcDefinitionId);
+  }
   const name = input.name.trim();
   const duplicate = await prisma.guildBoss.findFirst({ where: { guildId, name } });
   if (duplicate) {
@@ -1149,6 +1172,7 @@ export async function createGuildBoss(guildId: string, userId: string, input: Bo
         groupId: input.groupId,
         name,
         slug,
+        npcDefinitionId: input.npcDefinitionId ?? null,
         imageUrl: input.imageUpload ? null : normalizeOptionalText(input.imageUrl),
         notes: normalizeOptionalText(input.notes),
         cureCurse: input.cures?.curse ?? false,
@@ -1220,6 +1244,10 @@ export async function updateGuildBoss(
   if (input.groupId !== undefined) {
     await ensureGroupBelongsToGuild(guildId, input.groupId);
   }
+  if (input.npcDefinitionId !== undefined) {
+    await ensureBossOfficer(userId, guildId);
+    await ensureNpcDefinitionBelongsToGuild(guildId, input.npcDefinitionId);
+  }
 
   const name = input.name?.trim();
   if (name) {
@@ -1265,6 +1293,9 @@ export async function updateGuildBoss(
       data: {
         ...(input.groupId !== undefined ? { groupId: input.groupId } : {}),
         ...(name ? { name } : {}),
+        ...(input.npcDefinitionId !== undefined
+          ? { npcDefinitionId: input.npcDefinitionId }
+          : {}),
         ...(input.imageUpload
           ? { imageUrl: null }
           : input.imageUrl !== undefined

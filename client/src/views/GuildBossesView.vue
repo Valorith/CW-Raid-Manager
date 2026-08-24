@@ -171,7 +171,11 @@
                 class="boss-card-shell"
                 :style="{ '--card-delay': `${groupIndex * 55 + bossIndex * 35}ms` }"
               >
-                <RouterLink :to="bossRoute(bossItem)" class="boss-card">
+                <RouterLink
+                  :to="bossRoute(bossItem)"
+                  class="boss-card"
+                  :class="bossRespawnCardClass(bossItem)"
+                >
                   <div class="boss-card__media">
                     <img
                       v-if="bossItem.imageUrl && !failedImages.has(bossItem.id)"
@@ -189,6 +193,11 @@
                       </svg>
                     </div>
                     <div class="boss-card__shade"></div>
+                    <BossRespawnSignal
+                      v-if="bossRespawnEntries(bossItem).length > 0"
+                      :entries="bossRespawnEntries(bossItem)"
+                      :now="respawnNow"
+                    />
                     <span class="boss-card__open" aria-hidden="true">
                       Open dossier <span>↗</span>
                     </span>
@@ -691,7 +700,12 @@
               <button type="button" aria-label="Close" @click="closeBossModal">×</button>
             </div>
             <div class="boss-modal__body">
-              <div class="boss-form-preview">
+              <div
+                class="boss-form-preview"
+                :class="{
+                  'boss-form-preview--with-respawn': selectedBossFormRespawnEntries.length > 0
+                }"
+              >
                 <img
                   v-if="bossImagePreviewUrl && !previewImageFailed"
                   :src="bossImagePreviewUrl"
@@ -712,6 +726,11 @@
                 <span class="boss-form-preview__name">
                   {{ bossForm.name.trim() || 'Boss name' }}
                 </span>
+                <BossRespawnSignal
+                  v-if="selectedBossFormRespawnEntries.length > 0"
+                  :entries="selectedBossFormRespawnEntries"
+                  :now="respawnNow"
+                />
               </div>
 
               <div class="boss-form-fields">
@@ -742,6 +761,51 @@
                     </option>
                   </select>
                 </label>
+                <div v-if="permissions?.canManageTrackerLink" class="boss-tracker-map">
+                  <div class="boss-tracker-map__heading">
+                    <span class="boss-tracker-map__mark" aria-hidden="true">
+                      <svg viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="7" />
+                        <circle cx="12" cy="12" r="2" />
+                        <path d="M12 2v3m0 14v3M2 12h3m14 0h3" />
+                      </svg>
+                    </span>
+                    <span>
+                      <strong>Respawn signal</strong>
+                      <small>Connect this card to one tracked boss.</small>
+                    </span>
+                  </div>
+                  <label>
+                    <span class="sr-only">Tracked boss</span>
+                    <select v-model="bossForm.npcDefinitionId">
+                      <option value="">Not connected to the respawn tracker</option>
+                      <option
+                        v-for="definition in trackerDefinitions"
+                        :key="definition.id"
+                        :value="definition.id"
+                      >
+                        {{ formatTrackerDefinitionOption(definition) }}
+                      </option>
+                    </select>
+                  </label>
+                  <p v-if="selectedTrackerDefinition" class="boss-tracker-map__summary">
+                    <span class="boss-tracker-map__signal" aria-hidden="true"></span>
+                    <span>
+                      <strong>{{ selectedTrackerDefinition.npcName }}</strong>
+                      <small>
+                        {{ selectedTrackerDefinition.zoneName || 'Zone not set' }} ·
+                        {{
+                          selectedTrackerDefinition.hasInstanceVersion
+                            ? 'Overworld and instance signals'
+                            : 'Overworld signal'
+                        }}
+                      </small>
+                    </span>
+                  </p>
+                  <p v-else class="boss-tracker-map__empty">
+                    This card will stay visually quiet until a tracker entry is selected.
+                  </p>
+                </div>
                 <div class="boss-image-field">
                   <div class="boss-image-field__heading">
                     <span>Cover image <small>Optional</small></span>
@@ -1499,6 +1563,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router';
 
 import BossCuresCard from '../components/BossCuresCard.vue';
+import BossRespawnSignal from '../components/BossRespawnSignal.vue';
 import ErrorModal from '../components/ErrorModal.vue';
 import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
 import MediaWikiContent from '../components/MediaWikiContent.vue';
@@ -1520,9 +1585,12 @@ import {
   type GuildBossLibrary,
   type GuildBossSummary,
   type GuildRole,
+  type NpcDefinition,
+  type NpcRespawnTrackerEntry,
   type PlainBossNotesDocument
 } from '../services/api';
 import { copyBossShareLink } from '../utils/bossLinks';
+import { getBossRespawnTone } from '../utils/bossRespawnPresentation';
 import { plainBossNotesChanged, plainBossNotesValues } from '../utils/plainBossNotes';
 
 const route = useRoute();
@@ -1543,6 +1611,31 @@ const loading = ref(true);
 const loadError = ref('');
 const searchQuery = ref('');
 const failedImages = ref(new Set<string>());
+const respawnEntries = ref<NpcRespawnTrackerEntry[]>([]);
+const trackerDefinitions = ref<NpcDefinition[]>([]);
+const respawnNow = ref(Date.now());
+let respawnRefreshTimer: number | null = null;
+
+const respawnEntriesByDefinition = computed(() => {
+  const entriesByDefinition = new Map<string, NpcRespawnTrackerEntry[]>();
+  for (const entry of respawnEntries.value) {
+    const entries = entriesByDefinition.get(entry.id) ?? [];
+    entries.push(entry);
+    entriesByDefinition.set(entry.id, entries);
+  }
+  return entriesByDefinition;
+});
+
+function bossRespawnEntries(item: Pick<GuildBossSummary, 'npcDefinitionId'>) {
+  if (!item.npcDefinitionId) return [];
+  return respawnEntriesByDefinition.value.get(item.npcDefinitionId) ?? [];
+}
+
+function bossRespawnCardClass(item: Pick<GuildBossSummary, 'npcDefinitionId'>) {
+  const entries = bossRespawnEntries(item);
+  if (entries.length === 0) return null;
+  return `boss-card--spawn-${getBossRespawnTone(entries)}`;
+}
 
 const permissions = computed(() => library.value?.permissions ?? detailPermissions.value);
 const totalBosses = computed(
@@ -1644,9 +1737,38 @@ const wikiLinks = computed(() => {
   return links;
 });
 
+async function refreshBossRespawnData() {
+  const activeGuildId = library.value?.guild.id ?? guildId.value;
+  if (!activeGuildId) return;
+  respawnNow.value = Date.now();
+
+  try {
+    const tracker = await api.fetchNpcRespawnTracker(activeGuildId);
+    respawnEntries.value = tracker.npcs;
+  } catch (error) {
+    console.warn('Unable to refresh Boss Library respawn signals', error);
+  }
+
+  if (!permissions.value?.canManageTrackerLink) {
+    trackerDefinitions.value = [];
+    return;
+  }
+  try {
+    const definitions = await api.fetchNpcDefinitions(activeGuildId);
+    trackerDefinitions.value = [...definitions.definitions].sort((left, right) => {
+      const nameOrder = left.npcName.localeCompare(right.npcName);
+      return nameOrder || (left.zoneName ?? '').localeCompare(right.zoneName ?? '');
+    });
+  } catch (error) {
+    console.warn('Unable to load Boss Library tracker mapping options', error);
+  }
+}
+
 async function loadPage() {
   loading.value = true;
   loadError.value = '';
+  respawnEntries.value = [];
+  trackerDefinitions.value = [];
   try {
     const routeGuildSlug = String(route.params.guildSlug ?? '');
     const routeBossSlug = String(route.params.bossSlug ?? '');
@@ -1669,6 +1791,7 @@ async function loadPage() {
       boss.value = null;
       detailPermissions.value = null;
     }
+    await refreshBossRespawnData();
   } catch (error) {
     const typedError = error as { response?: { data?: { message?: string } }; message?: string };
     loadError.value =
@@ -2191,8 +2314,9 @@ function handlePageHide() {
 }
 
 function handleVisibilityChange() {
-  if (document.visibilityState === 'visible' && mode.value !== 'view') {
-    void renewEditLease();
+  if (document.visibilityState === 'visible') {
+    void refreshBossRespawnData();
+    if (mode.value !== 'view') void renewEditLease();
   }
 }
 
@@ -2251,8 +2375,24 @@ const bossImageDragging = ref(false);
 const bossForm = reactive({
   name: '',
   groupId: '',
-  imageUrl: ''
+  imageUrl: '',
+  npcDefinitionId: ''
 });
+
+const selectedTrackerDefinition = computed(
+  () =>
+    trackerDefinitions.value.find((definition) => definition.id === bossForm.npcDefinitionId) ??
+    null
+);
+const selectedBossFormRespawnEntries = computed(() => {
+  if (!bossForm.npcDefinitionId) return [];
+  return respawnEntriesByDefinition.value.get(bossForm.npcDefinitionId) ?? [];
+});
+
+function formatTrackerDefinitionOption(definition: NpcDefinition) {
+  const variant = definition.hasInstanceVersion ? 'Overworld + instance' : 'Overworld';
+  return `${definition.npcName} · ${definition.zoneName || 'Zone not set'} · ${variant}`;
+}
 
 const bossImagePreviewUrl = computed(() => {
   if (bossImageMode.value === 'upload') {
@@ -2344,6 +2484,7 @@ function resetBossForm(groupId?: string) {
   bossForm.name = '';
   bossForm.groupId = groupId ?? library.value?.groups[0]?.id ?? '';
   bossForm.imageUrl = '';
+  bossForm.npcDefinitionId = '';
   editingBossId.value = null;
   bossImageMode.value = 'upload';
   existingBossUploadUrl.value = null;
@@ -2360,6 +2501,7 @@ function openEditBoss(item: GuildBoss | GuildBossSummary, groupId: string) {
   editingBossId.value = item.id;
   bossForm.name = item.name;
   bossForm.groupId = groupId;
+  bossForm.npcDefinitionId = item.npcDefinitionId ?? '';
   clearBossImageSelection();
   bossImageMode.value = item.imageSource === 'url' ? 'url' : 'upload';
   bossForm.imageUrl = item.imageSource === 'url' ? (item.imageUrl ?? '') : '';
@@ -2380,6 +2522,9 @@ async function saveBossDetails() {
   savingBoss.value = true;
   try {
     const imageUrl = bossImageMode.value === 'url' ? bossForm.imageUrl.trim() || null : null;
+    const trackerLinkPayload = permissions.value?.canManageTrackerLink
+      ? { npcDefinitionId: bossForm.npcDefinitionId || null }
+      : {};
     if (editingBossId.value) {
       const updated =
         bossImageMode.value === 'upload' && bossImageFile.value
@@ -2388,13 +2533,15 @@ async function saveBossDetails() {
               editingBossId.value,
               {
                 name: bossForm.name.trim(),
-                groupId: bossForm.groupId
+                groupId: bossForm.groupId,
+                ...trackerLinkPayload
               },
               bossImageFile.value
             )
           : await api.updateGuildBoss(guildId.value, editingBossId.value, {
               name: bossForm.name.trim(),
               groupId: bossForm.groupId,
+              ...trackerLinkPayload,
               ...(bossImageMode.value === 'url' || !existingBossUploadUrl.value ? { imageUrl } : {})
             });
       if (boss.value?.id === updated.id) boss.value = updated;
@@ -2413,13 +2560,15 @@ async function saveBossDetails() {
               guildId.value,
               {
                 name: bossForm.name.trim(),
-                groupId: bossForm.groupId
+                groupId: bossForm.groupId,
+                ...trackerLinkPayload
               },
               bossImageFile.value
             )
           : await api.createGuildBoss(guildId.value, {
               name: bossForm.name.trim(),
               groupId: bossForm.groupId,
+              ...trackerLinkPayload,
               imageUrl
             });
       showBossModal.value = false;
@@ -3029,6 +3178,9 @@ onMounted(() => {
   window.addEventListener('pagehide', handlePageHide);
   window.addEventListener('keydown', handleGlobalKeydown);
   document.addEventListener('visibilitychange', handleVisibilityChange);
+  respawnRefreshTimer = window.setInterval(() => {
+    void refreshBossRespawnData();
+  }, 60_000);
   void loadPage();
 });
 
@@ -3040,6 +3192,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('pagehide', handlePageHide);
   window.removeEventListener('keydown', handleGlobalKeydown);
   document.removeEventListener('visibilitychange', handleVisibilityChange);
+  if (respawnRefreshTimer !== null) window.clearInterval(respawnRefreshTimer);
   if (shareStatusTimeout) window.clearTimeout(shareStatusTimeout);
   document.body.style.overflow = bodyOverflowBeforeModal;
 });
@@ -3429,6 +3582,74 @@ onBeforeUnmount(() => {
   transform: translateY(-5px);
 }
 
+.boss-card--spawn-up {
+  border-color: rgba(74, 222, 128, 0.62);
+  box-shadow:
+    0 14px 35px rgba(0, 0, 0, 0.2),
+    0 0 0 1px rgba(74, 222, 128, 0.12),
+    0 0 24px rgba(34, 197, 94, 0.22);
+}
+
+.boss-card--spawn-window {
+  border-color: rgba(251, 146, 60, 0.65);
+  box-shadow:
+    0 14px 35px rgba(0, 0, 0, 0.2),
+    0 0 0 1px rgba(251, 146, 60, 0.11),
+    0 0 24px rgba(249, 115, 22, 0.2);
+}
+
+.boss-card--spawn-down {
+  border-color: rgba(248, 113, 113, 0.56);
+  box-shadow:
+    0 14px 35px rgba(0, 0, 0, 0.2),
+    0 0 0 1px rgba(248, 113, 113, 0.1),
+    0 0 22px rgba(239, 68, 68, 0.18);
+}
+
+.boss-card--spawn-up:hover {
+  border-color: rgba(74, 222, 128, 0.82);
+  box-shadow:
+    0 20px 46px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(74, 222, 128, 0.16),
+    0 0 34px rgba(34, 197, 94, 0.3);
+}
+
+.boss-card--spawn-window:hover {
+  border-color: rgba(251, 146, 60, 0.84);
+  box-shadow:
+    0 20px 46px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(251, 146, 60, 0.15),
+    0 0 34px rgba(249, 115, 22, 0.28);
+}
+
+.boss-card--spawn-down:hover {
+  border-color: rgba(248, 113, 113, 0.76);
+  box-shadow:
+    0 20px 46px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(248, 113, 113, 0.13),
+    0 0 32px rgba(239, 68, 68, 0.24);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .boss-card--spawn-up {
+    animation: boss-card-up-glow 4.5s ease-in-out 700ms infinite;
+  }
+
+  .boss-card--spawn-up:hover {
+    animation-play-state: paused;
+  }
+}
+
+@keyframes boss-card-up-glow {
+  50% {
+    border-color: rgba(74, 222, 128, 0.74);
+    box-shadow:
+      0 14px 35px rgba(0, 0, 0, 0.2),
+      0 0 0 1px rgba(74, 222, 128, 0.15),
+      0 0 30px rgba(34, 197, 94, 0.28);
+  }
+}
+
 .boss-card:focus-visible {
   border-color: rgba(69, 215, 223, 0.64);
   box-shadow: 0 0 0 4px rgba(69, 215, 223, 0.09);
@@ -3476,19 +3697,21 @@ onBeforeUnmount(() => {
   background: rgba(5, 11, 21, 0.68);
   border: 1px solid rgba(202, 227, 243, 0.22);
   border-radius: 999px;
-  bottom: 0.75rem;
+  top: 0.75rem;
   color: #e9f6f8;
   display: inline-flex;
   font-size: 0.63rem;
   font-weight: 750;
   gap: 0.35rem;
+  left: 0.75rem;
   letter-spacing: 0.04em;
   opacity: 0;
   padding: 0.38rem 0.58rem;
   position: absolute;
-  right: 0.75rem;
+  right: auto;
   transform: translateY(5px);
   transition: 180ms ease;
+  z-index: 3;
 }
 
 .boss-card:hover .boss-card__open,
@@ -4759,6 +4982,11 @@ onBeforeUnmount(() => {
   z-index: 1;
 }
 
+.boss-form-preview--with-respawn .boss-form-preview__name {
+  bottom: 3.05rem;
+  padding-bottom: 0.55rem;
+}
+
 .boss-form-fields,
 .boss-groups-manager {
   display: flex;
@@ -4784,6 +5012,103 @@ onBeforeUnmount(() => {
   font-size: 0.7rem;
   line-height: 1.55;
   margin: 0.3rem 0 0;
+}
+
+.boss-tracker-map {
+  background:
+    radial-gradient(circle at 0 0, rgba(69, 215, 223, 0.085), transparent 42%),
+    rgba(4, 10, 19, 0.48);
+  border: 1px solid rgba(103, 146, 194, 0.19);
+  border-radius: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 0.8rem;
+}
+
+.boss-tracker-map__heading {
+  align-items: center;
+  display: flex;
+  gap: 0.65rem;
+}
+
+.boss-tracker-map__heading > span:last-child,
+.boss-tracker-map__summary > span:last-child {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.boss-tracker-map__heading strong {
+  color: #dce8f2;
+  font-size: 0.72rem;
+}
+
+.boss-tracker-map__heading small,
+.boss-tracker-map__summary small {
+  color: #70849a;
+  font-size: 0.59rem;
+  line-height: 1.4;
+  margin-top: 0.12rem;
+}
+
+.boss-tracker-map__mark {
+  align-items: center;
+  background: rgba(69, 215, 223, 0.08);
+  border: 1px solid rgba(69, 215, 223, 0.2);
+  border-radius: 9px;
+  color: #73dce2;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 2rem;
+  justify-content: center;
+  width: 2rem;
+}
+
+.boss-tracker-map__mark svg {
+  fill: none;
+  height: 1rem;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 1.5;
+  width: 1rem;
+}
+
+.boss-tracker-map__summary {
+  align-items: center;
+  border-top: 1px solid rgba(103, 146, 194, 0.13);
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: auto minmax(0, 1fr);
+  margin: 0;
+  padding-top: 0.65rem;
+}
+
+.boss-tracker-map__summary strong {
+  color: #cfe0ed;
+  font-size: 0.66rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.boss-tracker-map__signal {
+  background: #45d7df;
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 4px rgba(69, 215, 223, 0.08),
+    0 0 13px rgba(69, 215, 223, 0.42);
+  height: 0.46rem;
+  width: 0.46rem;
+}
+
+.boss-tracker-map__empty {
+  border-top: 1px solid rgba(103, 146, 194, 0.12);
+  color: #65798f;
+  font-size: 0.59rem;
+  line-height: 1.45;
+  margin: 0;
+  padding-top: 0.6rem;
 }
 
 .boss-modal__intro {
