@@ -31,33 +31,7 @@
         @click="editable && emit('toggle', cure.key)"
       >
         <span class="boss-cure__gem" aria-hidden="true">
-          <svg v-if="cure.key === 'curse'" viewBox="0 0 32 32">
-            <path class="gem-fill" d="m16 3 4 7 8 2-6 6 2 9-8-4-8 4 2-9-6-6 8-2 4-7Z" />
-            <path
-              d="M9 15.5c2.2-2.4 4.5-3.6 7-3.6s4.8 1.2 7 3.6c-2.2 2.5-4.5 3.7-7 3.7s-4.8-1.2-7-3.7Z"
-            />
-            <circle cx="16" cy="15.5" r="2.1" />
-          </svg>
-          <svg v-else-if="cure.key === 'poison'" viewBox="0 0 32 32">
-            <path
-              d="M12 4h8M14 4v7L7.5 23.2A3.2 3.2 0 0 0 10.3 28h11.4a3.2 3.2 0 0 0 2.8-4.8L18 11V4"
-            />
-            <path
-              class="gem-fill"
-              d="M9.5 21c3-2 5.2 1.5 8.1-.3 2.1-1.3 3.9-.4 5.3.7l2.1 4.1-2.5 2.5h-13l-2.3-3.2L9.5 21Z"
-            />
-            <circle cx="13" cy="18" r="1.2" />
-            <circle cx="19.5" cy="16" r="1" />
-          </svg>
-          <svg v-else viewBox="0 0 32 32">
-            <circle class="gem-fill" cx="16" cy="16" r="7" />
-            <path
-              d="M16 3v5M16 24v5M3 16h5M24 16h5M6.8 6.8l3.5 3.5M21.7 21.7l3.5 3.5M25.2 6.8l-3.5 3.5M10.3 21.7l-3.5 3.5"
-            />
-            <circle cx="13" cy="14" r="1.2" />
-            <circle cx="19" cy="17.5" r="1.4" />
-            <path d="m12.5 19 2 1.2 2.5-1.5" />
-          </svg>
+          <img :src="cure.icon" alt="" draggable="false" />
         </span>
         <span class="boss-cure__copy">
           <strong>{{ cure.label }}</strong>
@@ -96,10 +70,10 @@ const emit = defineEmits<{
   toggle: [key: keyof BossCures];
 }>();
 
-const cureOptions: Array<{ key: keyof BossCures; label: string }> = [
-  { key: 'curse', label: 'Curse' },
-  { key: 'poison', label: 'Poison' },
-  { key: 'disease', label: 'Disease' }
+const cureOptions: Array<{ key: keyof BossCures; label: string; icon: string }> = [
+  { key: 'curse', label: 'Curse', icon: '/icons/cures/spell-icon-139.png' },
+  { key: 'poison', label: 'Poison', icon: '/icons/cures/spell-icon-42.png' },
+  { key: 'disease', label: 'Disease', icon: '/icons/cures/spell-icon-41.png' }
 ];
 </script>
 
@@ -252,18 +226,19 @@ const cureOptions: Array<{ key: keyof BossCures; label: string }> = [
   transform: scale(1);
 }
 
-.boss-cure__gem svg {
-  fill: none;
-  height: 1.65rem;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.6;
-  width: 1.65rem;
+.boss-cure__gem img {
+  border-radius: 4px;
+  display: block;
+  filter: brightness(0.82) saturate(0.9);
+  height: 2rem;
+  image-rendering: pixelated;
+  transition: filter 150ms ease;
+  user-select: none;
+  width: 2rem;
 }
 
-.boss-cure__gem .gem-fill {
-  fill: rgb(var(--cure-rgb) / 0.2);
+.boss-cure.is-needed .boss-cure__gem img {
+  filter: brightness(1.05) saturate(1.08);
 }
 
 .boss-cure__copy {
