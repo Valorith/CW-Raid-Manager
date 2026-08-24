@@ -11,6 +11,11 @@ export interface ParsedNpcKillEvent {
   zoneName?: string | null;
 }
 
+export interface NpcKillParserOptions {
+  endGraceMinutes?: number;
+  initialZoneName?: string | null;
+}
+
 // Pattern to extract zone entry: "[...] You have entered South Ro." or "There is X hours, Y minutes remaining..."
 // Some zones have period in name like "S. Ro" or "N. Ro" - handle those
 const zoneEntryPattern = /\] You have entered (?<zone>.+?)\.$/i;
@@ -70,7 +75,7 @@ export function parseNpcKills(
   logContent: string,
   raidStart: Date,
   raidEnd?: Date | null,
-  options?: { endGraceMinutes?: number }
+  options?: NpcKillParserOptions
 ): ParsedNpcKillEvent[] {
   const endGraceMinutes = Math.max(0, options?.endGraceMinutes ?? 0);
   const effectiveRaidEnd =
@@ -78,14 +83,18 @@ export function parseNpcKills(
       ? new Date(raidEnd.getTime() + endGraceMinutes * 60 * 1000)
       : raidEnd;
 
-  return parseNpcKillEvents(logContent).filter(
+  return parseNpcKillEvents(logContent, options).filter(
     (kill) => kill.timestamp && isWithinRaid(kill.timestamp, raidStart, effectiveRaidEnd)
   );
 }
 
-export function parseNpcKillEvents(logContent: string): ParsedNpcKillEvent[] {
+export function parseNpcKillEvents(
+  logContent: string,
+  options?: Pick<NpcKillParserOptions, 'initialZoneName'>
+): ParsedNpcKillEvent[] {
   const lines = logContent.split(/\r?\n/);
   const kills: ParsedNpcKillEvent[] = [];
+  const initialZoneName = options?.initialZoneName?.trim() || null;
 
   // Track zone changes with timestamps so we can match zones to kills
   const zoneChanges: Array<{ timestamp: Date; zoneName: string }> = [];
@@ -116,7 +125,7 @@ export function parseNpcKillEvents(logContent: string): ParsedNpcKillEvent[] {
   // Helper to find the current zone at a given timestamp
   function getZoneAtTime(timestamp: Date): string | null {
     // Find the most recent zone change before or at the given timestamp
-    let currentZone: string | null = null;
+    let currentZone: string | null = initialZoneName;
     for (const change of zoneChanges) {
       if (change.timestamp <= timestamp) {
         currentZone = change.zoneName;

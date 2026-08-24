@@ -4913,6 +4913,12 @@ async function uploadKillLogFile(file: File) {
         }
       }
       await loadRaid();
+      if (allPendingClarifications.length > 0) {
+        instanceClarifications.value = allPendingClarifications.map((c) => ({
+          ...c,
+          isInstance: false // Default to overworld
+        }));
+      }
       // Show zone clarification modal first if needed, then instance clarification
       if (allPendingZoneClarifications.length > 0) {
         zoneClarifications.value = allPendingZoneClarifications.map((c) => ({
@@ -4920,11 +4926,7 @@ async function uploadKillLogFile(file: File) {
           selectedNpcDefinitionId: c.zoneOptions[0]?.npcDefinitionId ?? ''
         }));
         showZoneClarificationModal.value = true;
-      } else if (allPendingClarifications.length > 0) {
-        instanceClarifications.value = allPendingClarifications.map((c) => ({
-          ...c,
-          isInstance: false // Default to overworld
-        }));
+      } else if (instanceClarifications.value.length > 0) {
         showInstanceClarificationModal.value = true;
       }
     } else {
@@ -4978,6 +4980,9 @@ function formatClarificationTime(isoString: string): string {
 function closeZoneClarificationModal() {
   showZoneClarificationModal.value = false;
   zoneClarifications.value = [];
+  if (instanceClarifications.value.length > 0) {
+    showInstanceClarificationModal.value = true;
+  }
 }
 
 async function submitZoneClarifications() {

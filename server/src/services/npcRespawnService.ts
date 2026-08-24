@@ -4,6 +4,11 @@ import type { RowDataPacket } from 'mysql2/promise';
 import { emitDiscordWebhookEvent } from './discordWebhookService.js';
 import { resetRespawnNotification } from './npcRespawnNotificationService.js';
 import { isEqDbConfigured, queryEqDb } from '../utils/eqDb.js';
+import {
+  buildTrackedNpcLookupCandidates,
+  buildTrackedNpcLookupPrefix,
+  getTrackedNpcNameMatchRank
+} from '../utils/npcNameMatching.js';
 import { prisma } from '../utils/prisma.js';
 
 // Valid content flags for NPC definitions
@@ -653,13 +658,30 @@ export async function recordKillForTrackedNpc(
     autoRecordAsOverworld?: boolean;
   }
 ): Promise<RecordKillResult> {
-  // Find all NPC definitions by normalized name (could be multiple in different zones)
-  const definitions = await prisma.npcDefinition.findMany({
+  // Find all plausible definitions, then keep only the strongest name match. EQ log names can
+  // differ from configured names by apostrophe style, a leading "The", or a log-only title.
+  const lookupCandidates = buildTrackedNpcLookupCandidates(input.npcNameNormalized);
+  const lookupPrefix = buildTrackedNpcLookupPrefix(input.npcNameNormalized);
+  const lookupDefinitions = await prisma.npcDefinition.findMany({
     where: {
       guildId,
-      npcNameNormalized: input.npcNameNormalized
+      OR: [
+        { npcNameNormalized: { in: lookupCandidates } },
+        ...(lookupPrefix ? [{ npcNameNormalized: { startsWith: lookupPrefix } }] : [])
+      ]
     }
   });
+  const rankedDefinitions = lookupDefinitions.flatMap((definition) => {
+    const rank = getTrackedNpcNameMatchRank(input.npcName, definition.npcName);
+    return rank === null ? [] : [{ definition, rank }];
+  });
+  const bestRank = rankedDefinitions.reduce(
+    (best, candidate) => Math.min(best, candidate.rank),
+    Number.POSITIVE_INFINITY
+  );
+  const definitions = rankedDefinitions
+    .filter((candidate) => candidate.rank === bestRank)
+    .map((candidate) => candidate.definition);
 
   console.log('[recordKillForTrackedNpc] Lookup result:', {
     guildId,

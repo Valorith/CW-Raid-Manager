@@ -1417,6 +1417,7 @@ import {
 import { getDefaultLogHandle } from '../utils/defaultLogHandle';
 import { getLootIconSrc, hasValidIconId } from '../utils/itemIcons';
 import { extractErrorMessage } from '../utils/errors';
+import { ReliableBatchQueue } from '../utils/reliableBatchQueue';
 import {
   getGuildBankDisplayName,
   normalizeLooterName,
@@ -1794,6 +1795,19 @@ const monitorHealth = reactive({
 });
 const processedLogKeys = new Set<string>();
 const processedNpcKillKeys = new Set<string>();
+const npcKillPersistenceQueue = new ReliableBatchQueue<ParsedNpcKillEvent>({
+  buildKey: buildNpcKillKey,
+  isProcessed: (key) => processedNpcKillKeys.has(key),
+  markProcessed: (key) => processedNpcKillKeys.add(key),
+  persist: persistRaidNpcKillEvents,
+  onRetry: (error, delayMs, pendingCount) => {
+    appendDebugLog('NPC kill persist failed; retry scheduled', {
+      error: String(error),
+      delayMs,
+      pendingCount
+    });
+  }
+});
 const processedLootCouncilKeys = new Set<string>();
 let lootCouncilItemSequence = 0;
 const summarySessionState = {
@@ -2027,6 +2041,7 @@ function activateProcessedLogSignature(signature: string | null, reset: boolean)
   if (shouldReload) {
     processedLogKeys.clear();
     processedNpcKillKeys.clear();
+    npcKillPersistenceQueue.reset();
     const stored = loadStoredProcessedKeys(signature);
     for (const key of stored) {
       processedLogKeys.add(key);
@@ -2052,6 +2067,7 @@ function resetProcessedLogState(options?: { clearStorage?: boolean; signature?: 
   }
   processedLogKeys.clear();
   processedNpcKillKeys.clear();
+  npcKillPersistenceQueue.reset();
   resetLootCouncilTracking();
   if (options?.signature !== undefined) {
     activeLogSignature.value = options.signature;
@@ -5848,43 +5864,41 @@ async function persistRaidNpcKillEvents(kills: ParsedNpcKillEvent[]) {
   const chunkSize = 100;
   const allPendingClarifications: PendingInstanceClarification[] = [];
   const allPendingZoneClarifications: PendingZoneClarification[] = [];
-  try {
-    for (let index = 0; index < payload.length; index += chunkSize) {
-      const result = await api.recordRaidNpcKills(raidId, payload.slice(index, index + chunkSize));
-      appendDebugLog('NPC kill persist: API response', {
-        inserted: result.inserted,
-        pendingClarifications: result.pendingClarifications?.length ?? 0,
-        pendingZoneClarifications: result.pendingZoneClarifications?.length ?? 0
-      });
-      if (result.pendingClarifications && result.pendingClarifications.length > 0) {
-        allPendingClarifications.push(...result.pendingClarifications);
-      }
-      if (result.pendingZoneClarifications && result.pendingZoneClarifications.length > 0) {
-        allPendingZoneClarifications.push(...result.pendingZoneClarifications);
-      }
+  for (let index = 0; index < payload.length; index += chunkSize) {
+    const result = await api.recordRaidNpcKills(raidId, payload.slice(index, index + chunkSize));
+    appendDebugLog('NPC kill persist: API response', {
+      inserted: result.inserted,
+      pendingClarifications: result.pendingClarifications?.length ?? 0,
+      pendingZoneClarifications: result.pendingZoneClarifications?.length ?? 0
+    });
+    if (result.pendingClarifications && result.pendingClarifications.length > 0) {
+      allPendingClarifications.push(...result.pendingClarifications);
     }
-    // Show zone clarification modal first if needed, then instance clarification
-    if (allPendingZoneClarifications.length > 0) {
-      zoneClarifications.value = allPendingZoneClarifications.map((c) => ({
-        ...c,
-        selectedNpcDefinitionId: c.zoneOptions[0]?.npcDefinitionId ?? ''
-      }));
-      showZoneClarificationModal.value = true;
-      appendDebugLog('Showing zone clarification modal', {
-        count: allPendingZoneClarifications.length
-      });
-    } else if (allPendingClarifications.length > 0) {
-      instanceClarifications.value = allPendingClarifications.map((c) => ({
-        ...c,
-        isInstance: false
-      }));
-      showInstanceClarificationModal.value = true;
-      appendDebugLog('Showing instance clarification modal', {
-        count: allPendingClarifications.length
-      });
+    if (result.pendingZoneClarifications && result.pendingZoneClarifications.length > 0) {
+      allPendingZoneClarifications.push(...result.pendingZoneClarifications);
     }
-  } catch (error) {
-    appendDebugLog('Failed to record NPC kills', { error: String(error) });
+  }
+  if (allPendingClarifications.length > 0) {
+    instanceClarifications.value = allPendingClarifications.map((c) => ({
+      ...c,
+      isInstance: false
+    }));
+  }
+  // Show zone clarification modal first if needed, then instance clarification
+  if (allPendingZoneClarifications.length > 0) {
+    zoneClarifications.value = allPendingZoneClarifications.map((c) => ({
+      ...c,
+      selectedNpcDefinitionId: c.zoneOptions[0]?.npcDefinitionId ?? ''
+    }));
+    showZoneClarificationModal.value = true;
+    appendDebugLog('Showing zone clarification modal', {
+      count: allPendingZoneClarifications.length
+    });
+  } else if (instanceClarifications.value.length > 0) {
+    showInstanceClarificationModal.value = true;
+    appendDebugLog('Showing instance clarification modal', {
+      count: instanceClarifications.value.length
+    });
   }
 }
 
@@ -5927,6 +5941,12 @@ function formatClarificationTime(isoString: string) {
 function closeZoneClarificationModal() {
   showZoneClarificationModal.value = false;
   zoneClarifications.value = [];
+  if (instanceClarifications.value.length > 0) {
+    showInstanceClarificationModal.value = true;
+    appendDebugLog('Showing queued instance clarification modal', {
+      count: instanceClarifications.value.length
+    });
+  }
 }
 
 async function submitZoneClarifications() {
@@ -6209,6 +6229,8 @@ function processLogContent(
     return;
   }
 
+  const initialZoneName =
+    options.append && monitorSession.value?.isOwner ? monitorStore.lastZone : null;
   if (monitorSession.value?.isOwner) {
     const detectedZone = extractLastZoneFromLog(content);
     if (detectedZone) {
@@ -6219,6 +6241,7 @@ function processLogContent(
   if (options.resetKeys) {
     processedLogKeys.clear();
     processedNpcKillKeys.clear();
+    npcKillPersistenceQueue.reset();
     resetLootCouncilTracking();
     parsedLootPage.value = 1;
   }
@@ -6227,7 +6250,8 @@ function processLogContent(
   const emoji = parserSettings.value?.emoji ?? '💎';
   const parsed = parseLootLog(content, options.start, patterns, options.end ?? null);
   const npcKillEvents = parseNpcKills(content, options.start, options.end ?? null, {
-    endGraceMinutes: RAID_NPC_KILL_END_GRACE_MINUTES
+    endGraceMinutes: RAID_NPC_KILL_END_GRACE_MINUTES,
+    initialZoneName
   });
   const shouldTrackLootCouncil = Boolean(monitorSession.value?.isOwner);
   if (shouldTrackLootCouncil) {
@@ -6245,7 +6269,13 @@ function processLogContent(
   const consolePayloads: LootConsolePayload[] = [];
 
   // Debug: Log NPC kill parsing results
-  if (npcKillEvents.length > 0) {
+  if (npcKillEvents.length > 0 && !canManageLoot.value) {
+    appendDebugLog('NPC kills not queued: no permission to manage loot', {
+      count: npcKillEvents.length,
+      role: raid.value?.permissions?.role,
+      canManage: raid.value?.permissions?.canManage
+    });
+  } else if (npcKillEvents.length > 0) {
     appendDebugLog('NPC kills parsed from log', {
       count: npcKillEvents.length,
       kills: npcKillEvents.map((k) => ({
@@ -6257,7 +6287,7 @@ function processLogContent(
     });
   }
 
-  if (npcKillEvents.length > 0) {
+  if (npcKillEvents.length > 0 && canManageLoot.value) {
     const newKills: ParsedNpcKillEvent[] = [];
     for (const kill of npcKillEvents) {
       const key = buildNpcKillKey(kill);
@@ -6265,17 +6295,17 @@ function processLogContent(
         appendDebugLog('NPC kill skipped (duplicate)', { key, npcName: kill.npcName });
         continue;
       }
-      processedNpcKillKeys.add(key);
       newKills.push(kill);
     }
-    if (newKills.length > 0) {
-      appendDebugLog('Sending NPC kills to server', {
-        count: newKills.length,
+    const queuedCount = npcKillPersistenceQueue.enqueue(newKills);
+    if (queuedCount > 0) {
+      appendDebugLog('Queued NPC kills for reliable persistence', {
+        count: queuedCount,
         kills: newKills.map((k) => k.npcName)
       });
-      void persistRaidNpcKillEvents(newKills);
+      void npcKillPersistenceQueue.flush();
     } else {
-      appendDebugLog('No new NPC kills to send (all duplicates)');
+      appendDebugLog('No new NPC kills to send (all duplicates or already queued)');
     }
   }
 
@@ -7019,6 +7049,7 @@ onBeforeUnmount(() => {
   } else {
     cleanupMonitorController();
   }
+  npcKillPersistenceQueue.dispose();
   clearLootConsole();
   attentionStore.unregisterIndicator(DETECTED_LOOT_INDICATOR_ID);
   attentionStore.unregisterIndicator(LOOT_COUNCIL_INDICATOR_ID);
