@@ -4,6 +4,15 @@ import type { FastifyBaseLogger } from 'fastify';
 
 import { recordKillForTrackedNpc, type ZoneOption } from './npcRespawnService.js';
 import { prisma } from '../utils/prisma.js';
+import {
+  buildEncounterKillKey,
+  ENRAGED_CORFLUNK_NAME,
+  ENRAGED_TWINS_COMPLETION_WINDOW_MS,
+  ENRAGED_ZARCHOOMI_NAME,
+  findEnragedTwinsCompletions,
+  isEnragedTwinNpcName,
+  shouldDeferStandaloneTrackerKill
+} from '../utils/raidEncounterCompletions.js';
 
 const RAID_NPC_KILL_END_GRACE_MINUTES = 10;
 const RAID_NPC_KILL_END_GRACE_MS = RAID_NPC_KILL_END_GRACE_MINUTES * 60 * 1000;
@@ -242,6 +251,54 @@ export async function recordRaidNpcKills(
     }
   }
 
+  // Some encounters need more evidence than a standalone NPC death. Classic Braag's normal
+  // death line is an intermediate morph, while Enraged Twins only completes when both named
+  // twins die close together. Individual kill events remain in raid history, but tracker credit
+  // is deferred until the appropriate encounter-level signal is available.
+  const trackerEntries = prepared.filter(
+    (entry) => !isEnragedTwinNpcName(entry.npcName) && !shouldDeferStandaloneTrackerKill(entry)
+  );
+  const preparedTwinKills = prepared.filter((entry) => isEnragedTwinNpcName(entry.npcName));
+  if (preparedTwinKills.length > 0) {
+    const preparedTimes = preparedTwinKills.map((entry) => entry.occurredAt.getTime());
+    const twinEvents = await prisma.raidNpcKillEvent.findMany({
+      where: {
+        raidId,
+        npcNameNormalized: {
+          in: [ENRAGED_CORFLUNK_NAME.toLowerCase(), ENRAGED_ZARCHOOMI_NAME.toLowerCase()]
+        },
+        occurredAt: {
+          gte: new Date(Math.min(...preparedTimes) - ENRAGED_TWINS_COMPLETION_WINDOW_MS),
+          lte: new Date(Math.max(...preparedTimes) + ENRAGED_TWINS_COMPLETION_WINDOW_MS)
+        }
+      },
+      select: {
+        npcName: true,
+        occurredAt: true,
+        killerName: true,
+        zoneName: true
+      }
+    });
+    const relevantTwinKeys = new Set(preparedTwinKills.map(buildEncounterKillKey));
+    const twinCompletions = findEnragedTwinsCompletions(twinEvents, relevantTwinKeys);
+    for (const completion of twinCompletions) {
+      trackerEntries.push({
+        raidId,
+        guildId,
+        npcName: completion.npcName,
+        npcNameNormalized: completion.npcName.toLowerCase(),
+        killerName: completion.killerName,
+        occurredAt: completion.occurredAt,
+        logSignature: buildSignature(
+          completion.npcName.toLowerCase(),
+          completion.occurredAt,
+          'enraged-twins-completion'
+        ),
+        zoneName: completion.zoneName
+      });
+    }
+  }
+
   // Record kills in the NPC Respawn Tracker for any tracked NPCs
   // This happens regardless of Discord webhook settings
   // IMPORTANT: Process ALL prepared kills, not just newly inserted ones!
@@ -250,16 +307,19 @@ export async function recordRaidNpcKills(
   // The respawn tracker service has its own deduplication logic
   const pendingClarifications: PendingInstanceClarification[] = [];
   const pendingZoneClarifications: PendingZoneClarification[] = [];
-  if (prepared.length > 0) {
-    logger?.info?.({ count: prepared.length }, 'Processing kills for respawn tracker');
-    for (const entry of prepared) {
+  if (trackerEntries.length > 0) {
+    logger?.info?.({ count: trackerEntries.length }, 'Processing kills for respawn tracker');
+    for (const entry of trackerEntries) {
       try {
-        logger?.info?.({
-          npcName: entry.npcName,
-          npcNameNormalized: entry.npcNameNormalized,
-          zoneName: entry.zoneName,
-          killedAt: entry.occurredAt
-        }, 'Attempting to record kill in respawn tracker');
+        logger?.info?.(
+          {
+            npcName: entry.npcName,
+            npcNameNormalized: entry.npcNameNormalized,
+            zoneName: entry.zoneName,
+            killedAt: entry.occurredAt
+          },
+          'Attempting to record kill in respawn tracker'
+        );
         const result = await recordKillForTrackedNpc(guildId, {
           npcName: entry.npcName,
           npcNameNormalized: entry.npcNameNormalized,
@@ -267,13 +327,21 @@ export async function recordRaidNpcKills(
           killedByName: entry.killerName,
           zoneName: entry.zoneName
         });
-        logger?.info?.({
-          npcName: entry.npcName,
-          recorded: result.recorded,
-          needsInstanceClarification: result.needsInstanceClarification,
-          needsZoneClarification: result.needsZoneClarification
-        }, 'Respawn tracker result');
-        if (result.needsInstanceClarification && result.npcDefinitionId && result.npcName && result.killedAt) {
+        logger?.info?.(
+          {
+            npcName: entry.npcName,
+            recorded: result.recorded,
+            needsInstanceClarification: result.needsInstanceClarification,
+            needsZoneClarification: result.needsZoneClarification
+          },
+          'Respawn tracker result'
+        );
+        if (
+          result.needsInstanceClarification &&
+          result.npcDefinitionId &&
+          result.npcName &&
+          result.killedAt
+        ) {
           const clarificationId = `${guildId}-${result.npcDefinitionId}-${result.killedAt.toISOString()}`;
           // Add to response array first (before database save which might fail)
           pendingClarifications.push({
@@ -314,16 +382,24 @@ export async function recordRaidNpcKills(
 
             // If more than 2, soft-delete the older ones
             if (existingClarifications.length > 2) {
-              const idsToResolve = existingClarifications.slice(2).map(c => c.id);
+              const idsToResolve = existingClarifications.slice(2).map((c) => c.id);
               await prisma.pendingNpcKillClarification.updateMany({
                 where: { id: { in: idsToResolve } },
                 data: { resolvedAt: new Date() }
               });
             }
           } catch (dbError) {
-            logger?.warn?.({ error: dbError, npcName: entry.npcName }, 'Failed to persist pending clarification to database');
+            logger?.warn?.(
+              { error: dbError, npcName: entry.npcName },
+              'Failed to persist pending clarification to database'
+            );
           }
-        } else if (result.needsZoneClarification && result.zoneOptions && result.npcName && result.killedAt) {
+        } else if (
+          result.needsZoneClarification &&
+          result.zoneOptions &&
+          result.npcName &&
+          result.killedAt
+        ) {
           const clarificationId = `${guildId}-zone-${result.npcName.toLowerCase()}-${result.killedAt.toISOString()}`;
           // Add to response array first (before database save which might fail)
           pendingZoneClarifications.push({
@@ -365,19 +441,25 @@ export async function recordRaidNpcKills(
 
             // If more than 2, soft-delete the older ones
             if (existingZoneClarifications.length > 2) {
-              const idsToResolve = existingZoneClarifications.slice(2).map(c => c.id);
+              const idsToResolve = existingZoneClarifications.slice(2).map((c) => c.id);
               await prisma.pendingNpcKillClarification.updateMany({
                 where: { id: { in: idsToResolve } },
                 data: { resolvedAt: new Date() }
               });
             }
           } catch (dbError) {
-            logger?.warn?.({ error: dbError, npcName: entry.npcName }, 'Failed to persist pending zone clarification to database');
+            logger?.warn?.(
+              { error: dbError, npcName: entry.npcName },
+              'Failed to persist pending zone clarification to database'
+            );
           }
         }
       } catch (error) {
         // Log error and continue - NPC may not be tracked in respawn tracker
-        logger?.warn?.({ error, npcName: entry.npcName }, 'Failed to record kill in respawn tracker');
+        logger?.warn?.(
+          { error, npcName: entry.npcName },
+          'Failed to record kill in respawn tracker'
+        );
       }
     }
   }

@@ -154,7 +154,7 @@ test('awards Blacksmith Yragbor credit from the actual successful encounter comp
     '[Sun Aug 23 22:39:40 2026] Blacksmith Yragbor is pulled away by an unseen force.';
   const content = [
     '[Sun Aug 23 22:18:07 2026] You have entered Frontier Mountains.',
-    '[Sun Aug 23 22:24:56 2026] Blacksmith Yragbor says \'You have made a mistake. They will come for you!\'',
+    "[Sun Aug 23 22:24:56 2026] Blacksmith Yragbor says 'You have made a mistake. They will come for you!'",
     '[Sun Aug 23 22:37:21 2026] Xador has been slain by Zurkon!',
     '[Sun Aug 23 22:39:40 2026] Toltor has been slain by Plagued!',
     completionLine,
@@ -171,8 +171,110 @@ test('awards Blacksmith Yragbor credit from the actual successful encounter comp
 });
 
 test('does not treat generic forced despawns as encounter kill credit', () => {
-  const content =
-    '[Sun Aug 23 22:39:40 2026] An unrelated NPC is pulled away by an unseen force.';
+  const content = '[Sun Aug 23 22:39:40 2026] An unrelated NPC is pulled away by an unseen force.';
 
   assert.deepEqual(parseNpcKillEvents(content), []);
+});
+
+test('parses standard death credit for every ordinary Classic Ancients encounter', () => {
+  const content = [
+    '[Mon Aug 24 20:00:00 2026] You have entered West Freeport.',
+    '[Mon Aug 24 20:01:00 2026] Grand Arcanist Zhevan has been slain by Zurkon!',
+    '[Mon Aug 24 20:02:00 2026] You have entered Toxxulia Forest.',
+    '[Mon Aug 24 20:03:00 2026] Eenton the Transcended has been slain by Laern!',
+    '[Mon Aug 24 20:04:00 2026] You have entered East Karana.',
+    '[Mon Aug 24 20:05:00 2026] Knight Templar Olav has been slain by Dagara!',
+    '[Mon Aug 24 20:06:00 2026] You have entered South Ro.',
+    '[Mon Aug 24 20:07:00 2026] Hercleen the Ancient has been slain by Plagued!',
+    '[Mon Aug 24 20:08:00 2026] You have entered East Commonlands.',
+    '[Mon Aug 24 20:09:00 2026] Master Sergeant Slate has been slain by Laern!',
+    '[Mon Aug 24 20:10:00 2026] You have entered The Feerrott.',
+    '[Mon Aug 24 20:11:00 2026] Revenge of Cyndreela has been slain by Jober!',
+    '[Mon Aug 24 20:12:00 2026] You have entered Lake Rathetear.',
+    '[Mon Aug 24 20:13:00 2026] Megalodon has been slain by Plagued!',
+    "[Mon Aug 24 20:14:00 2026] You have entered Erud's Crossing.",
+    '[Mon Aug 24 20:15:00 2026] Ancient Willowisp has been slain by Mana!'
+  ].join('\n');
+
+  assert.deepEqual(
+    parseNpcKillEvents(content).map((kill) => ({
+      npcName: kill.npcName,
+      zoneName: kill.zoneName
+    })),
+    [
+      { npcName: 'Grand Arcanist Zhevan', zoneName: 'West Freeport' },
+      { npcName: 'Eenton the Transcended', zoneName: 'Toxxulia Forest' },
+      { npcName: 'Knight Templar Olav', zoneName: 'East Karana' },
+      { npcName: 'Hercleen the Ancient', zoneName: 'South Ro' },
+      { npcName: 'Master Sergeant Slate', zoneName: 'East Commonlands' },
+      { npcName: 'Revenge of Cyndreela', zoneName: 'The Feerrott' },
+      { npcName: 'Megalodon', zoneName: 'Lake Rathetear' },
+      { npcName: 'Ancient Willowisp', zoneName: "Erud's Crossing" }
+    ]
+  );
+});
+
+test('credits Classic Braag from the final shout instead of the intermediate morph death', () => {
+  const completionLine =
+    "[Sun Nov 30 22:26:13 2025] Braag the Morphling shouts 'Until next time...'";
+  const content = [
+    '[Sun Nov 30 21:44:41 2025] You have entered Shadow Spine.',
+    '[Sun Nov 30 22:20:43 2025] You have slain Braag the Morphling !',
+    "[Sun Nov 30 22:20:56 2025] Braag the Morphling shouts 'Well that was fun! Shall we begin?'",
+    completionLine,
+    '[Sun Nov 30 22:26:45 2025] 1) [shadowspine] Guise of the Inferno | Status: Pending | NPC: an ancient chest'
+  ].join('\n');
+
+  const braagKills = parseNpcKillEvents(content).filter(
+    (kill) => kill.npcName === 'Braag the Morphling'
+  );
+
+  assert.deepEqual(
+    braagKills.map((kill) => ({
+      timestamp: kill.timestamp?.toISOString(),
+      killerName: kill.killerName,
+      zoneName: kill.zoneName,
+      rawLine: kill.rawLine
+    })),
+    [
+      {
+        timestamp: '2025-12-01T03:26:13.000Z',
+        killerName: null,
+        zoneName: 'Shadow Spine',
+        rawLine: completionLine
+      }
+    ]
+  );
+});
+
+test('parses both Enraged Twins deaths and preserves their shared zone context', () => {
+  const content = [
+    '[Mon Jun 22 20:57:14 2026] You have entered Butcherblock Mountains.',
+    '[Mon Jun 22 21:04:03 2026] Enraged Corflunk has been slain by Zurkon!',
+    '[Mon Jun 22 21:04:04 2026] Enraged Zarchoomi has been slain by Laern!',
+    '[Mon Jun 22 21:04:13 2026] Dagara slashes an ancient chest for 99 points of damage.'
+  ].join('\n');
+
+  assert.deepEqual(
+    parseNpcKillEvents(content).map((kill) => ({
+      npcName: kill.npcName,
+      killerName: kill.killerName,
+      zoneName: kill.zoneName,
+      timestamp: kill.timestamp?.toISOString()
+    })),
+    [
+      {
+        npcName: 'Enraged Corflunk',
+        killerName: 'Zurkon',
+        zoneName: 'Butcherblock Mountains',
+        timestamp: '2026-06-23T01:04:03.000Z'
+      },
+      {
+        npcName: 'Enraged Zarchoomi',
+        killerName: 'Laern',
+        zoneName: 'Butcherblock Mountains',
+        timestamp: '2026-06-23T01:04:04.000Z'
+      }
+    ]
+  );
 });

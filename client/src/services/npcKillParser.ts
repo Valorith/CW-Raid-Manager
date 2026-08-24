@@ -19,6 +19,18 @@ export interface NpcKillParserOptions {
 // Pattern to extract zone entry: "[...] You have entered South Ro." or "There is X hours, Y minutes remaining..."
 // Some zones have period in name like "S. Ro" or "N. Ro" - handle those
 const zoneEntryPattern = /\] You have entered (?<zone>.+?)\.$/i;
+const CLASSIC_BRAAG_NAME = 'braag the morphling';
+
+function normalizeZoneIdentity(value?: string | null) {
+  return (value ?? '')
+    .toLowerCase()
+    .replace(/^the\s+/, '')
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+function isClassicBraagZone(value?: string | null) {
+  return normalizeZoneIdentity(value) === 'shadowspine';
+}
 
 const killPatterns: Array<{
   regex: RegExp;
@@ -58,6 +70,12 @@ const encounterCompletionPatterns: typeof killPatterns = [
     // emitted as Yragbor disappears and the encounter's giant loot chest spawns.
     regex: /\] Blacksmith Yragbor is pulled away by an unseen force\.\s*$/i,
     map: () => ({ npcName: 'Blacksmith Yragbor', killerName: null })
+  },
+  {
+    // Classic Braag's apparent death is an intermediate morph. At 5% in his final form he
+    // depops with this shout, fears the raid, and spawns the ancient loot chest.
+    regex: /\] Braag the Morphling shouts ['"]Until next time\.\.\.['"]\s*$/i,
+    map: () => ({ npcName: 'Braag the Morphling', killerName: null })
   }
 ];
 
@@ -154,7 +172,8 @@ export function parseNpcKillEvents(
     const normalizedLine = line.toLowerCase();
     if (
       !normalizedLine.includes('slain') &&
-      !normalizedLine.includes('pulled away by an unseen force')
+      !normalizedLine.includes('pulled away by an unseen force') &&
+      !normalizedLine.includes('until next time...')
     ) {
       continue;
     }
@@ -180,6 +199,16 @@ export function parseNpcKillEvents(
 
       // Get the zone at the time of this kill
       const zoneName = getZoneAtTime(timestamp);
+
+      // Phase 1 Braag logs a normal death before immediately respawning for Phase 2. Do not
+      // turn that intermediate morph transition into tracker credit for the Classic encounter.
+      if (
+        normalizedLine.includes('slain') &&
+        npcName.toLowerCase() === CLASSIC_BRAAG_NAME &&
+        isClassicBraagZone(zoneName)
+      ) {
+        break;
+      }
 
       kills.push({
         timestamp,
