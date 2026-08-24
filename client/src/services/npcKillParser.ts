@@ -20,12 +20,32 @@ export interface NpcKillParserOptions {
 // Some zones have period in name like "S. Ro" or "N. Ro" - handle those
 const zoneEntryPattern = /\] You have entered (?<zone>.+?)\.$/i;
 const CLASSIC_BRAAG_NAME = 'braag the morphling';
+const NON_IDENTIFYING_INSTANCE_ZONES = new Set(['anarenapvparea', 'arenapvp', 'arenapvparea']);
 
 function normalizeZoneIdentity(value?: string | null) {
   return (value ?? '')
     .toLowerCase()
     .replace(/^the\s+/, '')
     .replace(/[^a-z0-9]+/g, '');
+}
+
+export function isNonIdentifyingInstanceZone(value?: string | null) {
+  return NON_IDENTIFYING_INSTANCE_ZONES.has(normalizeZoneIdentity(value));
+}
+
+export function extractLastIdentifyingZoneFromLog(logContent: string) {
+  const lines = logContent.split(/\r?\n/);
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index];
+    if (!line) {
+      continue;
+    }
+    const zoneName = line.match(zoneEntryPattern)?.groups?.zone?.trim();
+    if (zoneName && !isNonIdentifyingInstanceZone(zoneName)) {
+      return zoneName;
+    }
+  }
+  return null;
 }
 
 function isClassicBraagZone(value?: string | null) {
@@ -144,7 +164,9 @@ export function parseNpcKillEvents(
     const zoneMatch = line.match(zoneEntryPattern);
     if (zoneMatch?.groups?.zone) {
       const zoneName = zoneMatch.groups.zone.trim();
-      if (zoneName) {
+      // EQ raid instances identify themselves only as an Arena. Retain the most recent real
+      // source zone so duplicate tracker definitions can be resolved without guessing.
+      if (zoneName && !isNonIdentifyingInstanceZone(zoneName)) {
         zoneChanges.push({ timestamp, zoneName });
       }
     }
@@ -156,7 +178,9 @@ export function parseNpcKillEvents(
   // Helper to find the current zone at a given timestamp
   function getZoneAtTime(timestamp: Date): string | null {
     // Find the most recent zone change before or at the given timestamp
-    let currentZone: string | null = initialZoneName;
+    let currentZone: string | null = isNonIdentifyingInstanceZone(initialZoneName)
+      ? null
+      : initialZoneName;
     for (const change of zoneChanges) {
       if (change.timestamp <= timestamp) {
         currentZone = change.zoneName;

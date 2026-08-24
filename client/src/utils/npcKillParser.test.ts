@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 // @ts-expect-error Node built-ins are available to the test runner but omitted from the app tsconfig.
 import test from 'node:test';
 
-import { parseNpcKillEvents, parseNpcKills } from '../services/npcKillParser.js';
+import {
+  extractLastIdentifyingZoneFromLog,
+  parseNpcKillEvents,
+  parseNpcKills
+} from '../services/npcKillParser.js';
 
 test('parses the recent outlier boss names without confusing the boss pet', () => {
   const content = [
@@ -134,6 +138,36 @@ test('a zone entry in the current chunk overrides the carried live-monitor zone'
   const [kill] = parseNpcKillEvents(content, { initialZoneName: 'The Field of Bone' });
 
   assert.equal(kill?.zoneName, 'Warsliks Wood');
+});
+
+test('retains the source zone through the generic Arena name used by raid instances', () => {
+  const kunarkContent = [
+    '[Sun Aug 09 22:06:13 2026] You have entered Cabilis West.',
+    '[Sun Aug 09 22:06:51 2026] You have entered an Arena (PvP) area.',
+    '[Sun Aug 09 22:12:19 2026] You have entered an Arena (PvP) area.',
+    '[Sun Aug 09 22:24:37 2026] Grand Arcanist Zhevan has been slain by Togg!'
+  ].join('\n');
+  const classicChunk = [
+    '[Sun Nov 23 23:25:49 2025] You have entered an Arena (PvP) area.',
+    '[Sun Nov 23 23:36:51 2025] Grand Arcanist Zhevan has been slain by Plagued!'
+  ].join('\n');
+
+  assert.equal(parseNpcKillEvents(kunarkContent)[0]?.zoneName, 'Cabilis West');
+  assert.equal(
+    parseNpcKillEvents(classicChunk, { initialZoneName: 'West Freeport' })[0]?.zoneName,
+    'West Freeport'
+  );
+});
+
+test('keeps the live monitor source zone when a chunk contains only generic Arena entries', () => {
+  const sourceAndArena = [
+    '[Mon Aug 03 21:58:08 2026] You have entered Cabilis West.',
+    '[Mon Aug 03 22:01:05 2026] You have entered an Arena (PvP) area.'
+  ].join('\n');
+  const arenaOnly = '[Mon Aug 03 22:03:37 2026] You have entered an Arena (PvP) area.';
+
+  assert.equal(extractLastIdentifyingZoneFromLog(sourceAndArena), 'Cabilis West');
+  assert.equal(extractLastIdentifyingZoneFromLog(arenaOnly), null);
 });
 
 test('preserves the raid-end grace window while carrying zone context', () => {
