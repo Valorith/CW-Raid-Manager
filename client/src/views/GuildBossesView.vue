@@ -447,6 +447,8 @@
 
           <Transition name="notes-mode" mode="out-in">
             <article v-if="mode === 'view'" key="view" class="boss-notes-document">
+              <BossCuresCard :cures="currentBossCures" />
+
               <div class="boss-notes-document__content">
                 <MediaWikiContent :source="boss.notes ?? ''" :links="wikiLinks">
                   <template #empty>
@@ -480,8 +482,6 @@
                   </template>
                 </MediaWikiContent>
               </div>
-
-              <BossCuresCard :cures="currentBossCures" />
             </article>
 
             <div v-else-if="mode === 'edit'" key="edit" class="boss-notes-edit-layout">
@@ -4305,16 +4305,15 @@ onBeforeUnmount(() => {
 }
 
 .boss-notes-document {
+  --boss-notes-document-padding: clamp(1.5rem, 4.5vw, 4.25rem);
   background:
     linear-gradient(180deg, rgba(16, 26, 45, 0.78), rgba(9, 16, 29, 0.88)), var(--boss-surface);
   border: 1px solid rgba(103, 146, 194, 0.2);
   border-radius: 18px;
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.16);
-  display: grid;
-  gap: clamp(1.4rem, 3vw, 2.6rem);
-  grid-template-columns: minmax(0, 1fr) 17.5rem;
   min-height: 24rem;
-  padding: clamp(1.5rem, 4.5vw, 4.25rem);
+  padding: var(--boss-notes-document-padding);
+  position: relative;
 }
 
 .boss-notes-edit-mode,
@@ -4331,6 +4330,34 @@ onBeforeUnmount(() => {
 
 .boss-notes-document__content {
   min-width: 0;
+}
+
+.boss-notes-document__content :deep(.wiki-content)::before {
+  content: '';
+  float: right;
+  height: 14.75rem;
+  margin: 0 0 1.25rem 2rem;
+  width: 17.5rem;
+}
+
+.boss-notes-document__content :deep(.wiki-content--empty) {
+  display: block;
+  padding-right: 19.5rem;
+}
+
+.boss-notes-document__content :deep(.wiki-content--empty)::before {
+  content: none;
+}
+
+.boss-notes-document__content :deep(.wiki-file--right) {
+  clear: right;
+}
+
+.boss-notes-document > .boss-cures-card {
+  position: absolute;
+  right: var(--boss-notes-document-padding);
+  top: var(--boss-notes-document-padding);
+  z-index: 1;
 }
 
 .boss-notes-empty {
@@ -5974,13 +6001,27 @@ onBeforeUnmount(() => {
     top: 1.2rem;
   }
 
-  .boss-notes-document,
   .boss-notes-edit-layout {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .boss-notes-document__content {
-    grid-row: 2;
+  .boss-notes-document__content :deep(.wiki-content)::before {
+    content: none;
+  }
+
+  .boss-notes-document__content :deep(.wiki-content--empty) {
+    padding-right: 0;
+  }
+
+  .boss-notes-document__content :deep(.wiki-file--right) {
+    clear: none;
+  }
+
+  .boss-notes-document > .boss-cures-card {
+    margin: 0 0 1.25rem auto;
+    position: relative;
+    right: auto;
+    top: auto;
   }
 
   .boss-cures-card {
