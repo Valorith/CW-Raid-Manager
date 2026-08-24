@@ -50,6 +50,19 @@ const killPatterns: Array<{
   }
 ];
 
+// Some scripted encounters complete without the tracked boss dying. Keep these signals explicit:
+// generic despawn text can also be emitted by failed or reset encounters and must not award credit.
+const encounterCompletionPatterns: typeof killPatterns = [
+  {
+    // Blacksmith Yragbor becomes untargetable, five giants must be defeated, then this line is
+    // emitted as Yragbor disappears and the encounter's giant loot chest spawns.
+    regex: /\] Blacksmith Yragbor is pulled away by an unseen force\.\s*$/i,
+    map: () => ({ npcName: 'Blacksmith Yragbor', killerName: null })
+  }
+];
+
+const npcKillEventPatterns = [...killPatterns, ...encounterCompletionPatterns];
+
 function extractTimestamp(line: string) {
   const match = line.match(timestampRegex);
   if (!match?.groups) {
@@ -138,7 +151,11 @@ export function parseNpcKillEvents(
 
   // Second pass: extract kills and attach zone context
   for (const line of lines) {
-    if (!line.includes('slain')) {
+    const normalizedLine = line.toLowerCase();
+    if (
+      !normalizedLine.includes('slain') &&
+      !normalizedLine.includes('pulled away by an unseen force')
+    ) {
       continue;
     }
 
@@ -147,7 +164,7 @@ export function parseNpcKillEvents(
       continue;
     }
 
-    for (const pattern of killPatterns) {
+    for (const pattern of npcKillEventPatterns) {
       const match = line.match(pattern.regex);
       if (!match) {
         continue;

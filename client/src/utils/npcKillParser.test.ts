@@ -87,3 +87,31 @@ test('preserves the raid-end grace window while carrying zone context', () => {
   assert.equal(kills.length, 1);
   assert.equal(kills[0]?.zoneName, 'Dragon Necropolis');
 });
+
+test('awards Blacksmith Yragbor credit from the actual successful encounter completion signal', () => {
+  const completionLine =
+    '[Sun Aug 23 22:39:40 2026] Blacksmith Yragbor is pulled away by an unseen force.';
+  const content = [
+    '[Sun Aug 23 22:18:07 2026] You have entered Frontier Mountains.',
+    '[Sun Aug 23 22:24:56 2026] Blacksmith Yragbor says \'You have made a mistake. They will come for you!\'',
+    '[Sun Aug 23 22:37:21 2026] Xador has been slain by Zurkon!',
+    '[Sun Aug 23 22:39:40 2026] Toltor has been slain by Plagued!',
+    completionLine,
+    '[Sun Aug 23 22:40:05 2026] Zephyr strikes a giant chest for 92 points of damage.'
+  ].join('\n');
+
+  const kills = parseNpcKillEvents(content);
+  const yragborCredit = kills.find((kill) => kill.npcName === 'Blacksmith Yragbor');
+
+  assert.equal(yragborCredit?.timestamp?.toISOString(), '2026-08-24T02:39:40.000Z');
+  assert.equal(yragborCredit?.killerName, null);
+  assert.equal(yragborCredit?.zoneName, 'Frontier Mountains');
+  assert.equal(yragborCredit?.rawLine, completionLine);
+});
+
+test('does not treat generic forced despawns as encounter kill credit', () => {
+  const content =
+    '[Sun Aug 23 22:39:40 2026] An unrelated NPC is pulled away by an unseen force.';
+
+  assert.deepEqual(parseNpcKillEvents(content), []);
+});
