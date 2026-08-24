@@ -269,3 +269,103 @@ test('sendCustomWebhookRelay works with existing URL-only action (backward compa
     globalThis.fetch = originalFetch;
   }
 });
+
+test('sendCustomWebhookRelay retries on 5xx errors with exponential backoff', async () => {
+  const originalFetch = globalThis.fetch;
+  const attemptTimestamps: number[] = [];
+  let attemptCount = 0;
+  
+  try {
+    globalThis.fetch = async (_url: string | URL | Request, _init?: RequestInit) => {
+      attemptTimestamps.push(Date.now());
+      attemptCount++;
+      
+      if (attemptCount <= 2) {
+        return new Response(JSON.stringify({ code: 'internal', message: 'Error' }), { status: 500 });
+      }
+      
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    };
+
+    await sendCustomWebhookRelay('https://example.com/webhook', { test: 'payload' });
+
+    assert.equal(attemptCount, 3, 'Should make 3 attempts (initial + 2 retries)');
+    
+    if (attemptTimestamps.length >= 2) {
+      const firstBackoff = attemptTimestamps[1] - attemptTimestamps[0];
+      assert.ok(firstBackoff >= 900, `First backoff should be ~1000ms, got ${firstBackoff}ms`);
+    }
+    
+    if (attemptTimestamps.length >= 3) {
+      const secondBackoff = attemptTimestamps[2] - attemptTimestamps[1];
+      assert.ok(secondBackoff >= 1900, `Second backoff should be ~2000ms, got ${secondBackoff}ms`);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('sendCustomWebhookRelay does not retry on 4xx errors', async () => {
+  const originalFetch = globalThis.fetch;
+  let attemptCount = 0;
+  
+  try {
+    globalThis.fetch = async (_url: string | URL | Request, _init?: RequestInit) => {
+      attemptCount++;
+      return new Response(JSON.stringify({ error: 'Bad Request' }), { status: 400 });
+    };
+
+    await assert.rejects(
+      async () => sendCustomWebhookRelay('https://example.com/webhook', { test: 'payload' }),
+      /Custom webhook responded with 400/
+    );
+
+    assert.equal(attemptCount, 1, 'Should only attempt once for 4xx errors');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('sendCustomWebhookRelay fails after max retries on persistent 5xx', async () => {
+  const originalFetch = globalThis.fetch;
+  let attemptCount = 0;
+  
+  try {
+    globalThis.fetch = async (_url: string | URL | Request, _init?: RequestInit) => {
+      attemptCount++;
+      return new Response(JSON.stringify({ code: 'internal', message: 'Error' }), { status: 500 });
+    };
+
+    await assert.rejects(
+      async () => sendCustomWebhookRelay('https://example.com/webhook', { test: 'payload' }),
+      /Custom webhook responded with 500/
+    );
+
+    assert.equal(attemptCount, 3, 'Should attempt 3 times (initial + 2 retries) before failing');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('sendCustomWebhookRelay retries on network errors', async () => {
+  const originalFetch = globalThis.fetch;
+  let attemptCount = 0;
+  
+  try {
+    globalThis.fetch = async (_url: string | URL | Request, _init?: RequestInit) => {
+      attemptCount++;
+      
+      if (attemptCount <= 2) {
+        throw new Error('Network error: ECONNREFUSED');
+      }
+      
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    };
+
+    await sendCustomWebhookRelay('https://example.com/webhook', { test: 'payload' });
+
+    assert.equal(attemptCount, 3, 'Should retry network errors');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
