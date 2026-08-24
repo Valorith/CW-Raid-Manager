@@ -5,7 +5,8 @@ import {
   buildCrashReviewInput,
   dispatchCrashTelemetryAutoFix,
   looksLikeCrashReport,
-  sendCustomWebhookRelay
+  sendCustomWebhookRelay,
+  extractContentOnlyPayload
 } from './inboundWebhookService.js';
 import { renderNotificationEvent } from './notificationEventRenderer.js';
 
@@ -368,4 +369,98 @@ test('sendCustomWebhookRelay retries on network errors', async () => {
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('extractContentOnlyPayload prefers rawBody with content field', () => {
+  const rawBody = JSON.stringify({ content: 'Raw body content' });
+  const payload = {
+    content: 'Payload content',
+    crashReport: { hash: 'abc123', exception: 'SIGSEGV' }
+  };
+
+  const result = extractContentOnlyPayload(payload, rawBody);
+  
+  assert.deepEqual(result, { content: 'Raw body content' });
+});
+
+test('extractContentOnlyPayload falls back to payload content when rawBody is null', () => {
+  const payload = {
+    content: 'Payload content',
+    crashReport: { hash: 'abc123', exception: 'SIGSEGV' },
+    crashReview: { summary: 'Something' }
+  };
+
+  const result = extractContentOnlyPayload(payload, null);
+  
+  assert.deepEqual(result, { content: 'Payload content' });
+});
+
+test('extractContentOnlyPayload falls back to payload when rawBody is invalid JSON', () => {
+  const payload = {
+    content: 'Payload content',
+    crashReport: { hash: 'abc123' }
+  };
+
+  const result = extractContentOnlyPayload(payload, 'not valid json{');
+  
+  assert.deepEqual(result, { content: 'Payload content' });
+});
+
+test('extractContentOnlyPayload falls back to payload when rawBody has no content field', () => {
+  const rawBody = JSON.stringify({ message: 'Something else' });
+  const payload = {
+    content: 'Payload content',
+    crashReport: { hash: 'abc123' }
+  };
+
+  const result = extractContentOnlyPayload(payload, rawBody);
+  
+  assert.deepEqual(result, { content: 'Payload content' });
+});
+
+test('extractContentOnlyPayload throws when no content field exists', () => {
+  const payload = {
+    crashReport: { hash: 'abc123' },
+    message: 'Something'
+  };
+
+  assert.throws(
+    () => extractContentOnlyPayload(payload, null),
+    /CUSTOM_WEBHOOK requires a "content" field/
+  );
+});
+
+test('extractContentOnlyPayload throws when payload is null', () => {
+  assert.throws(
+    () => extractContentOnlyPayload(null, null),
+    /CUSTOM_WEBHOOK requires a "content" field/
+  );
+});
+
+test('extractContentOnlyPayload extracts content even after CRASH_REVIEW enrichment', () => {
+  const payload = {
+    content: 'Original crash report text',
+    crashReport: {
+      hash: 'sha256abc',
+      rawHead: '...',
+      rawTail: '...',
+      symInit: '...',
+      exception: 'SIGSEGV',
+      osVersion: 'Linux',
+      modulesSnippet: '...'
+    },
+    crashReview: {
+      summary: 'Null pointer dereference',
+      signature: { exception: 'SIGSEGV', topFrame: 'foo.cpp:42' }
+    },
+    crashReviewAttempts: 1,
+    crashReportText: 'Full report...'
+  };
+
+  const result = extractContentOnlyPayload(payload, null);
+  
+  assert.deepEqual(result, { content: 'Original crash report text' });
+  assert.equal(Object.keys(result).length, 1, 'Should only have content field');
+  assert.equal('crashReport' in result, false);
+  assert.equal('crashReview' in result, false);
 });
