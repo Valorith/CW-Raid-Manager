@@ -2245,7 +2245,7 @@ async function runInboundWebhookActions(
         if (!config.customWebhookUrl) {
           throw new Error('Custom webhook POST URL is missing.');
         }
-        await sendCustomWebhookRelay(config.customWebhookUrl, payloadForActions, {
+        await sendCustomWebhookRelay(config.customWebhookUrl, payload, {
           secret: config.customWebhookSecret,
           secretHeaderName: config.customWebhookSecretHeaderName
         });
@@ -3912,15 +3912,51 @@ export async function sendCustomWebhookRelay(
     headers[headerName] = headerValue;
   }
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(payload)
-  });
+  const maxRetries = 2;
+  let lastError: Error | undefined;
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Custom webhook responded with ${response.status}: ${errorText}`);
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0) {
+      const backoffMs = Math.min(1000 * Math.pow(2, attempt - 1), 4000);
+      await new Promise(resolve => setTimeout(resolve, backoffMs));
+    }
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        const error = new Error(`Custom webhook responded with ${response.status}: ${errorText}`);
+        
+        if (response.status >= 500 && attempt < maxRetries) {
+          lastError = error;
+          continue;
+        }
+        
+        throw error;
+      }
+
+      return;
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('Custom webhook responded with')) {
+        throw error;
+      }
+      
+      if (attempt < maxRetries) {
+        lastError = error as Error;
+        continue;
+      }
+      
+      throw error;
+    }
+  }
+
+  if (lastError) {
+    throw lastError;
   }
 }
 
