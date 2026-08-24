@@ -293,8 +293,34 @@
                 <span>{{ formatDate(boss.updatedAt) }}</span>
               </div>
             </div>
-            <div v-if="permissions?.canEdit && mode === 'view'" class="boss-detail-actions">
+            <div v-if="mode === 'view'" class="boss-detail-actions">
               <button
+                type="button"
+                class="boss-detail-action"
+                aria-label="View boss edit history"
+                @click="openHistory"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 8v5l3 2" />
+                  <path d="M4.5 9A8 8 0 1 1 4 14M4 5v4h4" />
+                </svg>
+                History
+              </button>
+              <button
+                v-if="permissions?.canEdit"
+                type="button"
+                class="boss-detail-action"
+                aria-label="Review suggested boss edits"
+                @click="openSuggestions"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M6 4h12v16H6zM9 9h6M9 13h4" />
+                  <path d="m14 17 1.5 1.5L19 15" />
+                </svg>
+                Suggestions
+              </button>
+              <button
+                v-if="permissions?.canEdit"
                 type="button"
                 class="boss-detail-action"
                 aria-label="Edit boss details"
@@ -336,7 +362,7 @@
                   :class="{ 'is-active': mode === 'plain' }"
                   :aria-pressed="mode === 'plain'"
                   title="Edit the page visually"
-                  @click="beginPlainEditing"
+                  @click="requestNotesMode('plain')"
                 >
                   Edit
                 </button>
@@ -346,121 +372,264 @@
                   :class="{ 'is-active': mode === 'edit' }"
                   :aria-pressed="mode === 'edit'"
                   title="Edit advanced MediaWiki source"
-                  @click="beginEditing"
+                  @click="requestNotesMode('edit')"
                 >
                   Source
+                </button>
+                <button
+                  v-if="!permissions?.canEdit && permissions?.canSuggest"
+                  type="button"
+                  :class="{ 'is-active': mode === 'suggest' }"
+                  :aria-pressed="mode === 'suggest'"
+                  title="Suggest an edit for contributor review"
+                  @click="startSuggestion"
+                >
+                  Suggest edit
                 </button>
               </div>
             </div>
           </div>
 
+          <div
+            v-if="activeEditLease && mode !== 'view'"
+            class="boss-edit-lock boss-edit-lock--mine"
+            role="status"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="5" y="10" width="14" height="10" rx="2" />
+              <path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v2" />
+            </svg>
+            <div>
+              <strong>Page locked to you</strong>
+              <span
+                >Others can view these notes, but only you can edit until you return to
+                Preview.</span
+              >
+            </div>
+          </div>
+          <div
+            v-else-if="editLockMessage"
+            class="boss-edit-lock boss-edit-lock--blocked"
+            role="alert"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="5" y="10" width="14" height="10" rx="2" />
+              <path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v2" />
+            </svg>
+            <div>
+              <strong>{{ editLockMessage }}</strong>
+              <span v-if="editLockConflict">
+                The lock renews while they edit and expires
+                {{ formatEditLeaseExpiry(editLockConflict.expiresAt) }} if abandoned.
+              </span>
+              <span v-else
+                >Your draft is still here, but saving is disabled until you reopen the editor.</span
+              >
+            </div>
+            <button
+              v-if="mode === 'view'"
+              type="button"
+              aria-label="Dismiss edit lock notice"
+              @click="clearEditLockNotice"
+            >
+              ×
+            </button>
+          </div>
+
           <Transition name="notes-mode" mode="out-in">
             <article v-if="mode === 'view'" key="view" class="boss-notes-document">
-              <MediaWikiContent :source="boss.notes ?? ''" :links="wikiLinks">
-                <template #empty>
-                  <div class="boss-notes-empty">
-                    <svg viewBox="0 0 48 48" aria-hidden="true">
-                      <path d="M12 7h18l7 7v27H12V7Z" />
-                      <path d="M30 7v8h7M18 23h13M18 29h13M18 35h8" />
-                    </svg>
-                    <h2>No strategy notes yet</h2>
-                    <p v-if="permissions?.canEdit">
-                      Start this page with the encounter plan your raid needs.
-                    </p>
-                    <p v-else>A contributor has not documented this encounter yet.</p>
-                    <button
-                      v-if="permissions?.canEdit"
-                      type="button"
-                      class="boss-button boss-button--primary"
-                      @click="beginPlainEditing"
-                    >
-                      Write notes
-                    </button>
-                  </div>
-                </template>
-              </MediaWikiContent>
+              <div class="boss-notes-document__content">
+                <MediaWikiContent :source="boss.notes ?? ''" :links="wikiLinks">
+                  <template #empty>
+                    <div class="boss-notes-empty">
+                      <svg viewBox="0 0 48 48" aria-hidden="true">
+                        <path d="M12 7h18l7 7v27H12V7Z" />
+                        <path d="M30 7v8h7M18 23h13M18 29h13M18 35h8" />
+                      </svg>
+                      <h2>No strategy notes yet</h2>
+                      <p v-if="permissions?.canEdit">
+                        Start this page with the encounter plan your raid needs.
+                      </p>
+                      <p v-else>A contributor has not documented this encounter yet.</p>
+                      <button
+                        v-if="permissions?.canEdit"
+                        type="button"
+                        class="boss-button boss-button--primary"
+                        @click="requestNotesMode('plain')"
+                      >
+                        Write notes
+                      </button>
+                      <button
+                        v-else-if="permissions?.canSuggest"
+                        type="button"
+                        class="boss-button boss-button--primary"
+                        @click="startSuggestion"
+                      >
+                        Suggest notes
+                      </button>
+                    </div>
+                  </template>
+                </MediaWikiContent>
+              </div>
+
+              <BossCuresCard :cures="currentBossCures" />
             </article>
 
-            <div v-else-if="mode === 'edit'" key="edit" class="boss-notes-edit">
-              <MediaWikiEditor v-model="notesDraft" :links="wikiLinks" />
-              <div class="boss-notes-edit__footer">
-                <p>
-                  <span v-if="notesDirty" class="boss-notes-edit__unsaved">Unsaved changes</span>
-                  <span v-else>MediaWiki wikitext · Live preview</span>
-                </p>
-                <div>
-                  <button
-                    type="button"
-                    class="boss-button boss-button--quiet"
-                    :disabled="savingNotes"
-                    @click="cancelEditing"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    class="boss-button boss-button--primary"
-                    :disabled="savingNotes || !notesDirty"
-                    @click="saveNotes"
-                  >
-                    {{ savingNotes ? 'Saving…' : 'Save notes' }}
-                  </button>
+            <div v-else-if="mode === 'edit'" key="edit" class="boss-notes-edit-layout">
+              <div class="boss-notes-edit">
+                <MediaWikiEditor v-model="notesDraft" :links="wikiLinks" />
+                <div class="boss-notes-edit__footer">
+                  <p>
+                    <span v-if="notesDirty" class="boss-notes-edit__unsaved">Unsaved changes</span>
+                    <span v-else>MediaWiki wikitext · Live preview</span>
+                  </p>
+                  <div>
+                    <button
+                      type="button"
+                      class="boss-button boss-button--quiet"
+                      :disabled="savingNotes"
+                      @click="cancelEditing"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      class="boss-button boss-button--primary"
+                      :disabled="savingNotes || !notesDirty || !activeEditLease"
+                      @click="saveNotes"
+                    >
+                      {{ savingNotes ? 'Saving…' : 'Save notes' }}
+                    </button>
+                  </div>
                 </div>
               </div>
+              <BossCuresCard
+                :cures="currentBossCures"
+                editable
+                :saving="savingCures"
+                @toggle="toggleBossCure"
+              />
             </div>
 
-            <div v-else key="plain" class="boss-notes-edit boss-notes-edit--plain">
-              <div v-if="loadingPlainNotes" class="boss-plain-loading">
-                <GlobalLoadingSpinner />
-                <p>Preparing the visual editor…</p>
-              </div>
-              <div v-else-if="plainLoadError" class="boss-plain-error">
-                <strong>The visual editor is unavailable</strong>
-                <p>{{ plainLoadError }}</p>
-                <button
-                  type="button"
-                  class="boss-button boss-button--quiet"
-                  @click="loadPlainNotes"
-                >
-                  Try again
-                </button>
-              </div>
-              <PlainBossNotesEditor
-                v-else-if="plainDocument"
-                v-model="plainFields"
-                :document="plainDocument"
-                @request-source="beginEditing"
-              />
-              <div class="boss-notes-edit__footer boss-notes-edit__footer--sticky">
-                <p>
-                  <span v-if="plainNotesDirty" class="boss-notes-edit__unsaved"
-                    >Unsaved changes</span
-                  >
-                  <span v-else>Ready to edit</span>
-                  <span class="boss-notes-edit__shortcuts">
-                    <kbd>⌘S</kbd> save <span aria-hidden="true">·</span> <kbd>Esc</kbd> close
-                  </span>
-                </p>
-                <div>
+            <div
+              v-else
+              :key="mode"
+              class="boss-notes-edit-mode"
+              :class="{ 'boss-notes-edit-layout': mode === 'plain' }"
+            >
+              <div
+                class="boss-notes-edit boss-notes-edit--plain"
+                :class="{ 'boss-notes-edit--suggestion': mode === 'suggest' }"
+              >
+                <div v-if="mode === 'suggest'" class="boss-suggestion-intro">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M6 4h12v16H6zM9 9h6M9 13h4" />
+                    <path d="m14 17 1.5 1.5L19 15" />
+                  </svg>
+                  <div>
+                    <strong>Suggest changes for review</strong>
+                    <span>
+                      Your edits will not change the live page until a contributor approves them.
+                    </span>
+                  </div>
+                </div>
+                <div v-if="loadingPlainNotes" class="boss-plain-loading">
+                  <GlobalLoadingSpinner />
+                  <p>Preparing the visual editor…</p>
+                </div>
+                <div v-else-if="plainLoadError" class="boss-plain-error">
+                  <strong>The visual editor is unavailable</strong>
+                  <p>{{ plainLoadError }}</p>
                   <button
                     type="button"
                     class="boss-button boss-button--quiet"
-                    :disabled="savingPlainNotes"
-                    @click="cancelEditing"
+                    @click="loadPlainNotes"
                   >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    class="boss-button boss-button--primary"
-                    :disabled="savingPlainNotes || loadingPlainNotes || !plainNotesDirty"
-                    title="Save notes (Command or Control + S)"
-                    @click="savePlainNotes"
-                  >
-                    {{ savingPlainNotes ? 'Saving…' : 'Save notes' }}
+                    Try again
                   </button>
                 </div>
+                <PlainBossNotesEditor
+                  v-else-if="plainDocument"
+                  v-model="plainFields"
+                  :document="plainDocument"
+                  :allow-source="mode !== 'suggest'"
+                  @request-source="requestNotesMode('edit')"
+                />
+                <div v-if="mode === 'suggest' && plainDocument" class="boss-suggestion-cures">
+                  <div>
+                    <strong>Suggested cures</strong>
+                    <span>Include any changes this encounter needs.</span>
+                  </div>
+                  <button
+                    v-for="cure in cureOptions"
+                    :key="cure.key"
+                    type="button"
+                    :class="{ 'is-selected': suggestionCures[cure.key] }"
+                    :aria-pressed="suggestionCures[cure.key]"
+                    @click="suggestionCures[cure.key] = !suggestionCures[cure.key]"
+                  >
+                    <span aria-hidden="true">{{ suggestionCures[cure.key] ? '✓' : '—' }}</span>
+                    {{ cure.label }}
+                  </button>
+                </div>
+                <div class="boss-notes-edit__footer boss-notes-edit__footer--sticky">
+                  <p>
+                    <span v-if="activeNotesDirty" class="boss-notes-edit__unsaved">
+                      {{ mode === 'suggest' ? 'Unsubmitted changes' : 'Unsaved changes' }}
+                    </span>
+                    <span v-else>{{
+                      mode === 'suggest' ? 'Ready to suggest' : 'Ready to edit'
+                    }}</span>
+                    <span class="boss-notes-edit__shortcuts">
+                      <kbd>⌘S</kbd> {{ mode === 'suggest' ? 'submit' : 'save' }}
+                      <span aria-hidden="true">·</span> <kbd>Esc</kbd> close
+                    </span>
+                  </p>
+                  <div>
+                    <button
+                      type="button"
+                      class="boss-button boss-button--quiet"
+                      :disabled="savingPlainNotes"
+                      @click="cancelEditing"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      class="boss-button boss-button--primary"
+                      :disabled="
+                        savingPlainNotes ||
+                        loadingPlainNotes ||
+                        !activeNotesDirty ||
+                        (mode === 'plain' && !activeEditLease)
+                      "
+                      :title="
+                        mode === 'suggest'
+                          ? 'Submit suggestion (Command or Control + S)'
+                          : 'Save notes (Command or Control + S)'
+                      "
+                      @click="mode === 'suggest' ? submitSuggestion() : savePlainNotes()"
+                    >
+                      {{
+                        savingPlainNotes
+                          ? mode === 'suggest'
+                            ? 'Submitting…'
+                            : 'Saving…'
+                          : mode === 'suggest'
+                            ? 'Submit suggestion'
+                            : 'Save notes'
+                      }}
+                    </button>
+                  </div>
+                </div>
               </div>
+              <BossCuresCard
+                v-if="mode === 'plain'"
+                :cures="currentBossCures"
+                editable
+                :saving="savingCures"
+                @toggle="toggleBossCure"
+              />
             </div>
           </Transition>
 
@@ -1019,6 +1188,153 @@
       </Transition>
 
       <Transition name="boss-modal">
+        <div v-if="showHistoryModal" class="boss-modal-backdrop" @click.self="closeHistory">
+          <div
+            ref="historyDialogRef"
+            class="boss-modal boss-modal--compact"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="boss-history-title"
+            tabindex="-1"
+          >
+            <div class="boss-modal__header">
+              <div class="boss-modal__identity">
+                <span class="boss-modal__mark" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M12 8v5l3 2" />
+                    <path d="M4.5 9A8 8 0 1 1 4 14M4 5v4h4" />
+                  </svg>
+                </span>
+                <div>
+                  <p>Audit trail</p>
+                  <h2 id="boss-history-title">Edit history</h2>
+                </div>
+              </div>
+              <button type="button" aria-label="Close" @click="closeHistory">×</button>
+            </div>
+            <div class="boss-modal__body boss-history">
+              <div v-if="historyLoading" class="boss-modal-loading">Loading edit history…</div>
+              <ol v-else-if="editHistory.length > 0" class="boss-history__list">
+                <li v-for="entry in editHistory" :key="entry.id">
+                  <span class="boss-history__dot" aria-hidden="true"></span>
+                  <div>
+                    <strong>{{ entry.summary }}</strong>
+                    <p>{{ entry.editorName }}</p>
+                    <time :datetime="entry.createdAt">{{ formatDateTime(entry.createdAt) }}</time>
+                  </div>
+                </li>
+              </ol>
+              <div v-else class="boss-modal-empty">
+                <strong>No recorded edits yet</strong>
+                <p>New edits and approved suggestions will appear here.</p>
+              </div>
+            </div>
+            <div class="boss-modal__footer boss-modal__footer--end">
+              <button type="button" class="boss-button boss-button--primary" @click="closeHistory">
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+
+      <Transition name="boss-modal">
+        <div v-if="showSuggestionsModal" class="boss-modal-backdrop" @click.self="closeSuggestions">
+          <div
+            ref="suggestionsDialogRef"
+            class="boss-modal boss-modal--review"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="boss-suggestions-title"
+            tabindex="-1"
+          >
+            <div class="boss-modal__header">
+              <div class="boss-modal__identity">
+                <span class="boss-modal__mark" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M6 4h12v16H6zM9 9h6M9 13h4" />
+                    <path d="m14 17 1.5 1.5L19 15" />
+                  </svg>
+                </span>
+                <div>
+                  <p>Contributor review</p>
+                  <h2 id="boss-suggestions-title">Suggested edits</h2>
+                </div>
+              </div>
+              <button type="button" aria-label="Close" @click="closeSuggestions">×</button>
+            </div>
+            <div class="boss-modal__body boss-suggestions">
+              <div v-if="suggestionsLoading" class="boss-modal-loading">Loading suggestions…</div>
+              <div v-else-if="editSuggestions.length > 0" class="boss-suggestions__list">
+                <article v-for="suggestion in editSuggestions" :key="suggestion.id">
+                  <header>
+                    <div>
+                      <span>Suggested by</span>
+                      <strong>{{ suggestion.submittedByName }}</strong>
+                    </div>
+                    <time :datetime="suggestion.createdAt">
+                      {{ formatDateTime(suggestion.createdAt) }}
+                    </time>
+                  </header>
+                  <div class="boss-suggestions__cures">
+                    <span>Cures</span>
+                    <strong>{{ formatCures(suggestion.proposedCures) }}</strong>
+                  </div>
+                  <div class="boss-suggestions__preview">
+                    <MediaWikiContent :source="suggestion.proposedNotes ?? ''" :links="wikiLinks">
+                      <template #empty>
+                        <p class="boss-suggestions__empty-notes">No encounter notes.</p>
+                      </template>
+                    </MediaWikiContent>
+                  </div>
+                  <footer>
+                    <button
+                      type="button"
+                      class="boss-button boss-button--quiet"
+                      :disabled="Boolean(reviewingSuggestionId)"
+                      @click="reviewSuggestion(suggestion, 'reject')"
+                    >
+                      {{
+                        reviewingSuggestionId === suggestion.id && reviewAction === 'reject'
+                          ? 'Rejecting…'
+                          : 'Reject'
+                      }}
+                    </button>
+                    <button
+                      type="button"
+                      class="boss-button boss-button--primary"
+                      :disabled="Boolean(reviewingSuggestionId)"
+                      @click="reviewSuggestion(suggestion, 'approve')"
+                    >
+                      {{
+                        reviewingSuggestionId === suggestion.id && reviewAction === 'approve'
+                          ? 'Approving…'
+                          : 'Approve & publish'
+                      }}
+                    </button>
+                  </footer>
+                </article>
+              </div>
+              <div v-else class="boss-modal-empty">
+                <strong>No suggestions waiting</strong>
+                <p>Member suggestions for this boss will appear here.</p>
+              </div>
+            </div>
+            <div class="boss-modal__footer boss-modal__footer--end">
+              <button
+                type="button"
+                class="boss-button boss-button--primary"
+                :disabled="Boolean(reviewingSuggestionId)"
+                @click="closeSuggestions"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+
+      <Transition name="boss-modal">
         <div v-if="deletePrompt" class="boss-modal-backdrop boss-modal-backdrop--confirm">
           <div
             ref="deleteDialogRef"
@@ -1063,6 +1379,63 @@
                 @click="executeDelete"
               >
                 {{ deleting ? 'Deleting…' : 'Delete permanently' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+
+      <Transition name="boss-modal">
+        <div
+          v-if="editLockPromptMode"
+          class="boss-modal-backdrop boss-modal-backdrop--confirm"
+          @click.self="cancelEditLockPrompt"
+        >
+          <div
+            ref="editLockDialogRef"
+            class="boss-confirm boss-confirm--lock"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="boss-edit-lock-title"
+            aria-describedby="boss-edit-lock-description"
+            tabindex="-1"
+          >
+            <div class="boss-confirm__mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <rect x="5" y="10" width="14" height="10" rx="2" />
+                <path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v2" />
+              </svg>
+            </div>
+            <span class="boss-confirm__eyebrow">Exclusive editing</span>
+            <h2 id="boss-edit-lock-title">Lock this page and open {{ editLockPromptLabel }}?</h2>
+            <p id="boss-edit-lock-description">
+              <strong class="boss-confirm__subject">{{ boss?.name }}</strong>
+              will be reserved for you. Other contributors can still view the page, but they cannot
+              open Edit or Source while your lock is active.
+            </p>
+            <small>
+              The lock renews while you work, releases when you return to Preview, and expires after
+              about two minutes if your tab closes unexpectedly.
+            </small>
+            <div>
+              <button
+                type="button"
+                class="boss-button boss-button--quiet"
+                :disabled="acquiringEditLease"
+                @click="cancelEditLockPrompt"
+              >
+                Not now
+              </button>
+              <button
+                type="button"
+                class="boss-button boss-button--primary"
+                :disabled="acquiringEditLease"
+                data-modal-initial-focus
+                @click="confirmEditLockPrompt"
+              >
+                {{
+                  acquiringEditLease ? 'Locking page…' : `Lock page & open ${editLockPromptLabel}`
+                }}
               </button>
             </div>
           </div>
@@ -1125,6 +1498,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router';
 
+import BossCuresCard from '../components/BossCuresCard.vue';
 import ErrorModal from '../components/ErrorModal.vue';
 import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
 import MediaWikiContent from '../components/MediaWikiContent.vue';
@@ -1135,6 +1509,11 @@ import { useErrorModal } from '../composables/useErrorModal';
 import {
   api,
   type BossContributor,
+  type BossCures,
+  type BossEditHistoryEntry,
+  type BossEditLease,
+  type BossEditMode,
+  type BossEditSuggestion,
   type BossLibraryPermissions,
   type GuildBoss,
   type GuildBossGroup,
@@ -1199,6 +1578,55 @@ const nextBoss = computed(() =>
     : null
 );
 
+const cureOptions: Array<{ key: keyof BossCures; label: string }> = [
+  { key: 'curse', label: 'Curse' },
+  { key: 'poison', label: 'Poison' },
+  { key: 'disease', label: 'Disease' }
+];
+const currentBossCures = computed<BossCures>(() => ({
+  curse: boss.value?.cures?.curse ?? false,
+  poison: boss.value?.cures?.poison ?? false,
+  disease: boss.value?.cures?.disease ?? false
+}));
+const savingCures = ref(false);
+
+function formatCures(cures: BossCures) {
+  const names = cureOptions.filter((option) => cures[option.key]).map((option) => option.label);
+  return names.length > 0 ? names.join(', ') : 'None needed';
+}
+
+async function toggleBossCure(key: keyof BossCures) {
+  if (
+    !boss.value ||
+    !permissions.value?.canEdit ||
+    !activeEditLease.value ||
+    !['plain', 'edit'].includes(mode.value) ||
+    savingCures.value
+  ) {
+    return;
+  }
+  const cures = { ...currentBossCures.value, [key]: !currentBossCures.value[key] };
+  savingCures.value = true;
+  try {
+    boss.value = await api.updateGuildBoss(guildId.value, boss.value.id, {
+      cures,
+      editLeaseToken: activeEditLease.value.token
+    });
+    await refreshLibrary();
+    addToast({
+      title: 'Cures updated',
+      message: `Required cures: ${formatCures(cures)}.`,
+      variant: 'success'
+    });
+  } catch (error) {
+    if (!captureEditLockError(error)) {
+      showErrorFromException(error, 'Unable to update required cures.');
+    }
+  } finally {
+    savingCures.value = false;
+  }
+}
+
 function bossRoute(item: Pick<GuildBossSummary, 'slug'>) {
   return {
     name: 'GuildBossShare',
@@ -1252,7 +1680,7 @@ async function loadPage() {
   }
 
   if (boss.value && permissions.value?.canEdit && route.query.edit === '1') {
-    beginPlainEditing();
+    void requestNotesMode('plain');
   }
 }
 
@@ -1331,7 +1759,20 @@ function formatCompactDate(value: string) {
   }).format(new Date(value));
 }
 
-const mode = ref<'view' | 'edit' | 'plain'>('view');
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit'
+  }).format(new Date(value));
+}
+
+type NotesMode = 'view' | 'edit' | 'plain' | 'suggest';
+type EditableNotesMode = 'edit' | 'plain';
+
+const mode = ref<NotesMode>('view');
 const notesDraft = ref('');
 const notesOriginal = ref('');
 const savingNotes = ref(false);
@@ -1345,21 +1786,160 @@ const plainLoadError = ref('');
 const plainNotesDirty = computed(() =>
   plainBossNotesChanged(plainFields.value, plainOriginalFields.value)
 );
-const activeNotesDirty = computed(() =>
-  mode.value === 'edit' ? notesDirty.value : mode.value === 'plain' && plainNotesDirty.value
+const suggestionCures = ref<BossCures>({ curse: false, poison: false, disease: false });
+const suggestionOriginalCures = ref<BossCures>({ curse: false, poison: false, disease: false });
+const suggestionCuresDirty = computed(() =>
+  cureOptions.some(
+    (option) => suggestionCures.value[option.key] !== suggestionOriginalCures.value[option.key]
+  )
 );
+const activeNotesDirty = computed(() =>
+  mode.value === 'edit'
+    ? notesDirty.value
+    : mode.value === 'plain'
+      ? plainNotesDirty.value
+      : mode.value === 'suggest' && (plainNotesDirty.value || suggestionCuresDirty.value)
+);
+const activeEditLease = ref<(BossEditLease & { token: string }) | null>(null);
+const editLeaseRevision = ref('');
+const editLeaseSourceNotes = ref('');
+const editLockPromptMode = ref<EditableNotesMode | null>(null);
+const acquiringEditLease = ref(false);
+const editLockConflict = ref<BossEditLease | null>(null);
+const editLockMessage = ref('');
+const editLockPromptLabel = computed(() =>
+  editLockPromptMode.value === 'edit' ? 'Source' : 'Edit'
+);
+let editLeaseHeartbeatTimer: ReturnType<typeof window.setInterval> | null = null;
+let editLeaseHeartbeatInFlight = false;
 
-async function beginEditing() {
-  if (!boss.value || !permissions.value?.canEdit) return;
-  if (mode.value === 'edit') return;
-  if (mode.value === 'plain' && !(await confirmDiscardNotes())) return;
-  notesDraft.value = boss.value.notes ?? '';
-  notesOriginal.value = boss.value.notes ?? '';
-  mode.value = 'edit';
+function toBossEditMode(nextMode: EditableNotesMode): BossEditMode {
+  return nextMode === 'edit' ? 'source' : 'plain';
+}
+
+function formatEditLeaseExpiry(expiresAt: string) {
+  return `at ${new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit'
+  }).format(new Date(expiresAt))}`;
+}
+
+function stopEditLeaseHeartbeat() {
+  if (editLeaseHeartbeatTimer) window.clearInterval(editLeaseHeartbeatTimer);
+  editLeaseHeartbeatTimer = null;
+  editLeaseHeartbeatInFlight = false;
+}
+
+function clearEditLockNotice() {
+  if (mode.value !== 'view') return;
+  editLockConflict.value = null;
+  editLockMessage.value = '';
+}
+
+function captureEditLockError(error: unknown): boolean {
+  const response = (
+    error as {
+      response?: {
+        data?: { code?: string; message?: string; lock?: BossEditLease | null };
+      };
+    }
+  ).response;
+  const code = response?.data?.code;
+  if (!code?.startsWith('boss_edit_lock')) return false;
+
+  stopEditLeaseHeartbeat();
+  activeEditLease.value = null;
+  editLeaseRevision.value = '';
+  editLeaseSourceNotes.value = '';
+  editLockConflict.value = response?.data?.lock ?? null;
+  editLockMessage.value =
+    response?.data?.message ??
+    'Your edit lock is no longer active. Return to Preview, then reopen the editor.';
+  return true;
+}
+
+async function renewEditLease(nextMode?: EditableNotesMode) {
+  if (!boss.value || !activeEditLease.value || editLeaseHeartbeatInFlight) return;
+  const currentLease = activeEditLease.value;
+  const heartbeatMode =
+    nextMode ??
+    (mode.value === 'edit'
+      ? 'edit'
+      : mode.value === 'plain'
+        ? 'plain'
+        : currentLease.mode === 'source'
+          ? 'edit'
+          : 'plain');
+  editLeaseHeartbeatInFlight = true;
+  try {
+    const renewed = await api.heartbeatGuildBossEditLease(
+      guildId.value,
+      boss.value.id,
+      currentLease.token,
+      toBossEditMode(heartbeatMode)
+    );
+    if (activeEditLease.value?.token !== currentLease.token) return;
+    activeEditLease.value = { ...renewed, token: currentLease.token };
+  } catch (error) {
+    if (activeEditLease.value?.token !== currentLease.token) return;
+    if (!captureEditLockError(error)) {
+      console.warn('Unable to renew the boss edit lock. The client will retry.', error);
+    }
+  } finally {
+    editLeaseHeartbeatInFlight = false;
+  }
+}
+
+function startEditLeaseHeartbeat() {
+  stopEditLeaseHeartbeat();
+  editLeaseHeartbeatTimer = window.setInterval(() => {
+    void renewEditLease();
+  }, 30_000);
+}
+
+async function releaseEditLease() {
+  const currentBoss = boss.value;
+  const currentLease = activeEditLease.value;
+  stopEditLeaseHeartbeat();
+  activeEditLease.value = null;
+  editLeaseRevision.value = '';
+  editLeaseSourceNotes.value = '';
+  if (!currentBoss || !currentLease) return;
+  try {
+    await api.releaseGuildBossEditLease(guildId.value, currentBoss.id, currentLease.token);
+  } catch (error) {
+    console.warn('Unable to release the boss edit lock. It will expire automatically.', error);
+  }
+}
+
+function releaseEditLeaseBestEffort() {
+  const currentBoss = boss.value;
+  const currentLease = activeEditLease.value;
+  stopEditLeaseHeartbeat();
+  activeEditLease.value = null;
+  editLeaseRevision.value = '';
+  editLeaseSourceNotes.value = '';
+  if (!currentBoss || !currentLease) return;
+
+  const url = `/api/guilds/${encodeURIComponent(guildId.value)}/bosses/${encodeURIComponent(
+    currentBoss.id
+  )}/edit-lease/release`;
+  const body = JSON.stringify({ token: currentLease.token });
+  if (navigator.sendBeacon) {
+    navigator.sendBeacon(url, new Blob([body], { type: 'application/json' }));
+    return;
+  }
+  void fetch(url, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+    keepalive: true
+  });
 }
 
 async function loadPlainNotes() {
-  if (!boss.value || !permissions.value?.canEdit || loadingPlainNotes.value) return;
+  if (!boss.value || !permissions.value?.canSuggest || loadingPlainNotes.value) return;
   loadingPlainNotes.value = true;
   plainLoadError.value = '';
   try {
@@ -1368,6 +1948,7 @@ async function loadPlainNotes() {
     plainDocument.value = document;
     plainFields.value = { ...values };
     plainOriginalFields.value = { ...values };
+    if (activeEditLease.value) editLeaseRevision.value = document.revision;
   } catch (error) {
     const typedError = error as { response?: { data?: { message?: string } }; message?: string };
     plainLoadError.value =
@@ -1379,15 +1960,79 @@ async function loadPlainNotes() {
   }
 }
 
-async function beginPlainEditing() {
-  if (!boss.value || !permissions.value?.canEdit) return;
-  if (mode.value === 'plain') return;
-  if (mode.value === 'edit' && !(await confirmDiscardNotes())) return;
-  mode.value = 'plain';
+async function startSuggestion() {
+  if (!boss.value || !permissions.value?.canSuggest || permissions.value.canEdit) return;
+  if (mode.value === 'suggest') return;
+  mode.value = 'suggest';
   plainDocument.value = null;
   plainFields.value = {};
   plainOriginalFields.value = {};
+  suggestionCures.value = { ...currentBossCures.value };
+  suggestionOriginalCures.value = { ...currentBossCures.value };
   await loadPlainNotes();
+}
+
+async function activateNotesMode(nextMode: EditableNotesMode) {
+  if (!boss.value || !permissions.value?.canEdit) return;
+  if (nextMode === 'edit') {
+    const sourceNotes = activeEditLease.value
+      ? editLeaseSourceNotes.value
+      : (boss.value.notes ?? '');
+    notesDraft.value = sourceNotes;
+    notesOriginal.value = sourceNotes;
+    mode.value = 'edit';
+  } else {
+    mode.value = 'plain';
+    plainDocument.value = null;
+    plainFields.value = {};
+    plainOriginalFields.value = {};
+    await loadPlainNotes();
+  }
+  void renewEditLease(nextMode);
+}
+
+async function requestNotesMode(nextMode: EditableNotesMode) {
+  if (!boss.value || !permissions.value?.canEdit || mode.value === nextMode) return;
+  if (mode.value === 'view') {
+    clearEditLockNotice();
+    editLockPromptMode.value = nextMode;
+    return;
+  }
+  if (!(await confirmDiscardNotes())) return;
+  await activateNotesMode(nextMode);
+}
+
+function cancelEditLockPrompt() {
+  if (acquiringEditLease.value) return;
+  editLockPromptMode.value = null;
+}
+
+async function confirmEditLockPrompt() {
+  const nextMode = editLockPromptMode.value;
+  if (!boss.value || !nextMode || acquiringEditLease.value) return;
+  acquiringEditLease.value = true;
+  try {
+    const acquisition = await api.acquireGuildBossEditLease(
+      guildId.value,
+      boss.value.id,
+      toBossEditMode(nextMode)
+    );
+    activeEditLease.value = acquisition.lease;
+    editLeaseRevision.value = acquisition.revision;
+    editLeaseSourceNotes.value = acquisition.notes;
+    editLockConflict.value = null;
+    editLockMessage.value = '';
+    editLockPromptMode.value = null;
+    startEditLeaseHeartbeat();
+    await activateNotesMode(nextMode);
+  } catch (error) {
+    editLockPromptMode.value = null;
+    if (!captureEditLockError(error)) {
+      showErrorFromException(error, 'Unable to lock this boss page for editing.');
+    }
+  } finally {
+    acquiringEditLease.value = false;
+  }
 }
 
 const discardPrompt = ref(false);
@@ -1416,21 +2061,31 @@ async function cancelEditing() {
   if (!(await confirmDiscardNotes())) return;
   if (mode.value === 'edit') notesDraft.value = notesOriginal.value;
   if (mode.value === 'plain') plainFields.value = { ...plainOriginalFields.value };
+  if (mode.value === 'suggest') {
+    plainFields.value = { ...plainOriginalFields.value };
+    suggestionCures.value = { ...suggestionOriginalCures.value };
+  }
   mode.value = 'view';
+  editLockConflict.value = null;
+  editLockMessage.value = '';
+  await releaseEditLease();
 }
 
 async function saveNotes() {
-  if (!boss.value || !notesDirty.value || savingNotes.value) return;
+  if (!boss.value || !activeEditLease.value || !notesDirty.value || savingNotes.value) return;
   savingNotes.value = true;
   try {
     const updated = await api.updateGuildBoss(guildId.value, boss.value.id, {
-      notes: notesDraft.value
+      notes: notesDraft.value,
+      editLeaseToken: activeEditLease.value.token,
+      notesRevision: editLeaseRevision.value
     });
     boss.value = updated;
     notesOriginal.value = updated.notes ?? '';
     notesDraft.value = updated.notes ?? '';
     plainDocument.value = null;
     mode.value = 'view';
+    await releaseEditLease();
     await refreshLibrary();
     if (route.query.edit === '1') {
       await router.replace(bossRoute(updated));
@@ -1441,21 +2096,30 @@ async function saveNotes() {
       variant: 'success'
     });
   } catch (error) {
-    showErrorFromException(error, 'Unable to save boss notes.');
+    if (!captureEditLockError(error)) {
+      showErrorFromException(error, 'Unable to save boss notes.');
+    }
   } finally {
     savingNotes.value = false;
   }
 }
 
 async function savePlainNotes() {
-  if (!boss.value || !plainDocument.value || !plainNotesDirty.value || savingPlainNotes.value) {
+  if (
+    !boss.value ||
+    !activeEditLease.value ||
+    !plainDocument.value ||
+    !plainNotesDirty.value ||
+    savingPlainNotes.value
+  ) {
     return;
   }
   savingPlainNotes.value = true;
   try {
     const result = await api.updateGuildBossPlainNotes(guildId.value, boss.value.id, {
       revision: plainDocument.value.revision,
-      fields: plainFields.value
+      fields: plainFields.value,
+      editLeaseToken: activeEditLease.value.token
     });
     const values = plainBossNotesValues(result.document);
     boss.value = result.boss;
@@ -1465,6 +2129,7 @@ async function savePlainNotes() {
     notesDraft.value = result.boss.notes ?? '';
     notesOriginal.value = result.boss.notes ?? '';
     mode.value = 'view';
+    await releaseEditLease();
     await refreshLibrary();
     addToast({
       title: 'Boss notes saved',
@@ -1472,10 +2137,44 @@ async function savePlainNotes() {
       variant: 'success'
     });
   } catch (error) {
-    showErrorFromException(
-      error,
-      'Unable to save plain-text boss notes. Your edits are still here.'
-    );
+    if (!captureEditLockError(error)) {
+      showErrorFromException(
+        error,
+        'Unable to save plain-text boss notes. Your edits are still here.'
+      );
+    }
+  } finally {
+    savingPlainNotes.value = false;
+  }
+}
+
+async function submitSuggestion() {
+  if (
+    !boss.value ||
+    !plainDocument.value ||
+    mode.value !== 'suggest' ||
+    !activeNotesDirty.value ||
+    savingPlainNotes.value
+  ) {
+    return;
+  }
+  savingPlainNotes.value = true;
+  try {
+    await api.createGuildBossEditSuggestion(guildId.value, boss.value.id, {
+      revision: plainDocument.value.revision,
+      fields: plainFields.value,
+      cures: suggestionCures.value
+    });
+    plainOriginalFields.value = { ...plainFields.value };
+    suggestionOriginalCures.value = { ...suggestionCures.value };
+    mode.value = 'view';
+    addToast({
+      title: 'Suggestion submitted',
+      message: 'A boss contributor can now review and publish your changes.',
+      variant: 'success'
+    });
+  } catch (error) {
+    showErrorFromException(error, 'Unable to submit this suggestion. Your edits are still here.');
   } finally {
     savingPlainNotes.value = false;
   }
@@ -1485,6 +2184,16 @@ function handleBeforeUnload(event: BeforeUnloadEvent) {
   if (!activeNotesDirty.value) return;
   event.preventDefault();
   event.returnValue = '';
+}
+
+function handlePageHide() {
+  releaseEditLeaseBestEffort();
+}
+
+function handleVisibilityChange() {
+  if (document.visibilityState === 'visible' && mode.value !== 'view') {
+    void renewEditLease();
+  }
 }
 
 function handleGlobalKeydown(event: KeyboardEvent) {
@@ -1497,6 +2206,9 @@ function handleGlobalKeydown(event: KeyboardEvent) {
     } else if (mode.value === 'plain' && plainNotesDirty.value && !savingPlainNotes.value) {
       event.preventDefault();
       void savePlainNotes();
+    } else if (mode.value === 'suggest' && activeNotesDirty.value && !savingPlainNotes.value) {
+      event.preventDefault();
+      void submitSuggestion();
     }
     return;
   }
@@ -1504,6 +2216,8 @@ function handleGlobalKeydown(event: KeyboardEvent) {
   if (event.key !== 'Escape') return;
   if (discardPrompt.value) {
     resolveDiscardNotes(false);
+  } else if (editLockPromptMode.value) {
+    cancelEditLockPrompt();
   } else if (deletePrompt.value) {
     if (!deleting.value) deletePrompt.value = null;
   } else if (showBossModal.value) {
@@ -1512,6 +2226,10 @@ function handleGlobalKeydown(event: KeyboardEvent) {
     closeGroups();
   } else if (showContributorsModal.value) {
     closeContributors();
+  } else if (showHistoryModal.value) {
+    closeHistory();
+  } else if (showSuggestionsModal.value) {
+    closeSuggestions();
   } else if (mode.value !== 'view') {
     cancelEditing();
   }
@@ -1956,6 +2674,94 @@ function dropGroup(event: DragEvent, targetGroupId: string) {
   if (sourceGroupId) void reorderDroppedGroup(sourceGroupId, targetGroupId, position);
 }
 
+const showHistoryModal = ref(false);
+const historyLoading = ref(false);
+const editHistory = ref<BossEditHistoryEntry[]>([]);
+
+async function openHistory() {
+  if (!boss.value) return;
+  showHistoryModal.value = true;
+  historyLoading.value = true;
+  try {
+    editHistory.value = await api.fetchGuildBossEditHistory(guildId.value, boss.value.id);
+  } catch (error) {
+    showHistoryModal.value = false;
+    showErrorFromException(error, 'Unable to load this boss’s edit history.');
+  } finally {
+    historyLoading.value = false;
+  }
+}
+
+function closeHistory() {
+  showHistoryModal.value = false;
+}
+
+const showSuggestionsModal = ref(false);
+const suggestionsLoading = ref(false);
+const editSuggestions = ref<BossEditSuggestion[]>([]);
+const reviewingSuggestionId = ref<string | null>(null);
+const reviewAction = ref<'approve' | 'reject' | null>(null);
+
+async function openSuggestions() {
+  if (!boss.value || !permissions.value?.canEdit) return;
+  showSuggestionsModal.value = true;
+  suggestionsLoading.value = true;
+  try {
+    editSuggestions.value = await api.fetchGuildBossEditSuggestions(guildId.value, boss.value.id);
+  } catch (error) {
+    showSuggestionsModal.value = false;
+    showErrorFromException(error, 'Unable to load suggested edits.');
+  } finally {
+    suggestionsLoading.value = false;
+  }
+}
+
+function closeSuggestions() {
+  if (reviewingSuggestionId.value) return;
+  showSuggestionsModal.value = false;
+}
+
+async function reviewSuggestion(suggestion: BossEditSuggestion, action: 'approve' | 'reject') {
+  if (!boss.value || reviewingSuggestionId.value) return;
+  reviewingSuggestionId.value = suggestion.id;
+  reviewAction.value = action;
+  try {
+    const result = await api.reviewGuildBossEditSuggestion(
+      guildId.value,
+      boss.value.id,
+      suggestion.id,
+      action
+    );
+    editSuggestions.value = editSuggestions.value.filter((item) => item.id !== suggestion.id);
+    if (result.boss) {
+      boss.value = result.boss;
+      notesDraft.value = result.boss.notes ?? '';
+      notesOriginal.value = result.boss.notes ?? '';
+      plainDocument.value = null;
+      await refreshLibrary();
+    }
+    editHistory.value = [];
+    addToast({
+      title: action === 'approve' ? 'Suggestion published' : 'Suggestion rejected',
+      message:
+        action === 'approve'
+          ? `${suggestion.submittedByName}’s changes are now live.`
+          : `${suggestion.submittedByName}’s suggestion was closed without changing the page.`,
+      variant: action === 'approve' ? 'success' : 'info'
+    });
+  } catch (error) {
+    showErrorFromException(
+      error,
+      action === 'approve'
+        ? 'Unable to approve this suggestion.'
+        : 'Unable to reject this suggestion.'
+    );
+  } finally {
+    reviewingSuggestionId.value = null;
+    reviewAction.value = null;
+  }
+}
+
 const showContributorsModal = ref(false);
 const contributors = ref<BossContributor[]>([]);
 const contributorsLoading = ref(false);
@@ -2043,7 +2849,10 @@ const hasOpenModal = computed(
     showBossModal.value ||
     showGroupsModal.value ||
     showContributorsModal.value ||
+    showHistoryModal.value ||
+    showSuggestionsModal.value ||
     Boolean(deletePrompt.value) ||
+    Boolean(editLockPromptMode.value) ||
     discardPrompt.value
 );
 let bodyOverflowBeforeModal = '';
@@ -2052,15 +2861,21 @@ let focusBeforeModal: HTMLElement | null = null;
 const bossDialogRef = ref<HTMLElement | null>(null);
 const groupsDialogRef = ref<HTMLElement | null>(null);
 const contributorsDialogRef = ref<HTMLElement | null>(null);
+const historyDialogRef = ref<HTMLElement | null>(null);
+const suggestionsDialogRef = ref<HTMLElement | null>(null);
 const deleteDialogRef = ref<HTMLElement | null>(null);
 const discardDialogRef = ref<HTMLElement | null>(null);
+const editLockDialogRef = ref<HTMLElement | null>(null);
 
 const activeModalKey = computed(() => {
   if (discardPrompt.value) return 'discard';
+  if (editLockPromptMode.value) return 'edit-lock';
   if (deletePrompt.value) return 'delete';
   if (showBossModal.value) return 'boss';
   if (showGroupsModal.value) return 'groups';
   if (showContributorsModal.value) return 'contributors';
+  if (showHistoryModal.value) return 'history';
+  if (showSuggestionsModal.value) return 'suggestions';
   return null;
 });
 
@@ -2068,6 +2883,8 @@ function activeModalElement(): HTMLElement | null {
   switch (activeModalKey.value) {
     case 'discard':
       return discardDialogRef.value;
+    case 'edit-lock':
+      return editLockDialogRef.value;
     case 'delete':
       return deleteDialogRef.value;
     case 'boss':
@@ -2076,6 +2893,10 @@ function activeModalElement(): HTMLElement | null {
       return groupsDialogRef.value;
     case 'contributors':
       return contributorsDialogRef.value;
+    case 'history':
+      return historyDialogRef.value;
+    case 'suggestions':
+      return suggestionsDialogRef.value;
     default:
       return null;
   }
@@ -2142,7 +2963,14 @@ watch(
   [routeGuildKey, routeBossKey],
   ([nextGuildKey, nextBossKey], [previousGuildKey, previousBossKey]) => {
     if (nextGuildKey === previousGuildKey && nextBossKey === previousBossKey) return;
+    void releaseEditLease();
     mode.value = 'view';
+    editLockPromptMode.value = null;
+    clearEditLockNotice();
+    showHistoryModal.value = false;
+    showSuggestionsModal.value = false;
+    editHistory.value = [];
+    editSuggestions.value = [];
     shareStatus.value = 'idle';
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
     void loadPage();
@@ -2198,15 +3026,20 @@ async function executeDelete() {
 onMounted(() => {
   window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   window.addEventListener('beforeunload', handleBeforeUnload);
+  window.addEventListener('pagehide', handlePageHide);
   window.addEventListener('keydown', handleGlobalKeydown);
+  document.addEventListener('visibilitychange', handleVisibilityChange);
   void loadPage();
 });
 
 onBeforeUnmount(() => {
   resolveDiscardNotes(false);
+  releaseEditLeaseBestEffort();
   releaseBossImageObjectUrl();
   window.removeEventListener('beforeunload', handleBeforeUnload);
+  window.removeEventListener('pagehide', handlePageHide);
   window.removeEventListener('keydown', handleGlobalKeydown);
+  document.removeEventListener('visibilitychange', handleVisibilityChange);
   if (shareStatusTimeout) window.clearTimeout(shareStatusTimeout);
   document.body.style.overflow = bodyOverflowBeforeModal;
 });
@@ -3183,14 +4016,98 @@ onBeforeUnmount(() => {
   color: #c8d7e6;
 }
 
+.boss-edit-lock {
+  align-items: center;
+  border: 1px solid;
+  border-radius: 12px;
+  display: flex;
+  gap: 0.75rem;
+  margin: 0 0 0.85rem;
+  padding: 0.78rem 0.9rem;
+}
+
+.boss-edit-lock > svg {
+  fill: none;
+  flex: 0 0 auto;
+  height: 1.25rem;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+  width: 1.25rem;
+}
+
+.boss-edit-lock > div {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.13rem;
+}
+
+.boss-edit-lock strong {
+  color: #e9f6f7;
+  font-size: 0.78rem;
+}
+
+.boss-edit-lock span {
+  color: #9db0c4;
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.boss-edit-lock--mine {
+  background: rgba(69, 215, 223, 0.07);
+  border-color: rgba(69, 215, 223, 0.24);
+  color: #67e8f9;
+}
+
+.boss-edit-lock--blocked {
+  background: rgba(251, 191, 36, 0.07);
+  border-color: rgba(251, 191, 36, 0.28);
+  color: #fbbf24;
+}
+
+.boss-edit-lock > button {
+  background: transparent;
+  border: 0;
+  color: #9db0c4;
+  cursor: pointer;
+  font-size: 1.2rem;
+  line-height: 1;
+  padding: 0.3rem;
+}
+
+.boss-edit-lock > button:hover {
+  color: #eef6fb;
+}
+
 .boss-notes-document {
   background:
     linear-gradient(180deg, rgba(16, 26, 45, 0.78), rgba(9, 16, 29, 0.88)), var(--boss-surface);
   border: 1px solid rgba(103, 146, 194, 0.2);
   border-radius: 18px;
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.16);
+  display: grid;
+  gap: clamp(1.4rem, 3vw, 2.6rem);
+  grid-template-columns: minmax(0, 1fr) 17.5rem;
   min-height: 24rem;
   padding: clamp(1.5rem, 4.5vw, 4.25rem);
+}
+
+.boss-notes-edit-mode,
+.boss-notes-edit {
+  min-width: 0;
+}
+
+.boss-notes-edit-layout {
+  align-items: start;
+  display: grid;
+  gap: clamp(1.4rem, 3vw, 2.6rem);
+  grid-template-columns: minmax(0, 1fr) 17.5rem;
+}
+
+.boss-notes-document__content {
+  min-width: 0;
 }
 
 .boss-notes-empty {
@@ -3243,6 +4160,95 @@ onBeforeUnmount(() => {
 
 .boss-notes-edit--plain {
   min-height: 24rem;
+}
+
+.boss-suggestion-intro {
+  align-items: center;
+  background: linear-gradient(100deg, rgba(129, 140, 248, 0.12), rgba(69, 215, 223, 0.06));
+  border: 1px solid rgba(129, 140, 248, 0.25);
+  border-radius: 12px;
+  color: #aeb8ff;
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  padding: 0.78rem 0.9rem;
+}
+
+.boss-suggestion-intro svg {
+  fill: none;
+  flex: 0 0 auto;
+  height: 1.25rem;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+  width: 1.25rem;
+}
+
+.boss-suggestion-intro > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+}
+
+.boss-suggestion-intro strong {
+  color: #e7e9ff;
+  font-size: 0.76rem;
+}
+
+.boss-suggestion-intro span {
+  color: #939fc0;
+  font-size: 0.67rem;
+}
+
+.boss-suggestion-cures {
+  align-items: center;
+  background: rgba(9, 16, 29, 0.78);
+  border: 1px solid rgba(103, 146, 194, 0.18);
+  border-radius: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+}
+
+.boss-suggestion-cures > div {
+  display: flex;
+  flex: 1 1 13rem;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.boss-suggestion-cures > div strong {
+  color: #dce7f2;
+  font-size: 0.72rem;
+}
+
+.boss-suggestion-cures > div span {
+  color: #6f839a;
+  font-size: 0.62rem;
+}
+
+.boss-suggestion-cures > button {
+  background: rgba(113, 144, 181, 0.07);
+  border: 1px solid rgba(113, 144, 181, 0.18);
+  border-radius: 8px;
+  color: #7e92a9;
+  cursor: pointer;
+  font-size: 0.66rem;
+  font-weight: 700;
+  padding: 0.48rem 0.62rem;
+}
+
+.boss-suggestion-cures > button.is-selected {
+  background: rgba(69, 215, 223, 0.1);
+  border-color: rgba(69, 215, 223, 0.32);
+  color: #a9f1f4;
+}
+
+.boss-suggestion-cures > button span {
+  margin-right: 0.25rem;
 }
 
 .boss-plain-loading,
@@ -3444,6 +4450,171 @@ onBeforeUnmount(() => {
   max-width: 650px;
 }
 
+.boss-modal--review {
+  max-width: 880px;
+}
+
+.boss-modal-loading,
+.boss-modal-empty {
+  align-items: center;
+  color: #7f93aa;
+  display: flex;
+  flex-direction: column;
+  font-size: 0.76rem;
+  justify-content: center;
+  min-height: 12rem;
+  padding: 2rem;
+  text-align: center;
+}
+
+.boss-modal-empty strong {
+  color: #dce7f2;
+  font-size: 0.86rem;
+}
+
+.boss-modal-empty p {
+  margin: 0.35rem 0 0;
+}
+
+.boss-history {
+  padding: 1rem 1.3rem 1.2rem;
+}
+
+.boss-history__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.boss-history__list li {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 0.75rem 0;
+  position: relative;
+}
+
+.boss-history__list li:not(:last-child)::after {
+  background: rgba(98, 145, 186, 0.18);
+  bottom: -0.25rem;
+  content: '';
+  left: 0.28rem;
+  position: absolute;
+  top: 1.65rem;
+  width: 1px;
+}
+
+.boss-history__dot {
+  background: #45d7df;
+  border: 3px solid rgba(69, 215, 223, 0.13);
+  border-radius: 50%;
+  box-sizing: content-box;
+  height: 0.38rem;
+  margin-top: 0.22rem;
+  width: 0.38rem;
+}
+
+.boss-history__list li > div {
+  display: grid;
+  gap: 0.16rem;
+}
+
+.boss-history__list strong {
+  color: #dfeaf4;
+  font-size: 0.74rem;
+}
+
+.boss-history__list p,
+.boss-history__list time {
+  color: #7489a1;
+  font-size: 0.63rem;
+  margin: 0;
+}
+
+.boss-history__list time {
+  color: #566b83;
+}
+
+.boss-suggestions {
+  padding: 1rem 1.2rem 1.3rem;
+}
+
+.boss-suggestions__list {
+  display: grid;
+  gap: 1rem;
+}
+
+.boss-suggestions__list > article {
+  background: rgba(6, 12, 23, 0.58);
+  border: 1px solid rgba(103, 146, 194, 0.2);
+  border-radius: 13px;
+  overflow: hidden;
+}
+
+.boss-suggestions__list > article > header {
+  align-items: center;
+  border-bottom: 1px solid rgba(103, 146, 194, 0.15);
+  display: flex;
+  justify-content: space-between;
+  padding: 0.72rem 0.85rem;
+}
+
+.boss-suggestions__list header > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.boss-suggestions__list header span,
+.boss-suggestions__list header time,
+.boss-suggestions__cures span {
+  color: #647991;
+  font-size: 0.58rem;
+}
+
+.boss-suggestions__list header strong {
+  color: #dce7f2;
+  font-size: 0.72rem;
+}
+
+.boss-suggestions__cures {
+  align-items: center;
+  background: rgba(69, 215, 223, 0.045);
+  display: flex;
+  gap: 0.55rem;
+  padding: 0.55rem 0.85rem;
+}
+
+.boss-suggestions__cures strong {
+  color: #8bdfe3;
+  font-size: 0.64rem;
+}
+
+.boss-suggestions__preview {
+  max-height: 24rem;
+  overflow: auto;
+  padding: 0.8rem 0.9rem;
+}
+
+.boss-suggestions__preview :deep(.mediawiki-content) {
+  font-size: 0.78rem;
+}
+
+.boss-suggestions__empty-notes {
+  color: #6d829a;
+  font-size: 0.72rem;
+  margin: 1rem;
+  text-align: center;
+}
+
+.boss-suggestions__list > article > footer {
+  border-top: 1px solid rgba(103, 146, 194, 0.15);
+  display: flex;
+  gap: 0.55rem;
+  justify-content: flex-end;
+  padding: 0.7rem 0.85rem;
+}
+
 .boss-modal__header {
   align-items: center;
   backdrop-filter: blur(16px);
@@ -3528,6 +4699,10 @@ onBeforeUnmount(() => {
   display: grid;
   gap: 1.25rem;
   grid-template-columns: 0.85fr 1.15fr;
+}
+
+.boss-modal.boss-modal--review .boss-modal__body {
+  display: block;
 }
 
 .boss-form-preview {
@@ -4386,6 +5561,16 @@ onBeforeUnmount(() => {
   color: #7ee7eb;
 }
 
+.boss-confirm--lock .boss-confirm__mark {
+  background: rgba(69, 215, 223, 0.08);
+  border-color: rgba(69, 215, 223, 0.28);
+  color: #67e8f9;
+}
+
+.boss-confirm--lock .boss-confirm__eyebrow {
+  color: #7ee7eb;
+}
+
 .boss-confirm__subject {
   color: #f4f7fb;
 }
@@ -4462,6 +5647,19 @@ onBeforeUnmount(() => {
     bottom: auto;
     right: 1.2rem;
     top: 1.2rem;
+  }
+
+  .boss-notes-document,
+  .boss-notes-edit-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .boss-notes-document__content {
+    grid-row: 2;
+  }
+
+  .boss-cures-card {
+    grid-row: 1;
   }
 
   .boss-notes-edit__footer {
@@ -4592,8 +5790,22 @@ onBeforeUnmount(() => {
   }
 
   .boss-detail-action {
-    font-size: 0.68rem;
-    padding: 0.52rem 0.6rem;
+    font-size: 0;
+    padding: 0.55rem;
+  }
+
+  .boss-detail-action svg {
+    height: 1rem;
+    width: 1rem;
+  }
+
+  .boss-suggestions__list > article > footer {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+
+  .boss-suggestions__list > article > footer .boss-button {
+    width: 100%;
   }
 
   .boss-detail-hero__title h1 {

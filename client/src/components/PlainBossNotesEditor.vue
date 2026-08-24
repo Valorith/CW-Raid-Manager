@@ -62,7 +62,9 @@
         <strong>Your page structure is protected.</strong>
         Change the visible wording here without touching links, images, tables, or formatting.
       </p>
-      <button type="button" @click="emit('request-source')">Edit advanced source</button>
+      <button v-if="allowSource" type="button" @click="emit('request-source')">
+        Edit advanced source
+      </button>
     </div>
 
     <nav v-if="sections.length > 1" class="visual-boss-editor__sections" aria-label="Page sections">
@@ -298,10 +300,14 @@ type EditorBlock =
   | { id: string; type: 'line'; line: PlainBossNotesLine }
   | { id: string; type: 'table'; rows: EditorRow[]; columnCount: number };
 
-const props = defineProps<{
-  document: PlainBossNotesDocument;
-  modelValue: Record<string, string>;
-}>();
+const props = withDefaults(
+  defineProps<{
+    document: PlainBossNotesDocument;
+    modelValue: Record<string, string>;
+    allowSource?: boolean;
+  }>(),
+  { allowSource: true }
+);
 
 const emit = defineEmits<{
   'update:modelValue': [value: Record<string, string>];

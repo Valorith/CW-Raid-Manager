@@ -5,14 +5,53 @@ import { GuildRole } from '@prisma/client';
 
 import {
   BOSS_IMAGE_MAX_BYTES,
+  BOSS_EDIT_LEASE_TTL_MS,
   BossLibraryError,
+  buildBossEditLeaseExpiry,
   buildBossGroupOrderUpdates,
   buildUniqueBossSlug,
+  describeBossUpdate,
   detectBossImageMime,
+  formatBossCures,
   prepareBossImageUpload,
   getBossLibraryPermissions,
+  serializeBossEditLease,
   serializeBossLibraryGuild
 } from './bossLibraryService.js';
+
+test('boss edit leases expire on a fixed two-minute window', () => {
+  const now = new Date('2026-08-24T04:00:00.000Z');
+  assert.equal(BOSS_EDIT_LEASE_TTL_MS, 120_000);
+  assert.equal(buildBossEditLeaseExpiry(now).toISOString(), '2026-08-24T04:02:00.000Z');
+});
+
+test('boss edit lease serialization only reveals the token to its holder', () => {
+  const lease = {
+    bossId: 'boss-1',
+    guildId: 'guild-1',
+    userId: 'user-1',
+    holderName: 'Editor One',
+    token: '65fe659a-1f3b-457e-9cb2-fd4da334593b',
+    mode: 'source',
+    expiresAt: new Date('2026-08-24T04:02:00.000Z')
+  };
+
+  assert.deepEqual(serializeBossEditLease(lease, 'user-1'), {
+    bossId: 'boss-1',
+    holderName: 'Editor One',
+    mode: 'source',
+    expiresAt: '2026-08-24T04:02:00.000Z',
+    isMine: true,
+    token: lease.token
+  });
+  assert.deepEqual(serializeBossEditLease(lease, 'user-2'), {
+    bossId: 'boss-1',
+    holderName: 'Editor One',
+    mode: 'source',
+    expiresAt: '2026-08-24T04:02:00.000Z',
+    isMine: false
+  });
+});
 
 test('guild leaders and officers have full boss library access without a contributor flag', () => {
   for (const role of [GuildRole.LEADER, GuildRole.OFFICER]) {
@@ -20,6 +59,7 @@ test('guild leaders and officers have full boss library access without a contrib
       role,
       isContributor: false,
       canEdit: true,
+      canSuggest: true,
       canDelete: true,
       canManageContributors: true
     });
@@ -37,6 +77,7 @@ test('a contributor can edit without receiving officer-only destructive access',
       role,
       isContributor: true,
       canEdit: true,
+      canSuggest: true,
       canDelete: false,
       canManageContributors: false
     });
@@ -48,9 +89,20 @@ test('an ordinary guild member receives read-only boss library access', () => {
     role: GuildRole.MEMBER,
     isContributor: false,
     canEdit: false,
+    canSuggest: true,
     canDelete: false,
     canManageContributors: false
   });
+});
+
+test('boss cure summaries are concise and stable for audit history', () => {
+  assert.equal(formatBossCures({ curse: true, poison: false, disease: true }), 'Curse, Disease');
+  assert.equal(formatBossCures({ curse: false, poison: false, disease: false }), 'None');
+  assert.equal(
+    describeBossUpdate({ cures: { curse: false, poison: true, disease: false } }),
+    'Updated cures (Poison)'
+  );
+  assert.equal(describeBossUpdate({ notes: 'new notes' }), 'Updated source notes');
 });
 
 test('boss library guild data includes the canonical guild slug', () => {
@@ -87,11 +139,7 @@ test('boss group ordering produces contiguous sort positions', () => {
 });
 
 test('boss group ordering rejects missing, duplicate, and foreign group ids', () => {
-  for (const groupIds of [
-    ['group-a'],
-    ['group-a', 'group-a'],
-    ['group-a', 'group-c']
-  ]) {
+  for (const groupIds of [['group-a'], ['group-a', 'group-a'], ['group-a', 'group-c']]) {
     assert.throws(
       () => buildBossGroupOrderUpdates(['group-a', 'group-b'], groupIds),
       (error) =>

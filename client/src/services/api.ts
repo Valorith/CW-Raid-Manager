@@ -69,6 +69,7 @@ export interface BossLibraryPermissions {
   role: GuildRole;
   isContributor: boolean;
   canEdit: boolean;
+  canSuggest: boolean;
   canDelete: boolean;
   canManageContributors: boolean;
 }
@@ -94,6 +95,7 @@ export interface GuildBoss extends GuildBossSummary {
   guildId: string;
   groupId: string;
   notes: string | null;
+  cures: BossCures;
   lastEditedById: string | null;
   lastEditedByName: string | null;
   createdAt: string;
@@ -101,6 +103,36 @@ export interface GuildBoss extends GuildBossSummary {
     id: string;
     name: string;
   };
+}
+
+export interface BossCures {
+  curse: boolean;
+  poison: boolean;
+  disease: boolean;
+}
+
+export interface BossEditHistoryEntry {
+  id: string;
+  bossId: string;
+  guildId: string;
+  editorUserId: string;
+  editorName: string;
+  editKind: string;
+  summary: string;
+  createdAt: string;
+}
+
+export interface BossEditSuggestion {
+  id: string;
+  bossId: string;
+  submittedByName: string;
+  proposedNotes: string | null;
+  proposedCures: BossCures;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  reviewedByName: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface GuildBossLibrary {
@@ -118,7 +150,25 @@ export interface GuildBossInput {
   name: string;
   imageUrl?: string | null;
   notes?: string | null;
+  cures?: BossCures;
   sortOrder?: number;
+}
+
+export type BossEditMode = 'plain' | 'source';
+
+export interface BossEditLease {
+  bossId: string;
+  holderName: string;
+  mode: BossEditMode;
+  expiresAt: string;
+  isMine: boolean;
+  token?: string;
+}
+
+export interface BossEditLeaseAcquisition {
+  lease: BossEditLease & { token: string };
+  revision: string;
+  notes: string;
 }
 
 export type PlainBossNotesSegment =
@@ -2814,10 +2864,10 @@ function normalizeTestManagerSettings(raw: any): TestManagerSettings {
     },
     slackNotifications: {
       enabled: Boolean(raw?.slackNotifications?.enabled),
-      events: Array.isArray(raw?.slackNotifications?.events)
-        ? raw.slackNotifications.events
-        : [],
-      connection: normalizeSlackConnection(raw?.slackNotifications?.connection ?? raw?.slackNotifications)
+      events: Array.isArray(raw?.slackNotifications?.events) ? raw.slackNotifications.events : [],
+      connection: normalizeSlackConnection(
+        raw?.slackNotifications?.connection ?? raw?.slackNotifications
+      )
     }
   };
 }
@@ -5442,7 +5492,10 @@ export const api = {
   async updateGuildBoss(
     guildId: string,
     bossId: string,
-    payload: Partial<GuildBossInput>
+    payload: Partial<GuildBossInput> & {
+      editLeaseToken?: string;
+      notesRevision?: string;
+    }
   ): Promise<GuildBoss> {
     const response = await axios.patch(`/api/guilds/${guildId}/bosses/${bossId}`, payload);
     return response.data.boss;
@@ -5456,13 +5509,82 @@ export const api = {
   async updateGuildBossPlainNotes(
     guildId: string,
     bossId: string,
-    payload: { revision: string; fields: Record<string, string> }
+    payload: { revision: string; fields: Record<string, string>; editLeaseToken: string }
   ): Promise<{ boss: GuildBoss; document: PlainBossNotesDocument }> {
     const response = await axios.patch(
       `/api/guilds/${guildId}/bosses/${bossId}/plain-notes`,
       payload
     );
     return response.data;
+  },
+
+  async fetchGuildBossEditHistory(
+    guildId: string,
+    bossId: string
+  ): Promise<BossEditHistoryEntry[]> {
+    const response = await axios.get(`/api/guilds/${guildId}/bosses/${bossId}/history`);
+    return response.data.history;
+  },
+
+  async fetchGuildBossEditSuggestions(
+    guildId: string,
+    bossId: string
+  ): Promise<BossEditSuggestion[]> {
+    const response = await axios.get(`/api/guilds/${guildId}/bosses/${bossId}/suggestions`);
+    return response.data.suggestions;
+  },
+
+  async createGuildBossEditSuggestion(
+    guildId: string,
+    bossId: string,
+    payload: { revision: string; fields: Record<string, string>; cures: BossCures }
+  ): Promise<BossEditSuggestion> {
+    const response = await axios.post(
+      `/api/guilds/${guildId}/bosses/${bossId}/suggestions`,
+      payload
+    );
+    return response.data.suggestion;
+  },
+
+  async reviewGuildBossEditSuggestion(
+    guildId: string,
+    bossId: string,
+    suggestionId: string,
+    action: 'approve' | 'reject'
+  ): Promise<{ suggestion: BossEditSuggestion; boss: GuildBoss | null }> {
+    const response = await axios.patch(
+      `/api/guilds/${guildId}/bosses/${bossId}/suggestions/${suggestionId}`,
+      { action }
+    );
+    return response.data;
+  },
+
+  async acquireGuildBossEditLease(
+    guildId: string,
+    bossId: string,
+    mode: BossEditMode
+  ): Promise<BossEditLeaseAcquisition> {
+    const response = await axios.post(`/api/guilds/${guildId}/bosses/${bossId}/edit-lease`, {
+      mode
+    });
+    return response.data;
+  },
+
+  async heartbeatGuildBossEditLease(
+    guildId: string,
+    bossId: string,
+    token: string,
+    mode: BossEditMode
+  ): Promise<BossEditLease> {
+    const response = await axios.patch(`/api/guilds/${guildId}/bosses/${bossId}/edit-lease`, {
+      token,
+      mode
+    });
+    return response.data.lease;
+  },
+
+  async releaseGuildBossEditLease(guildId: string, bossId: string, token: string): Promise<void> {
+    await axios.post(`/api/guilds/${guildId}/bosses/${bossId}/edit-lease/release`, { token });
   },
 
   async updateGuildBossWithImage(
@@ -5998,9 +6120,7 @@ export const api = {
     return response.data.result;
   },
 
-  async sendWebhookCrashToCodex(
-    messageId: string
-  ): Promise<{
+  async sendWebhookCrashToCodex(messageId: string): Promise<{
     result: CodexJobSummary;
     message: InboundWebhookMessage;
     deduped?: boolean;
@@ -6062,9 +6182,7 @@ export const api = {
     return {
       enabled: settings?.enabled === true,
       provider:
-        settings?.provider === 'codex' || settings?.provider === 'devin'
-          ? settings.provider
-          : null
+        settings?.provider === 'codex' || settings?.provider === 'devin' ? settings.provider : null
     };
   },
 

@@ -188,6 +188,9 @@ model GuildBoss {
   slug             String         @db.VarChar(191)
   imageUrl         String?        @db.VarChar(2048)
   notes            String?        @db.LongText
+  cureCurse        Boolean        @default(false)
+  curePoison       Boolean        @default(false)
+  cureDisease      Boolean        @default(false)
   sortOrder        Int            @default(0)
   lastEditedById   String?
   lastEditedByName String?        @db.VarChar(191)
@@ -196,11 +199,73 @@ model GuildBoss {
   guild            Guild          @relation(fields: [guildId], references: [id], onDelete: Cascade)
   group            GuildBossGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
   image            GuildBossImage?
+  editLease        GuildBossEditLease?
+  editHistory      GuildBossEditHistory[]
+  editSuggestions  GuildBossEditSuggestion[]
 
   @@unique([guildId, name], map: "GuildBoss_guild_name_key")
   @@unique([guildId, slug], map: "GuildBoss_guild_slug_key")
   @@index([guildId, groupId, sortOrder], map: "GuildBoss_guild_group_sort_idx")
   @@index([groupId], map: "GuildBoss_group_idx")
+}
+
+model GuildBossEditHistory {
+  id           String    @id @default(cuid())
+  bossId       String
+  guildId      String
+  editorUserId String
+  editorName   String    @db.VarChar(191)
+  editKind     String    @db.VarChar(40)
+  summary      String    @db.VarChar(255)
+  createdAt    DateTime  @default(now())
+  boss         GuildBoss @relation(fields: [bossId], references: [id], onDelete: Cascade)
+
+  @@index([bossId, createdAt], map: "GuildBossEditHistory_boss_created_idx")
+  @@index([guildId, createdAt], map: "GuildBossEditHistory_guild_created_idx")
+}
+
+model GuildBossEditSuggestion {
+  id                  String    @id @default(cuid())
+  bossId              String
+  guildId             String
+  submittedById       String
+  submittedByName     String    @db.VarChar(191)
+  baseRevision        String    @db.Char(64)
+  proposedNotes       String?   @db.LongText
+  baseCureCurse       Boolean   @default(false)
+  baseCurePoison      Boolean   @default(false)
+  baseCureDisease     Boolean   @default(false)
+  proposedCureCurse   Boolean   @default(false)
+  proposedCurePoison  Boolean   @default(false)
+  proposedCureDisease Boolean   @default(false)
+  status              String    @default("PENDING") @db.VarChar(20)
+  reviewedById        String?
+  reviewedByName      String?   @db.VarChar(191)
+  reviewedAt          DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  boss                 GuildBoss @relation(fields: [bossId], references: [id], onDelete: Cascade)
+
+  @@index([bossId, status, createdAt], map: "GuildBossEditSuggestion_boss_status_idx")
+  @@index([guildId, status, createdAt], map: "GuildBossEditSuggestion_guild_status_idx")
+  @@index([submittedById, status], map: "GuildBossEditSuggestion_submitter_status_idx")
+}
+
+model GuildBossEditLease {
+  bossId     String    @id
+  guildId    String
+  userId     String
+  holderName String    @db.VarChar(191)
+  token      String    @unique(map: "GuildBossEditLease_token_key") @db.VarChar(36)
+  mode       String    @db.VarChar(20)
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  boss       GuildBoss @relation(fields: [bossId], references: [id], onDelete: Cascade)
+
+  @@index([guildId], map: "GuildBossEditLease_guildId_idx")
+  @@index([userId], map: "GuildBossEditLease_userId_idx")
+  @@index([expiresAt], map: "GuildBossEditLease_expiresAt_idx")
 }
 
 model GuildBossImage {

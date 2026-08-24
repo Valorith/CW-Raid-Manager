@@ -4,7 +4,9 @@ import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate.js';
 import {
   BossLibraryError,
+  acquireBossEditLease,
   createGuildBoss,
+  createGuildBossEditSuggestion,
   createGuildBossGroup,
   deleteGuildBoss,
   deleteGuildBossGroup,
@@ -12,10 +14,15 @@ import {
   getGuildBossBySlug,
   getGuildBossImage,
   getGuildBossPlainNotes,
+  heartbeatBossEditLease,
   listBossContributors,
+  listGuildBossEditHistory,
+  listGuildBossEditSuggestions,
   listGuildBossLibrary,
   prepareBossImageUpload,
+  releaseBossEditLease,
   reorderGuildBossGroups,
+  reviewGuildBossEditSuggestion,
   setBossContributor,
   updateGuildBoss,
   updateGuildBossPlainNotes,
@@ -25,6 +32,9 @@ import {
 const guildParamsSchema = z.object({ guildId: z.string().min(1) });
 const groupParamsSchema = z.object({ guildId: z.string().min(1), groupId: z.string().min(1) });
 const bossParamsSchema = z.object({ guildId: z.string().min(1), bossId: z.string().min(1) });
+const bossSuggestionParamsSchema = bossParamsSchema.extend({
+  suggestionId: z.string().min(1)
+});
 const bossSlugParamsSchema = z.object({
   guildSlug: z.string().min(1).max(191),
   bossSlug: z.string().min(1).max(191)
@@ -61,11 +71,18 @@ const groupReorderSchema = z.object({
   groupIds: z.array(z.string().min(1)).max(500)
 });
 
+const bossCuresSchema = z.object({
+  curse: z.boolean(),
+  poison: z.boolean(),
+  disease: z.boolean()
+});
+
 const bossBodySchema = z.object({
   groupId: z.string().min(1),
   name: z.string().trim().min(1).max(191),
   imageUrl: imageUrlSchema.optional(),
   notes: z.string().max(200000).nullable().optional(),
+  cures: bossCuresSchema.optional(),
   sortOrder: z.number().int().min(0).max(10000).optional()
 });
 
@@ -75,9 +92,19 @@ const bossUpdateSchema = z
     name: z.string().trim().min(1).max(191).optional(),
     imageUrl: imageUrlSchema.optional(),
     notes: z.string().max(200000).nullable().optional(),
-    sortOrder: z.number().int().min(0).max(10000).optional()
+    cures: bossCuresSchema.optional(),
+    sortOrder: z.number().int().min(0).max(10000).optional(),
+    editLeaseToken: z.string().uuid().optional(),
+    notesRevision: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .optional()
   })
-  .refine((value) => Object.keys(value).length > 0);
+  .refine((value) =>
+    ['groupId', 'name', 'imageUrl', 'notes', 'cures', 'sortOrder'].some(
+      (field) => value[field as keyof typeof value] !== undefined
+    )
+  );
 
 const bossImageCreateSchema = z.object({
   groupId: z.string().min(1),
@@ -90,17 +117,46 @@ const bossImageUpdateSchema = z.object({
   groupId: z.string().min(1).optional(),
   name: z.string().trim().min(1).max(191).optional(),
   notes: z.string().max(200000).optional(),
-  sortOrder: z.coerce.number().int().min(0).max(10000).optional()
+  sortOrder: z.coerce.number().int().min(0).max(10000).optional(),
+  editLeaseToken: z.string().uuid().optional(),
+  notesRevision: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional()
 });
 
 const bossPlainNotesUpdateSchema = z.object({
   revision: z.string().regex(/^[a-f0-9]{64}$/),
-  fields: z.record(z.string().max(200000))
+  fields: z.record(z.string().max(200000)),
+  editLeaseToken: z.string().uuid()
+});
+
+const bossEditLeaseAcquireSchema = z.object({
+  mode: z.enum(['plain', 'source'])
+});
+
+const bossEditLeaseUpdateSchema = z.object({
+  token: z.string().uuid(),
+  mode: z.enum(['plain', 'source'])
+});
+
+const bossEditLeaseReleaseSchema = z.object({
+  token: z.string().uuid()
+});
+
+const bossSuggestionCreateSchema = z.object({
+  revision: z.string().regex(/^[a-f0-9]{64}$/),
+  fields: z.record(z.string().max(200000)),
+  cures: bossCuresSchema
+});
+
+const bossSuggestionReviewSchema = z.object({
+  action: z.enum(['approve', 'reject'])
 });
 
 function sendBossError(reply: FastifyReply, error: unknown) {
   if (error instanceof BossLibraryError) {
-    return reply.code(error.statusCode).send({ message: error.message });
+    return reply.code(error.statusCode).send({ message: error.message, ...(error.details ?? {}) });
   }
   throw error;
 }
@@ -204,6 +260,142 @@ export async function bossRoutes(server: FastifyInstance): Promise<void> {
       return sendBossError(reply, error);
     }
   });
+
+  server.get(
+    '/:guildId/bosses/:bossId/history',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      const { guildId, bossId } = bossParamsSchema.parse(request.params);
+      try {
+        return {
+          history: await listGuildBossEditHistory(guildId, bossId, request.user.userId)
+        };
+      } catch (error) {
+        return sendBossError(reply, error);
+      }
+    }
+  );
+
+  server.get(
+    '/:guildId/bosses/:bossId/suggestions',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      const { guildId, bossId } = bossParamsSchema.parse(request.params);
+      try {
+        return {
+          suggestions: await listGuildBossEditSuggestions(guildId, bossId, request.user.userId)
+        };
+      } catch (error) {
+        return sendBossError(reply, error);
+      }
+    }
+  );
+
+  server.post(
+    '/:guildId/bosses/:bossId/suggestions',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      const { guildId, bossId } = bossParamsSchema.parse(request.params);
+      const parsed = bossSuggestionCreateSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid boss edit suggestion. Reload and try again.');
+      }
+      try {
+        const suggestion = await createGuildBossEditSuggestion(
+          guildId,
+          bossId,
+          request.user.userId,
+          parsed.data
+        );
+        return reply.code(201).send({ suggestion });
+      } catch (error) {
+        return sendBossError(reply, error);
+      }
+    }
+  );
+
+  server.patch(
+    '/:guildId/bosses/:bossId/suggestions/:suggestionId',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      const { guildId, bossId, suggestionId } = bossSuggestionParamsSchema.parse(request.params);
+      const parsed = bossSuggestionReviewSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.badRequest('Choose whether to approve or reject this suggestion.');
+      }
+      try {
+        return await reviewGuildBossEditSuggestion(
+          guildId,
+          bossId,
+          suggestionId,
+          request.user.userId,
+          parsed.data.action
+        );
+      } catch (error) {
+        return sendBossError(reply, error);
+      }
+    }
+  );
+
+  server.post(
+    '/:guildId/bosses/:bossId/edit-lease',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      const { guildId, bossId } = bossParamsSchema.parse(request.params);
+      const parsed = bossEditLeaseAcquireSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.badRequest('Choose a valid boss notes editor mode.');
+      }
+      try {
+        return await acquireBossEditLease(guildId, bossId, request.user.userId, parsed.data.mode);
+      } catch (error) {
+        return sendBossError(reply, error);
+      }
+    }
+  );
+
+  server.patch(
+    '/:guildId/bosses/:bossId/edit-lease',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      const { guildId, bossId } = bossParamsSchema.parse(request.params);
+      const parsed = bossEditLeaseUpdateSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid boss edit lock renewal.');
+      }
+      try {
+        return {
+          lease: await heartbeatBossEditLease(
+            guildId,
+            bossId,
+            request.user.userId,
+            parsed.data.token,
+            parsed.data.mode
+          )
+        };
+      } catch (error) {
+        return sendBossError(reply, error);
+      }
+    }
+  );
+
+  server.post(
+    '/:guildId/bosses/:bossId/edit-lease/release',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      const { guildId, bossId } = bossParamsSchema.parse(request.params);
+      const parsed = bossEditLeaseReleaseSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid boss edit lock release.');
+      }
+      try {
+        await releaseBossEditLease(guildId, bossId, request.user.userId, parsed.data.token);
+        return reply.code(204).send();
+      } catch (error) {
+        return sendBossError(reply, error);
+      }
+    }
+  );
 
   server.get(
     '/:guildId/bosses/:bossId/plain-notes',
