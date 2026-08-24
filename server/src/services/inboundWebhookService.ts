@@ -2170,6 +2170,42 @@ export async function createInboundWebhookMessageForAdmin(options: {
   return message;
 }
 
+/**
+ * Extract content-only payload for CUSTOM_WEBHOOK actions.
+ * Prefers rawBody if it parses to an object with a content field.
+ * Falls back to extracting content from the payload.
+ * Throws if no content field is found.
+ */
+export function extractContentOnlyPayload(payload: unknown, rawBody: string | null): { content: string } {
+  // First, try to parse rawBody if available
+  if (rawBody && rawBody.trim().length > 0) {
+    try {
+      const parsed = JSON.parse(rawBody);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const record = parsed as Record<string, unknown>;
+        if (typeof record.content === 'string') {
+          return { content: record.content };
+        }
+      }
+    } catch {
+      // rawBody is not valid JSON or doesn't have content, fall through to payload
+    }
+  }
+
+  // Fall back to extracting content from payload
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    const record = payload as Record<string, unknown>;
+    if (typeof record.content === 'string') {
+      return { content: record.content };
+    }
+  }
+
+  throw new Error(
+    'CUSTOM_WEBHOOK requires a "content" field in the payload. ' +
+    'The stored payload does not contain a content field, and rawBody is unavailable or invalid.'
+  );
+}
+
 async function runInboundWebhookActions(
   messageId: string,
   actions: Array<{
@@ -2245,7 +2281,15 @@ async function runInboundWebhookActions(
         if (!config.customWebhookUrl) {
           throw new Error('Custom webhook POST URL is missing.');
         }
-        await sendCustomWebhookRelay(config.customWebhookUrl, payload, {
+        
+        const message = await prisma.inboundWebhookMessage.findUnique({
+          where: { id: messageId },
+          select: { rawBody: true, payload: true }
+        });
+        
+        const contentOnlyPayload = extractContentOnlyPayload(message?.payload, message?.rawBody ?? null);
+        
+        await sendCustomWebhookRelay(config.customWebhookUrl, contentOnlyPayload, {
           secret: config.customWebhookSecret,
           secretHeaderName: config.customWebhookSecretHeaderName
         });
