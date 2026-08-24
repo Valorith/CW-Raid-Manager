@@ -42,6 +42,66 @@ test('parses the recent outlier boss names without confusing the boss pet', () =
   );
 });
 
+test('replays the actual Epic 2.0 boss sequence from the August 17 raid', () => {
+  const content = [
+    '[Mon Aug 17 22:28:13 2026] You have entered The Iceclad Ocean.',
+    '[Mon Aug 17 22:32:41 2026] Silvlit Xor has been slain by Laern!',
+    '[Mon Aug 17 22:41:22 2026] You have entered Dragon Necropolis.',
+    '[Mon Aug 17 22:58:23 2026] The Dracoliche of Hsagra has been slain by Dagara!',
+    '[Mon Aug 17 23:02:27 2026] You have entered The Dreadlands.',
+    '[Mon Aug 17 23:19:34 2026] Durunal the Cursebearer has been slain by Kasare!'
+  ].join('\n');
+
+  const kills = parseNpcKillEvents(content);
+
+  assert.deepEqual(
+    kills.map((kill) => ({
+      npcName: kill.npcName,
+      killerName: kill.killerName,
+      zoneName: kill.zoneName,
+      timestamp: kill.timestamp?.toISOString()
+    })),
+    [
+      {
+        npcName: 'Silvlit Xor',
+        killerName: 'Laern',
+        zoneName: 'The Iceclad Ocean',
+        timestamp: '2026-08-18T02:32:41.000Z'
+      },
+      {
+        npcName: 'The Dracoliche of Hsagra',
+        killerName: 'Dagara',
+        zoneName: 'Dragon Necropolis',
+        timestamp: '2026-08-18T02:58:23.000Z'
+      },
+      {
+        npcName: 'Durunal the Cursebearer',
+        killerName: 'Kasare',
+        zoneName: 'The Dreadlands',
+        timestamp: '2026-08-18T03:19:34.000Z'
+      }
+    ]
+  );
+});
+
+test('accepts the alternate player-kill phrasing observed for Epic 2.0 bosses', () => {
+  const content = [
+    '[Mon Dec 01 21:47:24 2025] You have slain Silvlit Xor!',
+    '[Sun Apr 19 21:49:47 2026] You have slain The Dracoliche of Hsagra!'
+  ].join('\n');
+
+  assert.deepEqual(
+    parseNpcKillEvents(content).map((kill) => ({
+      npcName: kill.npcName,
+      killerName: kill.killerName
+    })),
+    [
+      { npcName: 'Silvlit Xor', killerName: 'You' },
+      { npcName: 'The Dracoliche of Hsagra', killerName: 'You' }
+    ]
+  );
+});
+
 test('replays the actual Sunday Warmaster kill that was later recovered manually', () => {
   const content = [
     '[Sun Aug 23 21:33:06 2026] You have entered Firiona Vie.',
