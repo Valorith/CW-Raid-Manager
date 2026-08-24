@@ -92,8 +92,19 @@
                   v-model="createForm.label"
                   class="input"
                   maxlength="120"
-                  placeholder="Crash Reports"
+                  :placeholder="
+                    createForm.direction === 'inbound'
+                      ? getWebhookNamePlaceholder('inbound')
+                      : getWebhookNamePlaceholder('outbound')
+                  "
                 />
+                <small class="form-hint muted">
+                  {{
+                    createForm.direction === 'inbound'
+                      ? getWebhookNameHint('inbound')
+                      : getWebhookNameHint('outbound')
+                  }}
+                </small>
               </label>
               <label class="form-field">
                 <span>Description</span>
@@ -1344,7 +1355,11 @@
                 <div class="endpoint-form-grid">
                   <label class="form-field">
                     <span>Action Type</span>
-                    <select v-model="actionDrafts[selectedWebhook.id].type" class="select">
+                    <select
+                      v-model="actionDrafts[selectedWebhook.id].type"
+                      class="select"
+                      @change="handleActionTypeChange(selectedWebhook)"
+                    >
                       <option value="DISCORD_RELAY">Discord Relay</option>
                       <option value="SLACK_RELAY">Slack Relay</option>
                       <option value="CUSTOM_WEBHOOK">Custom Webhook</option>
@@ -1357,7 +1372,11 @@
                       v-model="actionDrafts[selectedWebhook.id].name"
                       class="input"
                       maxlength="120"
+                      :placeholder="getWebhookNamePlaceholder('action')"
                     />
+                    <small class="form-hint muted">
+                      {{ getWebhookNameHint('action') }}
+                    </small>
                   </label>
                   <label class="form-field form-field--inline endpoint-toggle-field">
                     <span>Enabled</span>
@@ -4508,6 +4527,12 @@ import {
 } from '../services/api';
 import CodeTemplateEditor from '../components/CodeTemplateEditor.vue';
 import { useToastBus } from '../components/ToastBus';
+import {
+  validateWebhookName,
+  buildSuggestedActionName,
+  getWebhookNamePlaceholder,
+  getWebhookNameHint
+} from '../utils/webhookNameValidation';
 
 const route = useRoute();
 
@@ -4709,7 +4734,11 @@ const createForm = reactive({
   retentionMaxCount: 5000
 });
 const canCreateEndpoint = computed(() => {
-  if (!createForm.label.trim()) {
+  const labelValidation = validateWebhookName(
+    createForm.label,
+    createForm.direction === 'inbound' ? 'inbound' : 'outbound'
+  );
+  if (!labelValidation.valid) {
     return false;
   }
   if (createForm.direction === 'outbound') {
@@ -5807,6 +5836,18 @@ function buildActionDraft() {
   };
 }
 
+function handleActionTypeChange(webhook: InboundWebhook) {
+  const draft = actionDrafts[webhook.id];
+  if (!draft) return;
+
+  const currentName = draft.name?.trim() || '';
+  const nameValidation = validateWebhookName(currentName, 'action');
+
+  if (!currentName || !nameValidation.valid) {
+    draft.name = buildSuggestedActionName(webhook.label, draft.type);
+  }
+}
+
 function normalizeClientActionConfig(
   config?: InboundWebhookActionConfig | null
 ): InboundWebhookActionConfig {
@@ -5930,7 +5971,8 @@ function buildActionConfigFromAction(action: InboundWebhookAction): InboundWebho
 }
 
 function isActionDraftValid(draft: any): boolean {
-  if (!draft?.name?.trim()) {
+  const nameValidation = validateWebhookName(draft?.name || '', 'action');
+  if (!nameValidation.valid) {
     return false;
   }
 

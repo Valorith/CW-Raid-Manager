@@ -7,6 +7,7 @@ import {
 import { buildCrashReviewInput } from './inboundWebhookService.js';
 import { prisma } from '../utils/prisma.js';
 import { resolvePublicClientBaseUrl } from '../utils/publicClientUrl.js';
+import { validateWebhookName } from '../utils/webhookNameValidation.js';
 
 const OUTBOUND_WEBHOOK_TIMEOUT_MS = 15000;
 const DEFAULT_WEBHOOK_SECRET_HEADER_NAME = 'X-Webhook-Secret';
@@ -62,6 +63,11 @@ export async function createOutboundWebhookEndpoint(
   userId: string,
   input: CreateOutboundWebhookEndpointInput
 ) {
+  const nameValidation = validateWebhookName(input.label, 'outbound');
+  if (!nameValidation.valid) {
+    throw new Error(nameValidation.error!);
+  }
+
   const service = input.service ?? OutboundWebhookEndpointService.CUSTOM;
   const endpoint = await prisma.outboundWebhookEndpoint.create({
     data: {
@@ -88,6 +94,13 @@ export async function updateOutboundWebhookEndpoint(
   endpointId: string,
   input: UpdateOutboundWebhookEndpointInput
 ) {
+  if (typeof input.label === 'string') {
+    const nameValidation = validateWebhookName(input.label, 'outbound');
+    if (!nameValidation.valid) {
+      throw new Error(nameValidation.error!);
+    }
+  }
+
   const data: Prisma.OutboundWebhookEndpointUpdateInput = {};
 
   if (typeof input.label === 'string') {

@@ -35,6 +35,7 @@ import {
   unregisterDebugClient
 } from '../services/webhookDebugService.js';
 import { prisma } from '../utils/prisma.js';
+import { validateWebhookName } from '../utils/webhookNameValidation.js';
 
 export async function guildRoutes(server: FastifyInstance): Promise<void> {
   server.get('/', async () => {
@@ -216,6 +217,11 @@ export async function guildRoutes(server: FastifyInstance): Promise<void> {
       return reply.badRequest('Invalid webhook payload.');
     }
 
+    const nameValidation = validateWebhookName(parsed.data.label, 'outbound');
+    if (!nameValidation.valid) {
+      return reply.badRequest(nameValidation.error!);
+    }
+
     const membership = await getUserGuildRole(request.user.userId, guildId);
     if (!membership || !(membership.role === GuildRole.LEADER || membership.role === GuildRole.OFFICER)) {
       return reply.forbidden('Only guild leaders or officers can manage webhooks.');
@@ -265,6 +271,13 @@ export async function guildRoutes(server: FastifyInstance): Promise<void> {
     const parsed = bodySchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.badRequest('Invalid webhook payload.');
+    }
+
+    if (parsed.data.label !== undefined) {
+      const nameValidation = validateWebhookName(parsed.data.label, 'outbound');
+      if (!nameValidation.valid) {
+        return reply.badRequest(nameValidation.error!);
+      }
     }
 
     const membership = await getUserGuildRole(request.user.userId, guildId);

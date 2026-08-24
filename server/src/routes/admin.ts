@@ -127,6 +127,7 @@ import {
 } from '../services/playerEventLogsService.js';
 import { createSlackInstallSession } from '../services/slackIntegrationService.js';
 import { prisma } from '../utils/prisma.js';
+import { validateWebhookName } from '../utils/webhookNameValidation.js';
 
 async function requireAdmin(
   request: FastifyRequest,
@@ -1803,6 +1804,11 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
         return reply.badRequest('Invalid webhook payload.');
       }
 
+      const nameValidation = validateWebhookName(parsed.data.label, 'inbound');
+      if (!nameValidation.valid) {
+        return reply.badRequest(nameValidation.error!);
+      }
+
       const webhook = await createInboundWebhook(request.user.userId, parsed.data);
       return reply.code(201).send({ webhook });
     }
@@ -1835,6 +1841,13 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
       const parsed = bodySchema.safeParse(request.body);
       if (!parsed.success) {
         return reply.badRequest(parsed.error.message);
+      }
+
+      if (parsed.data.label !== undefined) {
+        const nameValidation = validateWebhookName(parsed.data.label, 'inbound');
+        if (!nameValidation.valid) {
+          return reply.badRequest(nameValidation.error!);
+        }
       }
 
       try {
@@ -1980,6 +1993,11 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
         !normalizedConfig.customWebhookUrl
       ) {
         return reply.badRequest('Custom webhook POST URL is required.');
+      }
+
+      const nameValidation = validateWebhookName(parsedData.name, 'action');
+      if (!nameValidation.valid) {
+        return reply.badRequest(nameValidation.error!);
       }
 
       const action = await createInboundWebhookAction(webhookId, {
@@ -2156,6 +2174,13 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
         !normalizedConfig?.customWebhookUrl
       ) {
         return reply.badRequest('Custom webhook POST URL is required.');
+      }
+
+      if (parsedData.name !== undefined) {
+        const nameValidation = validateWebhookName(parsedData.name, 'action');
+        if (!nameValidation.valid) {
+          return reply.badRequest(nameValidation.error!);
+        }
       }
 
       const updated = await updateInboundWebhookAction(actionId, {
