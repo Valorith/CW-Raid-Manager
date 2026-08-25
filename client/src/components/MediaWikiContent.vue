@@ -31,11 +31,13 @@ const rendered = computed(() =>
 
 <style scoped>
 .wiki-content {
+  container-name: wiki-render;
+  container-type: inline-size;
   color: #d9e4f2;
   display: flow-root;
   font-size: 1rem;
   line-height: 1.75;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .wiki-content--empty {
@@ -55,33 +57,59 @@ const rendered = computed(() =>
   font-family: var(--nx-font-display);
   letter-spacing: -0.02em;
   line-height: 1.25;
-  margin: 2rem 0 0.7rem;
+  margin: 2rem 0 0.72rem;
+  scroll-margin-top: 8.5rem;
+  text-wrap: balance;
 }
 
-.wiki-content :deep(h2) {
+@media (max-width: 860px) {
+  .wiki-content :deep(h2),
+  .wiki-content :deep(h3),
+  .wiki-content :deep(h4),
+  .wiki-content :deep(h5),
+  .wiki-content :deep(h6) {
+    scroll-margin-top: calc(9.75rem + env(safe-area-inset-top, 0px));
+  }
+}
+
+.wiki-content :deep(.wiki-heading--major) {
   border-bottom: 1px solid rgba(125, 211, 252, 0.18);
-  font-size: 1.65rem;
-  padding-bottom: 0.6rem;
+  font-size: clamp(1.4rem, 3.2cqw, 1.68rem);
+  margin-top: clamp(2.45rem, 5cqw, 3.35rem);
+  padding-bottom: 0.65rem;
 }
 
-.wiki-content :deep(h2:first-child) {
+.wiki-content :deep(.wiki-heading--first:first-child) {
   margin-top: 0;
 }
 
-.wiki-content :deep(h3) {
-  font-size: 1.3rem;
+.wiki-content :deep(.wiki-heading--secondary) {
+  color: #e7f0f8;
+  font-size: clamp(1.12rem, 2.5cqw, 1.3rem);
+  margin-top: 2.1rem;
+}
+
+.wiki-content :deep(.wiki-heading--minor) {
+  color: #c6d6e5;
+  font-size: clamp(0.98rem, 2.2cqw, 1.1rem);
+  letter-spacing: -0.01em;
+  margin-top: 1.65rem;
+}
+
+.wiki-content :deep(.wiki-heading:target) {
+  color: #a5f3f6;
 }
 
 .wiki-content :deep(p) {
   margin: 0 0 1.1rem;
-  max-width: 78ch;
+  max-width: 74ch;
 }
 
 .wiki-content :deep(ul),
 .wiki-content :deep(ol),
 .wiki-content :deep(dl) {
   margin: 0.6rem 0 1.25rem;
-  max-width: 78ch;
+  max-width: 74ch;
   padding-left: 1.5rem;
 }
 
@@ -127,6 +155,7 @@ const rendered = computed(() =>
 .wiki-content :deep(.wiki-link),
 .wiki-content :deep(.wiki-external-link) {
   color: #67e8f9;
+  overflow-wrap: anywhere;
   text-decoration-color: rgba(103, 232, 249, 0.4);
   text-underline-offset: 0.18em;
 }
@@ -157,7 +186,7 @@ const rendered = computed(() =>
   border-left: 3px solid rgba(34, 211, 238, 0.7);
   color: #b9c9dc;
   margin: 1.3rem 0;
-  max-width: 78ch;
+  max-width: 74ch;
   padding: 0.85rem 1.1rem;
   border-radius: 0 10px 10px 0;
 }
@@ -181,16 +210,21 @@ const rendered = computed(() =>
 }
 
 .wiki-content :deep(.wiki-table-wrap) {
+  border: 1px solid rgba(94, 129, 176, 0.2);
+  border-radius: 10px;
   margin: 1.4rem 0;
   max-width: 100%;
+  overscroll-behavior-inline: contain;
   overflow-x: auto;
+  scrollbar-color: rgba(103, 232, 249, 0.32) rgba(8, 15, 29, 0.54);
+  scrollbar-width: thin;
   width: fit-content;
 }
 
 .wiki-content :deep(.wiki-table) {
   background: rgba(8, 15, 29, 0.54);
   border-collapse: collapse;
-  min-width: 20rem;
+  min-width: min(20rem, 100%);
   width: auto;
 }
 
@@ -254,6 +288,7 @@ const rendered = computed(() =>
 }
 
 .wiki-content :deep(.wiki-file img) {
+  border-radius: 3px;
   display: block;
   height: auto;
   max-width: 100%;
@@ -286,7 +321,7 @@ const rendered = computed(() =>
   border: 1px solid rgba(56, 189, 248, 0.22);
   border-radius: 12px;
   margin: 1.3rem 0;
-  max-width: 78ch;
+  max-width: 74ch;
   padding: 0.85rem 1rem;
 }
 
@@ -332,7 +367,11 @@ const rendered = computed(() =>
   color: #67e8f9;
 }
 
-@media (max-width: 760px) {
+@container wiki-render (max-width: 54rem) {
+  .wiki-content :deep(.wiki-table-wrap) {
+    width: 100%;
+  }
+
   .wiki-content :deep(.wiki-file--right),
   .wiki-content :deep(.wiki-file--left) {
     float: none;
@@ -350,6 +389,49 @@ const rendered = computed(() =>
 
   .wiki-content :deep(.wiki-table) {
     min-width: 18rem;
+  }
+}
+
+@container wiki-render (max-width: 34rem) {
+  .wiki-content {
+    font-size: 0.94rem;
+    line-height: 1.68;
+  }
+
+  .wiki-content :deep(.wiki-heading--major) {
+    font-size: 1.32rem;
+    margin-top: 2.25rem;
+  }
+
+  .wiki-content :deep(.wiki-heading--secondary) {
+    font-size: 1.08rem;
+    margin-top: 1.85rem;
+  }
+
+  .wiki-content :deep(.wiki-heading--minor) {
+    font-size: 0.98rem;
+    margin-top: 1.45rem;
+  }
+
+  .wiki-content :deep(ul),
+  .wiki-content :deep(ol) {
+    padding-left: 1.2rem;
+  }
+
+  .wiki-content :deep(.wiki-table th),
+  .wiki-content :deep(.wiki-table td) {
+    font-size: 0.84rem;
+    padding: 0.46rem 0.58rem;
+  }
+
+  .wiki-content :deep(.wiki-table:has(tr > :nth-child(2):last-child) th:first-child),
+  .wiki-content :deep(.wiki-table:has(tr > :nth-child(2):last-child) td:first-child) {
+    white-space: nowrap;
+  }
+
+  .wiki-content :deep(.wiki-callout),
+  .wiki-content :deep(blockquote) {
+    padding: 0.75rem 0.85rem;
   }
 }
 </style>

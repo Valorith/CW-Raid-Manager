@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 // @ts-expect-error Node built-ins are available to the test runner but omitted from the app tsconfig.
 import test from 'node:test';
 
-import { renderMediaWiki } from './mediaWiki.js';
+import { extractMediaWikiHeadings, renderMediaWiki } from './mediaWiki.js';
 
 const BLACKSMITH_FIXTURE = `[[File:Blacksmith Yragbor.jpg|500px|thumb|right|[https://alla.clumsysworld.com/?a=npc&id=92110 Blacksmith Yragbor]]]
 {| class="wikitable"
@@ -133,11 +133,35 @@ continues the paragraph with '''bold''' and ''italic''.
 === First Section ===
 <nowiki>[[literal]]</nowiki> and <code>code</code>.`);
 
-  assert.match(html, /<h3 id="first-section">First Section<\/h3>/);
-  assert.match(html, /<h3 id="first-section-2">First Section<\/h3>/);
+  assert.match(
+    html,
+    /<h3 id="first-section" class="wiki-heading wiki-heading--major wiki-heading--first">First Section<\/h3>/
+  );
+  assert.match(
+    html,
+    /<h3 id="first-section-2" class="wiki-heading wiki-heading--major">First Section<\/h3>/
+  );
   assert.match(
     html,
     /One line continues the paragraph with <strong>bold<\/strong> and <em>italic<\/em>\./
   );
   assert.match(html, /\[\[literal\]\] and <code>code<\/code>/);
+});
+
+test('extracts a stable wiki outline without treating table content as page sections', () => {
+  const outline = extractMediaWikiHeadings(`<!-- hidden -->
+=== Strategy & Positioning ===
+{| class="wikitable"
+| === Not a heading ===
+|}
+==== Adds ====
+===== Burn order =====
+=== Strategy & Positioning ===`);
+
+  assert.deepEqual(outline, [
+    { id: 'strategy-positioning', label: 'Strategy & Positioning', level: 3 },
+    { id: 'adds', label: 'Adds', level: 4 },
+    { id: 'burn-order', label: 'Burn order', level: 5 },
+    { id: 'strategy-positioning-2', label: 'Strategy & Positioning', level: 3 }
+  ]);
 });

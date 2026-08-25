@@ -39,12 +39,16 @@
         <span v-else class="boss-heal__status" aria-hidden="true">Yes</span>
       </component>
 
-      <div class="boss-heal boss-heal--chain is-active">
+      <div
+        v-if="editable || hasCHealChain"
+        class="boss-heal boss-heal--chain is-active"
+        :class="{ 'is-disabled': !hasCHealChain }"
+      >
         <span class="boss-heal__gem" aria-hidden="true">
           <img src="/icons/heals/spell-icon-99.gif" alt="" draggable="false" />
         </span>
         <span class="boss-heal__copy">
-          <strong>{{ heals.cHealChainSize }} Person CHeal Chain</strong>
+          <strong>{{ cHealChainLabel }}</strong>
           <small>{{ editable ? 'Select chain size' : 'Selected' }}</small>
         </span>
         <div
@@ -59,7 +63,7 @@
             type="button"
             :class="{ 'is-selected': heals.cHealChainSize === size }"
             :aria-pressed="heals.cHealChainSize === size"
-            :aria-label="`${size} Person CHeal Chain`"
+            :aria-label="size === 0 ? 'No CHeal Chain' : `${size} Person CHeal Chain`"
             :disabled="saving"
             @click="emit('select-c-heal-chain', size)"
           >
@@ -70,6 +74,9 @@
           {{ heals.cHealChainSize }}x
         </span>
       </div>
+      <p v-if="!editable && !heals.raidHeals && !hasCHealChain" class="boss-heals-empty">
+        No raid healing utilities selected.
+      </p>
     </div>
 
     <span v-if="saving" class="boss-heals-card__saving" role="status"> Saving healing plan… </span>
@@ -77,9 +84,11 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue';
+
 import type { BossHeals, CHealChainSize } from '../services/api';
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     heals: BossHeals;
     editable?: boolean;
@@ -96,7 +105,11 @@ const emit = defineEmits<{
   'select-c-heal-chain': [size: CHealChainSize];
 }>();
 
-const chainSizes: CHealChainSize[] = [2, 3, 4];
+const chainSizes: CHealChainSize[] = [0, 2, 3, 4, 5];
+const hasCHealChain = computed(() => props.heals.cHealChainSize > 0);
+const cHealChainLabel = computed(() =>
+  hasCHealChain.value ? `${props.heals.cHealChainSize} Person CHeal Chain` : 'No CHeal Chain'
+);
 </script>
 
 <style scoped>
@@ -188,6 +201,13 @@ const chainSizes: CHealChainSize[] = [2, 3, 4];
   color: #7f93a9;
 }
 
+.boss-heal--chain.is-disabled {
+  background: rgba(17, 27, 44, 0.58);
+  border-color: rgba(113, 149, 185, 0.14);
+  box-shadow: none;
+  color: #7f93a9;
+}
+
 button.boss-heal {
   cursor: pointer;
   width: 100%;
@@ -222,7 +242,7 @@ button.boss-heal:disabled {
   width: 2.25rem;
 }
 
-.boss-heal--raid.is-disabled .boss-heal__gem {
+.boss-heal.is-disabled .boss-heal__gem {
   opacity: 0.48;
   transform: scale(0.94);
 }
@@ -236,7 +256,7 @@ button.boss-heal:disabled {
   width: 2rem;
 }
 
-.boss-heal--raid.is-disabled .boss-heal__gem img {
+.boss-heal.is-disabled .boss-heal__gem img {
   filter: brightness(0.72) saturate(0.7);
 }
 
@@ -258,7 +278,7 @@ button.boss-heal:disabled {
   font-size: 0.53rem;
 }
 
-.boss-heal--raid.is-disabled .boss-heal__copy small {
+.boss-heal.is-disabled .boss-heal__copy small {
   color: #62778e;
 }
 
@@ -304,8 +324,14 @@ button.boss-heal:disabled {
   border: 1px solid rgba(126, 215, 182, 0.18);
   border-radius: 7px;
   display: inline-grid;
-  grid-template-columns: repeat(3, 1.55rem);
+  grid-column: 2 / -1;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   overflow: hidden;
+  width: 100%;
+}
+
+.boss-heals-card--editable .boss-heal--chain {
+  grid-template-columns: 2.25rem minmax(0, 1fr);
 }
 
 .boss-heal__chain-selector button {
@@ -315,7 +341,7 @@ button.boss-heal:disabled {
   cursor: pointer;
   font-size: 0.58rem;
   font-weight: 800;
-  height: 1.65rem;
+  height: 1.9rem;
   padding: 0;
   transition:
     background 140ms ease,
@@ -342,6 +368,14 @@ button.boss-heal:disabled {
   font-size: 0.56rem;
   margin-top: 0.48rem;
   text-align: right;
+}
+
+.boss-heals-empty {
+  color: #7f93a9;
+  font-size: 0.64rem;
+  line-height: 1.45;
+  margin: 0;
+  padding: 0.55rem 0.4rem 0.4rem;
 }
 
 @media (max-width: 540px) {

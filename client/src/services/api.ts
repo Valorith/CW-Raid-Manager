@@ -115,7 +115,7 @@ export interface BossCures {
   disease: boolean;
 }
 
-export type CHealChainSize = 2 | 3 | 4;
+export type CHealChainSize = 0 | 2 | 3 | 4 | 5;
 
 export interface BossHeals {
   raidHeals: boolean;

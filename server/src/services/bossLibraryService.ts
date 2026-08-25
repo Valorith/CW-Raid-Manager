@@ -58,7 +58,7 @@ export interface BossCures {
   disease: boolean;
 }
 
-export type CHealChainSize = 2 | 3 | 4;
+export type CHealChainSize = 0 | 2 | 3 | 4 | 5;
 
 export interface BossHeals {
   raidHeals: boolean;
@@ -157,7 +157,11 @@ export function bossCuresEqual(left: BossCures, right: BossCures) {
 }
 
 export function formatBossHeals(heals: BossHeals) {
-  return `${heals.raidHeals ? 'Raid Heals, ' : ''}${heals.cHealChainSize} Person CHeal Chain`;
+  const selected = [
+    heals.raidHeals ? 'Raid Heals' : null,
+    heals.cHealChainSize > 0 ? `${heals.cHealChainSize} Person CHeal Chain` : null
+  ].filter((value): value is string => Boolean(value));
+  return selected.length > 0 ? selected.join(', ') : 'None';
 }
 
 export function describeBossUpdate(input: BossUpdateInput) {
@@ -278,7 +282,11 @@ function serializeBossImage<
     typeof cureDisease === 'boolean';
   const hasHeals =
     typeof raidHeals === 'boolean' &&
-    (cHealChainSize === 2 || cHealChainSize === 3 || cHealChainSize === 4);
+    (cHealChainSize === 0 ||
+      cHealChainSize === 2 ||
+      cHealChainSize === 3 ||
+      cHealChainSize === 4 ||
+      cHealChainSize === 5);
   return {
     ...details,
     ...(hasCures

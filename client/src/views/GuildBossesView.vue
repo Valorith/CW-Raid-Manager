@@ -460,8 +460,20 @@
             </button>
           </div>
 
+          <BossWikiNavigator
+            v-if="mode === 'view' && wikiOutline.length > 1"
+            :items="wikiOutline"
+            :active-id="activeWikiSectionId"
+            @navigate="jumpToWikiSection"
+          />
+
           <Transition name="notes-mode" mode="out-in">
-            <article v-if="mode === 'view'" key="view" class="boss-notes-document">
+            <article
+              v-if="mode === 'view'"
+              ref="bossNotesDocumentRef"
+              key="view"
+              class="boss-notes-document"
+            >
               <div class="boss-notes-document__content">
                 <MediaWikiContent :source="boss.notes ?? ''" :links="wikiLinks">
                   <template #empty>
@@ -503,6 +515,21 @@
             </article>
 
             <div v-else-if="mode === 'edit'" key="edit" class="boss-notes-edit-layout">
+              <div class="boss-raid-utilities">
+                <BossHealsCard
+                  :heals="currentBossHeals"
+                  editable
+                  :saving="savingHeals"
+                  @toggle-raid-heals="toggleRaidHeals"
+                  @select-c-heal-chain="selectCHealChainSize"
+                />
+                <BossCuresCard
+                  :cures="currentBossCures"
+                  editable
+                  :saving="savingCures"
+                  @toggle="toggleBossCure"
+                />
+              </div>
               <div class="boss-notes-edit">
                 <MediaWikiEditor v-model="notesDraft" :links="wikiLinks" />
                 <div class="boss-notes-edit__footer">
@@ -530,7 +557,15 @@
                   </div>
                 </div>
               </div>
-              <div class="boss-raid-utilities">
+            </div>
+
+            <div
+              v-else
+              :key="mode"
+              class="boss-notes-edit-mode"
+              :class="{ 'boss-notes-edit-layout': mode === 'plain' }"
+            >
+              <div v-if="mode === 'plain'" class="boss-raid-utilities">
                 <BossHealsCard
                   :heals="currentBossHeals"
                   editable
@@ -545,14 +580,6 @@
                   @toggle="toggleBossCure"
                 />
               </div>
-            </div>
-
-            <div
-              v-else
-              :key="mode"
-              class="boss-notes-edit-mode"
-              :class="{ 'boss-notes-edit-layout': mode === 'plain' }"
-            >
               <div
                 class="boss-notes-edit boss-notes-edit--plain"
                 :class="{ 'boss-notes-edit--suggestion': mode === 'suggest' }"
@@ -658,21 +685,6 @@
                     </button>
                   </div>
                 </div>
-              </div>
-              <div v-if="mode === 'plain'" class="boss-raid-utilities">
-                <BossHealsCard
-                  :heals="currentBossHeals"
-                  editable
-                  :saving="savingHeals"
-                  @toggle-raid-heals="toggleRaidHeals"
-                  @select-c-heal-chain="selectCHealChainSize"
-                />
-                <BossCuresCard
-                  :cures="currentBossCures"
-                  editable
-                  :saving="savingCures"
-                  @toggle="toggleBossCure"
-                />
               </div>
             </div>
           </Transition>
@@ -1601,6 +1613,7 @@ import BossCuresCard from '../components/BossCuresCard.vue';
 import BossHealsCard from '../components/BossHealsCard.vue';
 import BossRespawnSignal from '../components/BossRespawnSignal.vue';
 import BossRespawnTimeline from '../components/BossRespawnTimeline.vue';
+import BossWikiNavigator from '../components/BossWikiNavigator.vue';
 import ErrorModal from '../components/ErrorModal.vue';
 import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
 import MediaWikiContent from '../components/MediaWikiContent.vue';
@@ -1630,6 +1643,7 @@ import {
 } from '../services/api';
 import { copyBossShareLink } from '../utils/bossLinks';
 import { getBossRespawnTone } from '../utils/bossRespawnPresentation';
+import { extractMediaWikiHeadings } from '../utils/mediaWiki';
 import { plainBossNotesChanged, plainBossNotesValues } from '../utils/plainBossNotes';
 
 const route = useRoute();
@@ -1732,6 +1746,14 @@ function formatCures(cures: BossCures) {
   return names.length > 0 ? names.join(', ') : 'None needed';
 }
 
+function formatHeals(heals: BossHeals) {
+  const selections = [
+    heals.raidHeals ? 'Raid Heals' : null,
+    heals.cHealChainSize > 0 ? `${heals.cHealChainSize} Person CHeal Chain` : null
+  ].filter((selection): selection is string => Boolean(selection));
+  return selections.length > 0 ? selections.join(' · ') : 'No raid healing utilities selected';
+}
+
 async function toggleBossCure(key: keyof BossCures) {
   if (
     !boss.value ||
@@ -1783,7 +1805,7 @@ async function saveBossHeals(heals: BossHeals) {
     await refreshLibrary();
     addToast({
       title: 'Heals updated',
-      message: `${heals.raidHeals ? 'Raid Heals selected · ' : ''}${heals.cHealChainSize} Person CHeal Chain.`,
+      message: `${formatHeals(heals)}.`,
       variant: 'success'
     });
   } catch (error) {
@@ -1823,6 +1845,7 @@ const wikiLinks = computed(() => {
   }
   return links;
 });
+const wikiOutline = computed(() => extractMediaWikiHeadings(boss.value?.notes ?? ''));
 
 async function refreshBossRespawnData() {
   const activeGuildId = library.value?.guild.id ?? guildId.value;
@@ -1983,6 +2006,8 @@ type NotesMode = 'view' | 'edit' | 'plain' | 'suggest';
 type EditableNotesMode = 'edit' | 'plain';
 
 const mode = ref<NotesMode>('view');
+const bossNotesDocumentRef = ref<HTMLElement | null>(null);
+const activeWikiSectionId = ref('');
 const notesDraft = ref('');
 const notesOriginal = ref('');
 const savingNotes = ref(false);
@@ -2022,6 +2047,67 @@ const editLockPromptLabel = computed(() =>
 );
 let editLeaseHeartbeatTimer: ReturnType<typeof window.setInterval> | null = null;
 let editLeaseHeartbeatInFlight = false;
+let wikiSectionObserver: IntersectionObserver | null = null;
+
+function stopWikiSectionObserver() {
+  wikiSectionObserver?.disconnect();
+  wikiSectionObserver = null;
+}
+
+function findWikiHeading(id: string) {
+  const escapedId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(id) : id;
+  return bossNotesDocumentRef.value?.querySelector<HTMLElement>(`#${escapedId}`) ?? null;
+}
+
+function jumpToWikiSection(id: string, smooth = true) {
+  const target = findWikiHeading(id);
+  if (!target) return;
+  activeWikiSectionId.value = id;
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  target.scrollIntoView({
+    behavior: smooth && !reducedMotion ? 'smooth' : 'auto',
+    block: 'start'
+  });
+  const nextUrl = `${window.location.pathname}${window.location.search}#${id}`;
+  window.history.replaceState(window.history.state, '', nextUrl);
+}
+
+async function setupWikiSectionObserver() {
+  stopWikiSectionObserver();
+  if (mode.value !== 'view' || wikiOutline.value.length < 2) {
+    activeWikiSectionId.value = '';
+    return;
+  }
+
+  await nextTick();
+  const headings = wikiOutline.value
+    .map((item) => findWikiHeading(item.id))
+    .filter((heading): heading is HTMLElement => Boolean(heading));
+  if (headings.length === 0) return;
+
+  const hashId = window.location.hash.slice(1);
+  const initialHeading = headings.find((heading) => heading.id === hashId) ?? headings[0];
+  activeWikiSectionId.value = initialHeading.id;
+  if (hashId && initialHeading.id === hashId) {
+    window.requestAnimationFrame(() => jumpToWikiSection(hashId, false));
+  }
+
+  if (typeof IntersectionObserver === 'undefined') return;
+  wikiSectionObserver = new IntersectionObserver(
+    (entries) => {
+      const visible = entries
+        .filter((entry) => entry.isIntersecting)
+        .sort((left, right) => left.boundingClientRect.top - right.boundingClientRect.top);
+      const next = visible[0]?.target;
+      if (next instanceof HTMLElement) activeWikiSectionId.value = next.id;
+    },
+    {
+      rootMargin: '-120px 0px -68% 0px',
+      threshold: [0, 1]
+    }
+  );
+  headings.forEach((heading) => wikiSectionObserver?.observe(heading));
+}
 
 function toBossEditMode(nextMode: EditableNotesMode): BossEditMode {
   return nextMode === 'edit' ? 'source' : 'plain';
@@ -3196,6 +3282,14 @@ watch(activeModalKey, async (key) => {
 });
 
 watch(
+  [() => boss.value?.id, () => boss.value?.notes, mode],
+  () => {
+    void setupWikiSectionObserver();
+  },
+  { flush: 'post' }
+);
+
+watch(
   [routeGuildKey, routeBossKey],
   ([nextGuildKey, nextBossKey], [previousGuildKey, previousBossKey]) => {
     if (nextGuildKey === previousGuildKey && nextBossKey === previousBossKey) return;
@@ -3272,6 +3366,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  stopWikiSectionObserver();
   resolveDiscardNotes(false);
   releaseEditLeaseBestEffort();
   releaseBossImageObjectUrl();
@@ -4457,6 +4552,9 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(103, 146, 194, 0.2);
   border-radius: 18px;
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.16);
+  container-name: boss-notes;
+  container-type: inline-size;
+  display: grid;
   min-height: 24rem;
   padding: var(--boss-notes-document-padding);
   position: relative;
@@ -4471,7 +4569,7 @@ onBeforeUnmount(() => {
   align-items: start;
   display: grid;
   gap: clamp(1.4rem, 3vw, 2.6rem);
-  grid-template-columns: minmax(0, 1fr) minmax(0, 36rem);
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .boss-raid-utilities {
@@ -4522,6 +4620,36 @@ onBeforeUnmount(() => {
   top: anchor(bottom, var(--boss-notes-document-padding));
   margin-top: 1.25rem;
   z-index: 1;
+}
+
+@container boss-notes (max-width: 54rem) {
+  .boss-notes-document__content {
+    grid-row: 2;
+  }
+
+  .boss-notes-document__content :deep(.wiki-content)::before {
+    display: none;
+  }
+
+  .boss-notes-document__content
+    :deep(.wiki-content:has(> .wiki-file--right:first-of-type))::before {
+    content: none;
+  }
+
+  .boss-notes-document__content :deep(.wiki-content--empty) {
+    padding-right: 0;
+  }
+
+  .boss-notes-document__content :deep(.wiki-content > .wiki-file--right:first-of-type) {
+    margin-bottom: 1rem;
+  }
+
+  .boss-notes-document > .boss-raid-utilities {
+    grid-row: 1;
+    margin: 0 0 1.25rem;
+    position: static;
+    position-anchor: none;
+  }
 }
 
 .boss-notes-empty {
@@ -6131,11 +6259,7 @@ onBeforeUnmount(() => {
 
 @media (max-width: 1120px) {
   .boss-notes-edit-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .boss-notes-edit-layout > .boss-raid-utilities {
-    grid-row: 1;
+    gap: 1.6rem;
   }
 }
 
@@ -6176,8 +6300,11 @@ onBeforeUnmount(() => {
   }
 
   .boss-notes-document {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+  }
+
+  .boss-notes-document__content {
+    grid-row: 2;
   }
 
   .boss-notes-document__content :deep(.wiki-content)::before {
@@ -6198,9 +6325,10 @@ onBeforeUnmount(() => {
   }
 
   .boss-notes-document > .boss-raid-utilities {
+    grid-row: 1;
     margin: 0 0 1.25rem;
-    order: -1;
     position: static;
+    position-anchor: none;
   }
 
   .boss-raid-utilities {
@@ -6577,6 +6705,17 @@ onBeforeUnmount(() => {
   .bosses-page--editing .boss-detail-action {
     font-size: 0;
     padding: 0.55rem;
+  }
+}
+
+@media (max-width: 360px) {
+  .boss-detail-actions,
+  .bosses-page--editing .boss-detail-actions {
+    right: 0.45rem;
+  }
+
+  .boss-detail-hero__content {
+    padding-bottom: 1.45rem;
   }
 }
 

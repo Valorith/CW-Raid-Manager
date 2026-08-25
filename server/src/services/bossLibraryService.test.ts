@@ -140,6 +140,9 @@ test('boss heal summaries preserve the selected raid plan in audit history', () 
     'Raid Heals, 4 Person CHeal Chain'
   );
   assert.equal(formatBossHeals({ raidHeals: false, cHealChainSize: 2 }), '2 Person CHeal Chain');
+  assert.equal(formatBossHeals({ raidHeals: false, cHealChainSize: 0 }), 'None');
+  assert.equal(formatBossHeals({ raidHeals: true, cHealChainSize: 0 }), 'Raid Heals');
+  assert.equal(formatBossHeals({ raidHeals: false, cHealChainSize: 5 }), '5 Person CHeal Chain');
   assert.equal(
     describeBossUpdate({ heals: { raidHeals: true, cHealChainSize: 3 } }),
     'Updated heals (Raid Heals, 3 Person CHeal Chain)'

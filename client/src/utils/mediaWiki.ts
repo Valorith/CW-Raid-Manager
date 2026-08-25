@@ -3,6 +3,12 @@ export interface MediaWikiRenderOptions {
   wikiBaseUrl?: string | null;
 }
 
+export interface MediaWikiHeading {
+  id: string;
+  label: string;
+  level: number;
+}
+
 interface WikiLinkMarkup {
   end: number;
   inner: string;
@@ -606,6 +612,35 @@ function headingId(source: string, counts: Map<string, number>): string {
   return count === 1 ? base : `${base}-${count}`;
 }
 
+export function extractMediaWikiHeadings(source: string): MediaWikiHeading[] {
+  const normalized = source.replace(/\r\n?/g, '\n').replace(/<!--([\s\S]*?)-->/g, '');
+  const lines = normalized.split('\n');
+  const headings: MediaWikiHeading[] = [];
+  const headingCounts = new Map<string, number>();
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const trimmed = lines[index].trim();
+    if (trimmed.startsWith('{|')) {
+      while (index + 1 < lines.length) {
+        index += 1;
+        if (lines[index].trim() === '|}') break;
+      }
+      continue;
+    }
+
+    const heading = trimmed.match(/^(={1,6})\s*(.+?)\s*\1$/);
+    if (!heading) continue;
+    const level = Math.min(6, Math.max(2, heading[1].length));
+    headings.push({
+      id: headingId(heading[2], headingCounts),
+      label: plainWikiText(heading[2]) || 'Section',
+      level
+    });
+  }
+
+  return headings;
+}
+
 function renderCategories(categories: string[], options: MediaWikiRenderOptions): string {
   if (!categories.length) return '';
   const unique = [...new Set(categories)];
@@ -629,7 +664,11 @@ export function renderMediaWiki(source: string, options: MediaWikiRenderOptions 
   const lines = normalized.split('\n');
   const output: string[] = [];
   const categories: string[] = [];
-  const headingCounts = new Map<string, number>();
+  const headings = extractMediaWikiHeadings(normalized);
+  const baseHeadingLevel = headings.length
+    ? Math.min(...headings.map((heading) => heading.level))
+    : 2;
+  let headingIndex = 0;
   let paragraph: string[] = [];
 
   const flushParagraph = () => {
@@ -684,8 +723,15 @@ export function renderMediaWiki(source: string, options: MediaWikiRenderOptions 
     if (heading) {
       flushParagraph();
       const level = Math.min(6, Math.max(2, heading[1].length));
-      const id = headingId(heading[2], headingCounts);
-      output.push(`<h${level} id="${id}">${renderInline(heading[2], resolvedOptions)}</h${level}>`);
+      const outlineHeading = headings[headingIndex];
+      const id = outlineHeading?.id ?? headingAnchorBase(heading[2]);
+      const relativeLevel = Math.min(2, Math.max(0, level - baseHeadingLevel));
+      const tier = ['major', 'secondary', 'minor'][relativeLevel];
+      const firstClass = headingIndex === 0 ? ' wiki-heading--first' : '';
+      output.push(
+        `<h${level} id="${id}" class="wiki-heading wiki-heading--${tier}${firstClass}">${renderInline(heading[2], resolvedOptions)}</h${level}>`
+      );
+      headingIndex += 1;
       continue;
     }
 
