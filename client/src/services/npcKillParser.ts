@@ -96,6 +96,13 @@ const encounterCompletionPatterns: typeof killPatterns = [
     // depops with this shout, fears the raid, and spawns the ancient loot chest.
     regex: /\] Braag the Morphling shouts ['"]Until next time\.\.\.['"]\s*$/i,
     map: () => ({ npcName: 'Braag the Morphling', killerName: null })
+  },
+  {
+    // Corflunk can depart outside the player's combat-log range, so no death line is emitted.
+    // This NPC-specific line is immediately followed by Zarchoomi's death and the Twins chest.
+    regex:
+      /\] Enraged Corflunk says ['"“”‘’]Your destiny lies at the hands of the Greenbloods\.['"“”‘’]\s*$/i,
+    map: () => ({ npcName: 'Enraged Corflunk', killerName: null })
   }
 ];
 
@@ -197,7 +204,8 @@ export function parseNpcKillEvents(
     if (
       !normalizedLine.includes('slain') &&
       !normalizedLine.includes('pulled away by an unseen force') &&
-      !normalizedLine.includes('until next time...')
+      !normalizedLine.includes('until next time...') &&
+      !normalizedLine.includes('your destiny lies at the hands of the greenbloods')
     ) {
       continue;
     }

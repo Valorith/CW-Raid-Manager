@@ -281,12 +281,13 @@ test('credits Classic Braag from the final shout instead of the intermediate mor
   );
 });
 
-test('parses both Enraged Twins deaths and preserves their shared zone context', () => {
+test('parses the actual Enraged Twins completion when Corflunk departs out of log range', () => {
   const content = [
-    '[Mon Jun 22 20:57:14 2026] You have entered Butcherblock Mountains.',
-    '[Mon Jun 22 21:04:03 2026] Enraged Corflunk has been slain by Zurkon!',
-    '[Mon Jun 22 21:04:04 2026] Enraged Zarchoomi has been slain by Laern!',
-    '[Mon Jun 22 21:04:13 2026] Dagara slashes an ancient chest for 99 points of damage.'
+    '[Mon Aug 24 21:57:24 2026] You have entered Butcherblock Mountains.',
+    "[Mon Aug 24 22:08:40 2026] Enraged Corflunk says 'Your destiny lies at the hands of the Greenbloods.'",
+    '[Mon Aug 24 22:08:46 2026] Enraged Zarchoomi has been slain by Laern!',
+    '[Mon Aug 24 22:08:46 2026] You have gained (40838) raid experience! (0.076%)',
+    '[Mon Aug 24 22:08:50 2026] Dagara hit an ancient chest for 170 points of non-melee damage.'
   ].join('\n');
 
   assert.deepEqual(
@@ -299,15 +300,63 @@ test('parses both Enraged Twins deaths and preserves their shared zone context',
     [
       {
         npcName: 'Enraged Corflunk',
-        killerName: 'Zurkon',
+        killerName: null,
         zoneName: 'Butcherblock Mountains',
-        timestamp: '2026-06-23T01:04:03.000Z'
+        timestamp: '2026-08-25T02:08:40.000Z'
       },
       {
         npcName: 'Enraged Zarchoomi',
         killerName: 'Laern',
         zoneName: 'Butcherblock Mountains',
-        timestamp: '2026-06-23T01:04:04.000Z'
+        timestamp: '2026-08-25T02:08:46.000Z'
+      }
+    ]
+  );
+});
+
+test('replays both actual Enraged Twins completions from the August 24 raid', () => {
+  const content = [
+    '[Mon Aug 24 21:57:24 2026] You have entered Butcherblock Mountains.',
+    "[Mon Aug 24 22:08:40 2026] Enraged Corflunk says 'Your destiny lies at the hands of the Greenbloods.'",
+    '[Mon Aug 24 22:08:46 2026] Enraged Zarchoomi has been slain by Laern!',
+    '[Mon Aug 24 22:08:50 2026] Dagara hit an ancient chest for 170 points of non-melee damage.',
+    '[Mon Aug 24 22:10:01 2026] You have entered Butcherblock Mountains.',
+    "[Mon Aug 24 22:15:42 2026] Enraged Corflunk says 'Your destiny lies at the hands of the Greenbloods.'",
+    '[Mon Aug 24 22:15:47 2026] Enraged Zarchoomi has been slain by Dirt!',
+    '[Mon Aug 24 22:15:51 2026] You kick an ancient chest for 78 points of damage.'
+  ].join('\n');
+
+  assert.deepEqual(
+    parseNpcKillEvents(content).map((kill) => ({
+      npcName: kill.npcName,
+      killerName: kill.killerName,
+      zoneName: kill.zoneName,
+      timestamp: kill.timestamp?.toISOString()
+    })),
+    [
+      {
+        npcName: 'Enraged Corflunk',
+        killerName: null,
+        zoneName: 'Butcherblock Mountains',
+        timestamp: '2026-08-25T02:08:40.000Z'
+      },
+      {
+        npcName: 'Enraged Zarchoomi',
+        killerName: 'Laern',
+        zoneName: 'Butcherblock Mountains',
+        timestamp: '2026-08-25T02:08:46.000Z'
+      },
+      {
+        npcName: 'Enraged Corflunk',
+        killerName: null,
+        zoneName: 'Butcherblock Mountains',
+        timestamp: '2026-08-25T02:15:42.000Z'
+      },
+      {
+        npcName: 'Enraged Zarchoomi',
+        killerName: 'Dirt',
+        zoneName: 'Butcherblock Mountains',
+        timestamp: '2026-08-25T02:15:47.000Z'
       }
     ]
   );

@@ -57,6 +57,53 @@ test('does not award Enraged Twins credit when only Zarchoomi dies', () => {
   );
 });
 
+test('awards separate tracker completions for the actual overworld and instance pairs', () => {
+  const events = [
+    {
+      npcName: 'Enraged Corflunk',
+      occurredAt: new Date('2026-08-25T02:08:40.000Z'),
+      killerName: null,
+      zoneName: 'Butcherblock Mountains'
+    },
+    {
+      npcName: 'Enraged Zarchoomi',
+      occurredAt: new Date('2026-08-25T02:08:46.000Z'),
+      killerName: 'Laern',
+      zoneName: 'Butcherblock Mountains'
+    },
+    {
+      npcName: 'Enraged Corflunk',
+      occurredAt: new Date('2026-08-25T02:15:42.000Z'),
+      killerName: null,
+      zoneName: 'Butcherblock Mountains'
+    },
+    {
+      npcName: 'Enraged Zarchoomi',
+      occurredAt: new Date('2026-08-25T02:15:47.000Z'),
+      killerName: 'Dirt',
+      zoneName: 'Butcherblock Mountains'
+    }
+  ];
+
+  assert.deepEqual(
+    findEnragedTwinsCompletions(events),
+    [
+      {
+        npcName: 'Enraged Corflunk',
+        occurredAt: new Date('2026-08-25T02:08:46.000Z'),
+        killerName: 'Laern',
+        zoneName: 'Butcherblock Mountains'
+      },
+      {
+        npcName: 'Enraged Corflunk',
+        occurredAt: new Date('2026-08-25T02:15:47.000Z'),
+        killerName: 'Dirt',
+        zoneName: 'Butcherblock Mountains'
+      }
+    ]
+  );
+});
+
 test('defers Braag death credit until the scripted completion signal', () => {
   assert.equal(
     shouldDeferStandaloneTrackerKill({
