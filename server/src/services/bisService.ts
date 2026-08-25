@@ -491,7 +491,10 @@ async function findOrCreateCandidate(
     itemName: string;
     itemIconId: number | null;
     submittedById: string;
-  }
+  },
+  options: {
+    isReplacingVoteForSlot?: boolean;
+  } = {}
 ) {
   const existing = await tx.bisSlotCandidate.findUnique({
     where: {
@@ -518,7 +521,7 @@ async function findOrCreateCandidate(
     }
   });
 
-  if (existingSubmissionForClass) {
+  if (existingSubmissionForClass && !options.isReplacingVoteForSlot) {
     throw new Error(
       `You already submitted ${existingSubmissionForClass.itemName} to the ${BIS_SLOT_LABELS[existingSubmissionForClass.slotId]} board for ${input.characterClass}. Each user can only have one item on a class vote board at a time.`
     );
@@ -548,6 +551,60 @@ async function findOrCreateCandidate(
   }
 }
 
+export async function nominateResolvedBisCandidate(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  input: {
+    characterClass: CharacterClass;
+    slotId: number;
+  },
+  item: BisCompatibleDiscoveredItem
+) {
+  const existingVote = await tx.bisVote.findUnique({
+    where: {
+      userId_characterClass_slotId: {
+        userId,
+        characterClass: input.characterClass,
+        slotId: input.slotId
+      }
+    },
+    select: {
+      candidateId: true
+    }
+  });
+
+  const candidate = await findOrCreateCandidate(
+    tx,
+    {
+      characterClass: input.characterClass,
+      slotId: input.slotId,
+      itemId: item.itemId,
+      itemName: item.itemName,
+      itemIconId: item.itemIconId,
+      submittedById: userId
+    },
+    {
+      isReplacingVoteForSlot: Boolean(existingVote)
+    }
+  );
+
+  await tx.bisVote.upsert(buildBisVoteUpsert(userId, candidate));
+
+  if (existingVote && existingVote.candidateId !== candidate.id) {
+    await tx.bisSlotCandidate.deleteMany({
+      where: {
+        id: existingVote.candidateId,
+        submittedById: userId,
+        votes: {
+          none: {}
+        }
+      }
+    });
+  }
+
+  return candidate;
+}
+
 export async function nominateBisCandidate(
   userId: string,
   input: {
@@ -566,20 +623,9 @@ export async function nominateBisCandidate(
     input.itemId
   );
 
-  const candidate = await prisma.$transaction(async (tx) => {
-    const createdCandidate = await findOrCreateCandidate(tx, {
-      characterClass: input.characterClass,
-      slotId: input.slotId,
-      itemId: item.itemId,
-      itemName: item.itemName,
-      itemIconId: item.itemIconId,
-      submittedById: userId
-    });
-
-    await tx.bisVote.upsert(buildBisVoteUpsert(userId, createdCandidate));
-
-    return createdCandidate;
-  });
+  const candidate = await prisma.$transaction((tx) =>
+    nominateResolvedBisCandidate(tx, userId, input, item)
+  );
 
   return { candidateId: candidate.id };
 }
