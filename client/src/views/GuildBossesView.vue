@@ -496,7 +496,10 @@
                 </MediaWikiContent>
               </div>
 
-              <BossCuresCard :cures="currentBossCures" />
+              <div class="boss-raid-utilities">
+                <BossHealsCard :heals="currentBossHeals" />
+                <BossCuresCard :cures="currentBossCures" />
+              </div>
             </article>
 
             <div v-else-if="mode === 'edit'" key="edit" class="boss-notes-edit-layout">
@@ -527,12 +530,21 @@
                   </div>
                 </div>
               </div>
-              <BossCuresCard
-                :cures="currentBossCures"
-                editable
-                :saving="savingCures"
-                @toggle="toggleBossCure"
-              />
+              <div class="boss-raid-utilities">
+                <BossHealsCard
+                  :heals="currentBossHeals"
+                  editable
+                  :saving="savingHeals"
+                  @toggle-raid-heals="toggleRaidHeals"
+                  @select-c-heal-chain="selectCHealChainSize"
+                />
+                <BossCuresCard
+                  :cures="currentBossCures"
+                  editable
+                  :saving="savingCures"
+                  @toggle="toggleBossCure"
+                />
+              </div>
             </div>
 
             <div
@@ -647,13 +659,21 @@
                   </div>
                 </div>
               </div>
-              <BossCuresCard
-                v-if="mode === 'plain'"
-                :cures="currentBossCures"
-                editable
-                :saving="savingCures"
-                @toggle="toggleBossCure"
-              />
+              <div v-if="mode === 'plain'" class="boss-raid-utilities">
+                <BossHealsCard
+                  :heals="currentBossHeals"
+                  editable
+                  :saving="savingHeals"
+                  @toggle-raid-heals="toggleRaidHeals"
+                  @select-c-heal-chain="selectCHealChainSize"
+                />
+                <BossCuresCard
+                  :cures="currentBossCures"
+                  editable
+                  :saving="savingCures"
+                  @toggle="toggleBossCure"
+                />
+              </div>
             </div>
           </Transition>
 
@@ -1578,6 +1598,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router';
 
 import BossCuresCard from '../components/BossCuresCard.vue';
+import BossHealsCard from '../components/BossHealsCard.vue';
 import BossRespawnSignal from '../components/BossRespawnSignal.vue';
 import BossRespawnTimeline from '../components/BossRespawnTimeline.vue';
 import ErrorModal from '../components/ErrorModal.vue';
@@ -1591,11 +1612,13 @@ import {
   api,
   type BossContributor,
   type BossCures,
+  type BossHeals,
   type BossEditHistoryEntry,
   type BossEditLease,
   type BossEditMode,
   type BossEditSuggestion,
   type BossLibraryPermissions,
+  type CHealChainSize,
   type GuildBoss,
   type GuildBossGroup,
   type GuildBossLibrary,
@@ -1697,7 +1720,12 @@ const currentBossCures = computed<BossCures>(() => ({
   poison: boss.value?.cures?.poison ?? false,
   disease: boss.value?.cures?.disease ?? false
 }));
+const currentBossHeals = computed<BossHeals>(() => ({
+  raidHeals: boss.value?.heals?.raidHeals ?? false,
+  cHealChainSize: boss.value?.heals?.cHealChainSize ?? 2
+}));
 const savingCures = ref(false);
+const savingHeals = ref(false);
 
 function formatCures(cures: BossCures) {
   const names = cureOptions.filter((option) => cures[option.key]).map((option) => option.label);
@@ -1734,6 +1762,49 @@ async function toggleBossCure(key: keyof BossCures) {
   } finally {
     savingCures.value = false;
   }
+}
+
+async function saveBossHeals(heals: BossHeals) {
+  if (
+    !boss.value ||
+    !permissions.value?.canEdit ||
+    !activeEditLease.value ||
+    !['plain', 'edit'].includes(mode.value) ||
+    savingHeals.value
+  ) {
+    return;
+  }
+  savingHeals.value = true;
+  try {
+    boss.value = await api.updateGuildBoss(guildId.value, boss.value.id, {
+      heals,
+      editLeaseToken: activeEditLease.value.token
+    });
+    await refreshLibrary();
+    addToast({
+      title: 'Heals updated',
+      message: `${heals.raidHeals ? 'Raid Heals selected · ' : ''}${heals.cHealChainSize} Person CHeal Chain.`,
+      variant: 'success'
+    });
+  } catch (error) {
+    if (!captureEditLockError(error)) {
+      showErrorFromException(error, 'Unable to update the healing plan.');
+    }
+  } finally {
+    savingHeals.value = false;
+  }
+}
+
+function toggleRaidHeals() {
+  void saveBossHeals({
+    ...currentBossHeals.value,
+    raidHeals: !currentBossHeals.value.raidHeals
+  });
+}
+
+function selectCHealChainSize(cHealChainSize: CHealChainSize) {
+  if (cHealChainSize === currentBossHeals.value.cHealChainSize) return;
+  void saveBossHeals({ ...currentBossHeals.value, cHealChainSize });
 }
 
 function bossRoute(item: Pick<GuildBossSummary, 'slug'>) {
@@ -4400,7 +4471,16 @@ onBeforeUnmount(() => {
   align-items: start;
   display: grid;
   gap: clamp(1.4rem, 3vw, 2.6rem);
-  grid-template-columns: minmax(0, 1fr) 17.5rem;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 36rem);
+}
+
+.boss-raid-utilities {
+  align-items: start;
+  display: grid;
+  gap: 0.9rem;
+  grid-template-columns: repeat(2, minmax(0, 17.5rem));
+  justify-content: end;
+  width: 100%;
 }
 
 .boss-notes-document__content {
@@ -4412,11 +4492,10 @@ onBeforeUnmount(() => {
   float: right;
   height: 16rem;
   margin: 0 0 1.25rem 2rem;
-  width: 17.5rem;
+  width: 36rem;
 }
 
-.boss-notes-document__content
-  :deep(.wiki-content:has(> .wiki-file--right:first-of-type))::before {
+.boss-notes-document__content :deep(.wiki-content:has(> .wiki-file--right:first-of-type))::before {
   content: none;
 }
 
@@ -4434,7 +4513,7 @@ onBeforeUnmount(() => {
   margin-bottom: calc(14.75rem + 2.5rem);
 }
 
-.boss-notes-document > .boss-cures-card {
+.boss-notes-document > .boss-raid-utilities {
   position: absolute;
   right: var(--boss-notes-document-padding);
   top: var(--boss-notes-document-padding);
@@ -6050,6 +6129,16 @@ onBeforeUnmount(() => {
   transform: translateY(12px) scale(0.98);
 }
 
+@media (max-width: 1120px) {
+  .boss-notes-edit-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .boss-notes-edit-layout > .boss-raid-utilities {
+    grid-row: 1;
+  }
+}
+
 @media (max-width: 800px) {
   .bosses-header {
     align-items: flex-start;
@@ -6086,16 +6175,13 @@ onBeforeUnmount(() => {
     top: 1.2rem;
   }
 
-  .boss-notes-edit-layout {
-    grid-template-columns: minmax(0, 1fr);
+  .boss-notes-document {
+    display: flex;
+    flex-direction: column;
   }
 
   .boss-notes-document__content :deep(.wiki-content)::before {
-    display: block;
-    float: none;
-    height: 16rem;
-    margin: 0 0 1.25rem;
-    width: 100%;
+    display: none;
   }
 
   .boss-notes-document__content
@@ -6104,12 +6190,21 @@ onBeforeUnmount(() => {
   }
 
   .boss-notes-document__content :deep(.wiki-content--empty) {
-    padding-top: 16rem;
     padding-right: 0;
   }
 
-  .boss-cures-card {
-    grid-row: 1;
+  .boss-notes-document__content :deep(.wiki-content > .wiki-file--right:first-of-type) {
+    margin-bottom: 1rem;
+  }
+
+  .boss-notes-document > .boss-raid-utilities {
+    margin: 0 0 1.25rem;
+    order: -1;
+    position: static;
+  }
+
+  .boss-raid-utilities {
+    justify-content: start;
   }
 
   .boss-notes-edit__footer {
@@ -6146,6 +6241,11 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 540px) {
+  .boss-raid-utilities {
+    grid-template-columns: minmax(0, 17.25rem);
+    justify-content: center;
+  }
+
   .boss-notes-edit__shortcuts {
     display: none;
   }

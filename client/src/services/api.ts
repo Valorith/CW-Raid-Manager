@@ -99,6 +99,7 @@ export interface GuildBoss extends GuildBossSummary {
   groupId: string;
   notes: string | null;
   cures: BossCures;
+  heals: BossHeals;
   lastEditedById: string | null;
   lastEditedByName: string | null;
   createdAt: string;
@@ -112,6 +113,13 @@ export interface BossCures {
   curse: boolean;
   poison: boolean;
   disease: boolean;
+}
+
+export type CHealChainSize = 2 | 3 | 4;
+
+export interface BossHeals {
+  raidHeals: boolean;
+  cHealChainSize: CHealChainSize;
 }
 
 export interface BossEditHistoryEntry {
@@ -155,6 +163,7 @@ export interface GuildBossInput {
   imageUrl?: string | null;
   notes?: string | null;
   cures?: BossCures;
+  heals?: BossHeals;
   sortOrder?: number;
 }
 

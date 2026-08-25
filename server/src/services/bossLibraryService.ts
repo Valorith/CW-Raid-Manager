@@ -34,6 +34,7 @@ interface BossInput {
   imageUpload?: BossImageUpload;
   notes?: string | null;
   cures?: BossCures;
+  heals?: BossHeals;
   sortOrder?: number;
 }
 
@@ -45,6 +46,7 @@ export interface BossUpdateInput {
   imageUpload?: BossImageUpload;
   notes?: string | null;
   cures?: BossCures;
+  heals?: BossHeals;
   sortOrder?: number;
   editLeaseToken?: string;
   notesRevision?: string;
@@ -54,6 +56,13 @@ export interface BossCures {
   curse: boolean;
   poison: boolean;
   disease: boolean;
+}
+
+export type CHealChainSize = 2 | 3 | 4;
+
+export interface BossHeals {
+  raidHeals: boolean;
+  cHealChainSize: CHealChainSize;
 }
 
 interface BossSuggestionInput {
@@ -147,10 +156,15 @@ export function bossCuresEqual(left: BossCures, right: BossCures) {
   );
 }
 
+export function formatBossHeals(heals: BossHeals) {
+  return `${heals.raidHeals ? 'Raid Heals, ' : ''}${heals.cHealChainSize} Person CHeal Chain`;
+}
+
 export function describeBossUpdate(input: BossUpdateInput) {
   const changes: string[] = [];
   if (input.notes !== undefined) changes.push('source notes');
   if (input.cures !== undefined) changes.push(`cures (${formatBossCures(input.cures)})`);
+  if (input.heals !== undefined) changes.push(`heals (${formatBossHeals(input.heals)})`);
   if (input.npcDefinitionId !== undefined) changes.push('respawn signal link');
   if (
     input.groupId !== undefined ||
@@ -253,13 +267,18 @@ function serializeBossImage<
     cureCurse?: boolean;
     curePoison?: boolean;
     cureDisease?: boolean;
+    raidHeals?: boolean;
+    cHealChainSize?: number;
   }
 >(guildId: string, boss: T) {
-  const { image, cureCurse, curePoison, cureDisease, ...details } = boss;
+  const { image, cureCurse, curePoison, cureDisease, raidHeals, cHealChainSize, ...details } = boss;
   const hasCures =
     typeof cureCurse === 'boolean' &&
     typeof curePoison === 'boolean' &&
     typeof cureDisease === 'boolean';
+  const hasHeals =
+    typeof raidHeals === 'boolean' &&
+    (cHealChainSize === 2 || cHealChainSize === 3 || cHealChainSize === 4);
   return {
     ...details,
     ...(hasCures
@@ -268,6 +287,14 @@ function serializeBossImage<
             curse: cureCurse,
             poison: curePoison,
             disease: cureDisease
+          }
+        }
+      : {}),
+    ...(hasHeals
+      ? {
+          heals: {
+            raidHeals,
+            cHealChainSize
           }
         }
       : {}),
@@ -1184,6 +1211,8 @@ export async function createGuildBoss(guildId: string, userId: string, input: Bo
         cureCurse: input.cures?.curse ?? false,
         curePoison: input.cures?.poison ?? false,
         cureDisease: input.cures?.disease ?? false,
+        raidHeals: input.heals?.raidHeals ?? false,
+        cHealChainSize: input.heals?.cHealChainSize ?? 2,
         sortOrder: input.sortOrder ?? (highest._max.sortOrder ?? -1) + 1,
         lastEditedById: editor.userId,
         lastEditedByName: editor.displayName
@@ -1232,7 +1261,8 @@ export async function updateGuildBoss(
     throw new BossLibraryError('Boss not found.', 404);
   }
 
-  const requiresEditLease = input.notes !== undefined || input.cures !== undefined;
+  const requiresEditLease =
+    input.notes !== undefined || input.cures !== undefined || input.heals !== undefined;
   if (requiresEditLease) {
     await ensureValidBossEditLease(guildId, bossId, userId, input.editLeaseToken);
   }
@@ -1299,9 +1329,7 @@ export async function updateGuildBoss(
       data: {
         ...(input.groupId !== undefined ? { groupId: input.groupId } : {}),
         ...(name ? { name } : {}),
-        ...(input.npcDefinitionId !== undefined
-          ? { npcDefinitionId: input.npcDefinitionId }
-          : {}),
+        ...(input.npcDefinitionId !== undefined ? { npcDefinitionId: input.npcDefinitionId } : {}),
         ...(input.imageUpload
           ? { imageUrl: null }
           : input.imageUrl !== undefined
@@ -1313,6 +1341,12 @@ export async function updateGuildBoss(
               cureCurse: input.cures.curse,
               curePoison: input.cures.poison,
               cureDisease: input.cures.disease
+            }
+          : {}),
+        ...(input.heals !== undefined
+          ? {
+              raidHeals: input.heals.raidHeals,
+              cHealChainSize: input.heals.cHealChainSize
             }
           : {}),
         ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
@@ -1356,7 +1390,9 @@ export async function updateGuildBoss(
             ? 'source_notes'
             : input.cures !== undefined
               ? 'cures'
-              : 'details',
+              : input.heals !== undefined
+                ? 'heals'
+                : 'details',
         summary: describeBossUpdate(input)
       }
     });

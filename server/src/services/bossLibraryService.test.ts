@@ -13,6 +13,7 @@ import {
   describeBossUpdate,
   detectBossImageMime,
   formatBossCures,
+  formatBossHeals,
   prepareBossImageUpload,
   getBossLibraryPermissions,
   serializeBossEditLease,
@@ -130,9 +131,18 @@ test('boss cure summaries are concise and stable for audit history', () => {
     'Updated cures (Poison)'
   );
   assert.equal(describeBossUpdate({ notes: 'new notes' }), 'Updated source notes');
+  assert.equal(describeBossUpdate({ npcDefinitionId: 'npc-1' }), 'Updated respawn signal link');
+});
+
+test('boss heal summaries preserve the selected raid plan in audit history', () => {
   assert.equal(
-    describeBossUpdate({ npcDefinitionId: 'npc-1' }),
-    'Updated respawn signal link'
+    formatBossHeals({ raidHeals: true, cHealChainSize: 4 }),
+    'Raid Heals, 4 Person CHeal Chain'
+  );
+  assert.equal(formatBossHeals({ raidHeals: false, cHealChainSize: 2 }), '2 Person CHeal Chain');
+  assert.equal(
+    describeBossUpdate({ heals: { raidHeals: true, cHealChainSize: 3 } }),
+    'Updated heals (Raid Heals, 3 Person CHeal Chain)'
   );
 });
 

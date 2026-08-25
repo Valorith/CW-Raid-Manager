@@ -191,6 +191,8 @@ model GuildBoss {
   cureCurse        Boolean        @default(false)
   curePoison       Boolean        @default(false)
   cureDisease      Boolean        @default(false)
+  raidHeals        Boolean        @default(false)
+  cHealChainSize   Int            @default(2)
   sortOrder        Int            @default(0)
   lastEditedById   String?
   lastEditedByName String?        @db.VarChar(191)

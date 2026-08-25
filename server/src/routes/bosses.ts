@@ -77,6 +77,11 @@ const bossCuresSchema = z.object({
   disease: z.boolean()
 });
 
+const bossHealsSchema = z.object({
+  raidHeals: z.boolean(),
+  cHealChainSize: z.union([z.literal(2), z.literal(3), z.literal(4)])
+});
+
 const bossTrackerDefinitionSchema = z
   .union([z.string().trim().min(1), z.literal('').transform(() => null)])
   .nullable();
@@ -88,6 +93,7 @@ const bossBodySchema = z.object({
   imageUrl: imageUrlSchema.optional(),
   notes: z.string().max(200000).nullable().optional(),
   cures: bossCuresSchema.optional(),
+  heals: bossHealsSchema.optional(),
   sortOrder: z.number().int().min(0).max(10000).optional()
 });
 
@@ -99,6 +105,7 @@ const bossUpdateSchema = z
     imageUrl: imageUrlSchema.optional(),
     notes: z.string().max(200000).nullable().optional(),
     cures: bossCuresSchema.optional(),
+    heals: bossHealsSchema.optional(),
     sortOrder: z.number().int().min(0).max(10000).optional(),
     editLeaseToken: z.string().uuid().optional(),
     notesRevision: z
@@ -107,7 +114,7 @@ const bossUpdateSchema = z
       .optional()
   })
   .refine((value) =>
-    ['groupId', 'name', 'npcDefinitionId', 'imageUrl', 'notes', 'cures', 'sortOrder'].some(
+    ['groupId', 'name', 'npcDefinitionId', 'imageUrl', 'notes', 'cures', 'heals', 'sortOrder'].some(
       (field) => value[field as keyof typeof value] !== undefined
     )
   );
