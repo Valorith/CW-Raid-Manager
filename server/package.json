@@ -15,7 +15,7 @@
     "prisma:generate": "node ../scripts/run-with-db-url.cjs --allow-missing prisma generate",
     "prisma:migrate": "node ../scripts/run-with-db-url.cjs prisma migrate dev",
     "prisma:deploy": "node ../scripts/run-with-db-url.cjs prisma migrate deploy",
-    "knex:migrate": "knex --knexfile knexfile.js migrate:latest",
+    "knex:migrate": "node ../scripts/run-with-db-url.cjs knex --knexfile knexfile.js migrate:latest",
     "knex:rollback": "knex --knexfile knexfile.js migrate:rollback",
     "knex:make": "knex --knexfile knexfile.js migrate:make",
     "oracle:context": "tsx scripts/updateEqemuOracleContext.ts"

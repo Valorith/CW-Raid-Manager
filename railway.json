@@ -3,5 +3,8 @@
   "build": {
     "builder": "RAILPACK",
     "buildCommand": "npm run build"
+  },
+  "deploy": {
+    "preDeployCommand": ["npm --workspace server run knex:migrate"]
   }
 }
