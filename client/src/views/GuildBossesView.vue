@@ -204,7 +204,17 @@
                   </div>
                   <div class="boss-card__body">
                     <div class="boss-card__meta">
-                      <span class="boss-card__label">Raid dossier</span>
+                      <span
+                        class="boss-card__zone"
+                        :class="{ 'boss-card__zone--unmapped': !bossItem.zoneName }"
+                        :title="bossItem.zoneName || 'No zone is mapped to this boss'"
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M12 21s6-5.1 6-11a6 6 0 1 0-12 0c0 5.9 6 11 6 11Z" />
+                          <circle cx="12" cy="10" r="2.1" />
+                        </svg>
+                        <span>{{ bossItem.zoneName || 'Zone not mapped' }}</span>
+                      </span>
                       <time :datetime="bossItem.updatedAt">{{
                         formatCompactDate(bossItem.updatedAt)
                       }}</time>
@@ -214,6 +224,11 @@
                       <span class="boss-card__arrow" aria-hidden="true">↗</span>
                     </div>
                   </div>
+                  <BossRespawnTimeline
+                    v-if="bossRespawnEntries(bossItem).length > 0"
+                    :entries="bossRespawnEntries(bossItem)"
+                    :now="respawnNow"
+                  />
                 </RouterLink>
                 <button
                   v-if="permissions?.canEdit"
@@ -1564,6 +1579,7 @@ import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vu
 
 import BossCuresCard from '../components/BossCuresCard.vue';
 import BossRespawnSignal from '../components/BossRespawnSignal.vue';
+import BossRespawnTimeline from '../components/BossRespawnTimeline.vue';
 import ErrorModal from '../components/ErrorModal.vue';
 import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
 import MediaWikiContent from '../components/MediaWikiContent.vue';
@@ -3565,6 +3581,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   height: 100%;
   overflow: hidden;
+  position: relative;
   text-decoration: none;
   transform: translateZ(0);
   transition:
@@ -3574,7 +3591,8 @@ onBeforeUnmount(() => {
   width: 100%;
 }
 
-.boss-card:hover {
+.boss-card-shell:hover .boss-card,
+.boss-card:focus-visible {
   border-color: rgba(69, 215, 223, 0.5);
   box-shadow:
     0 20px 46px rgba(0, 0, 0, 0.28),
@@ -3606,7 +3624,7 @@ onBeforeUnmount(() => {
     0 0 22px rgba(239, 68, 68, 0.18);
 }
 
-.boss-card--spawn-up:hover {
+.boss-card-shell:hover .boss-card--spawn-up {
   border-color: rgba(74, 222, 128, 0.82);
   box-shadow:
     0 20px 46px rgba(0, 0, 0, 0.3),
@@ -3614,7 +3632,7 @@ onBeforeUnmount(() => {
     0 0 34px rgba(34, 197, 94, 0.3);
 }
 
-.boss-card--spawn-window:hover {
+.boss-card-shell:hover .boss-card--spawn-window {
   border-color: rgba(251, 146, 60, 0.84);
   box-shadow:
     0 20px 46px rgba(0, 0, 0, 0.3),
@@ -3622,7 +3640,7 @@ onBeforeUnmount(() => {
     0 0 34px rgba(249, 115, 22, 0.28);
 }
 
-.boss-card--spawn-down:hover {
+.boss-card-shell:hover .boss-card--spawn-down {
   border-color: rgba(248, 113, 113, 0.76);
   box-shadow:
     0 20px 46px rgba(0, 0, 0, 0.3),
@@ -3635,7 +3653,8 @@ onBeforeUnmount(() => {
     animation: boss-card-up-glow 4.5s ease-in-out 700ms infinite;
   }
 
-  .boss-card--spawn-up:hover {
+  .boss-card-shell:hover .boss-card--spawn-up,
+  .boss-card--spawn-up:focus-visible {
     animation-play-state: paused;
   }
 }
@@ -3678,7 +3697,8 @@ onBeforeUnmount(() => {
     filter 300ms ease;
 }
 
-.boss-card:hover .boss-card__media img {
+.boss-card-shell:hover .boss-card__media img,
+.boss-card:focus-visible .boss-card__media img {
   filter: saturate(1.06) contrast(1.04);
   transform: scale(1.055);
 }
@@ -3714,7 +3734,7 @@ onBeforeUnmount(() => {
   z-index: 3;
 }
 
-.boss-card:hover .boss-card__open,
+.boss-card-shell:hover .boss-card__open,
 .boss-card:focus-visible .boss-card__open {
   opacity: 1;
   transform: translateY(0);
@@ -3770,12 +3790,66 @@ onBeforeUnmount(() => {
   letter-spacing: 0.03em;
 }
 
-.boss-card__label {
-  color: #657891;
-  font-size: 0.62rem;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+.boss-card__zone {
+  align-items: center;
+  background: rgba(100, 136, 170, 0.09);
+  border: 1px solid rgba(132, 167, 198, 0.15);
+  border-radius: 999px;
+  color: #8ca1b7;
+  display: inline-flex;
+  font-size: 0.59rem;
+  font-weight: 700;
+  gap: 0.3rem;
+  letter-spacing: 0.015em;
+  line-height: 1;
+  max-width: calc(100% - 5rem);
+  min-width: 0;
+  padding: 0.25rem 0.42rem 0.24rem 0.36rem;
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease;
+}
+
+.boss-card__zone svg {
+  fill: none;
+  flex: 0 0 auto;
+  height: 0.7rem;
+  stroke: #6e91ac;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+  width: 0.7rem;
+}
+
+.boss-card__zone span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.boss-card-shell:hover .boss-card__zone,
+.boss-card:focus-visible .boss-card__zone {
+  background: rgba(74, 167, 184, 0.1);
+  border-color: rgba(101, 192, 205, 0.22);
+  color: #a9c4d4;
+}
+
+.boss-card__zone--unmapped {
+  background: rgba(95, 113, 137, 0.05);
+  border-color: rgba(95, 113, 137, 0.11);
+  color: #62758c;
+}
+
+.boss-card__zone--unmapped svg {
+  stroke: #5f7189;
+}
+
+.boss-card-shell:hover .boss-card__zone--unmapped,
+.boss-card:focus-visible .boss-card__zone--unmapped {
+  background: rgba(95, 113, 137, 0.08);
+  border-color: rgba(95, 113, 137, 0.16);
+  color: #758aa2;
 }
 
 .boss-card__title-row {
@@ -3807,7 +3881,8 @@ onBeforeUnmount(() => {
   transition: 170ms ease;
 }
 
-.boss-card:hover .boss-card__arrow {
+.boss-card-shell:hover .boss-card__arrow,
+.boss-card:focus-visible .boss-card__arrow {
   color: #67e8f9;
   transform: translate(2px, -2px);
 }

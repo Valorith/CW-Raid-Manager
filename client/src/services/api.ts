@@ -80,6 +80,7 @@ export interface GuildBossSummary {
   name: string;
   slug: string;
   npcDefinitionId: string | null;
+  zoneName?: string | null;
   imageUrl: string | null;
   imageSource: 'upload' | 'url' | null;
   sortOrder: number;

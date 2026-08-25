@@ -10,6 +10,10 @@ export interface BossRespawnLane {
   ariaLabel: string;
 }
 
+export interface BossRespawnCountdown extends BossRespawnLane {
+  remainingPercent: number | null;
+}
+
 export type BossRespawnTone = NpcRespawnStatus;
 
 function formatRemaining(targetValue: string | null, nowMs: number) {
@@ -25,6 +29,16 @@ function formatRemaining(targetValue: string | null, nowMs: number) {
   if (days > 0) return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
   if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
   return `${minutes}m`;
+}
+
+function clampPercent(value: number) {
+  return Math.min(100, Math.max(0, value));
+}
+
+function orderEntries(entries: NpcRespawnTrackerEntry[]) {
+  return [...entries].sort(
+    (left, right) => Number(left.isInstanceVariant) - Number(right.isInstanceVariant)
+  );
 }
 
 function buildLane(entry: NpcRespawnTrackerEntry, isCompact: boolean, nowMs: number) {
@@ -70,9 +84,100 @@ export function buildBossRespawnLanes(
   entries: NpcRespawnTrackerEntry[],
   nowMs: number = Date.now()
 ) {
-  const orderedEntries = [...entries].sort(
-    (left, right) => Number(left.isInstanceVariant) - Number(right.isInstanceVariant)
-  );
+  const orderedEntries = orderEntries(entries);
   const isCompact = orderedEntries.length > 1;
   return orderedEntries.map((entry) => buildLane(entry, isCompact, nowMs));
+}
+
+function parseTimestamp(value: string | null | undefined) {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function phaseBoundary(
+  entry: NpcRespawnTrackerEntry,
+  status: NpcRespawnStatus,
+  lastKillAt: number | null
+) {
+  if (status === 'down') {
+    return (
+      parseTimestamp(entry.respawnMinTime) ??
+      (lastKillAt !== null && entry.respawnMinMinutes !== null
+        ? lastKillAt + entry.respawnMinMinutes * 60_000
+        : null)
+    );
+  }
+  if (status === 'window') {
+    return (
+      parseTimestamp(entry.respawnMaxTime) ??
+      (lastKillAt !== null && entry.respawnMaxMinutes !== null
+        ? lastKillAt + entry.respawnMaxMinutes * 60_000
+        : null)
+    );
+  }
+  return null;
+}
+
+function phaseStart(
+  entry: NpcRespawnTrackerEntry,
+  status: NpcRespawnStatus,
+  lastKillAt: number | null
+) {
+  if (status === 'down') return lastKillAt;
+  if (status === 'window') {
+    return (
+      parseTimestamp(entry.respawnMinTime) ??
+      (lastKillAt !== null && entry.respawnMinMinutes !== null
+        ? lastKillAt + entry.respawnMinMinutes * 60_000
+        : null)
+    );
+  }
+  return null;
+}
+
+export function buildBossRespawnCountdown(
+  entries: NpcRespawnTrackerEntry[],
+  nowMs: number = Date.now()
+): BossRespawnCountdown | null {
+  const orderedEntries = orderEntries(entries);
+  const statusLanes = buildBossRespawnLanes(orderedEntries, nowMs);
+
+  const candidates = orderedEntries.map((entry, index) => {
+    const lastKillAt = parseTimestamp(entry.lastKill?.killedAt);
+    const startAt = phaseStart(entry, entry.respawnStatus, lastKillAt);
+    const boundaryAt = phaseBoundary(entry, entry.respawnStatus, lastKillAt);
+    let remainingPercent: number | null = null;
+
+    if (entry.respawnStatus === 'up') {
+      remainingPercent = 100;
+    } else if (startAt !== null && boundaryAt !== null && boundaryAt > startAt) {
+      remainingPercent = clampPercent(
+        ((boundaryAt - nowMs) / (boundaryAt - startAt)) * 100
+      );
+    }
+
+    return {
+      boundaryAt,
+      isActiveCountdown: entry.respawnStatus === 'down' || entry.respawnStatus === 'window',
+      lane: {
+        ...statusLanes[index],
+        remainingPercent
+      } satisfies BossRespawnCountdown
+    };
+  });
+
+  const timedCountdowns = candidates
+    .filter((candidate) => candidate.isActiveCountdown && candidate.boundaryAt !== null)
+    .sort((left, right) => (left.boundaryAt ?? Infinity) - (right.boundaryAt ?? Infinity));
+  if (timedCountdowns[0]) return timedCountdowns[0].lane;
+
+  const activeCountdown = candidates.find((candidate) => candidate.isActiveCountdown);
+  if (activeCountdown) return activeCountdown.lane;
+
+  return (
+    candidates.find((candidate) => candidate.lane.status === 'up')?.lane ??
+    candidates[0]?.lane ??
+    null
+  );
 }

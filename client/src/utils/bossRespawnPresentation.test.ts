@@ -4,19 +4,24 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { NpcRespawnTrackerEntry } from '../services/api.js';
-import { buildBossRespawnLanes, getBossRespawnTone } from './bossRespawnPresentation.js';
+import {
+  buildBossRespawnCountdown,
+  buildBossRespawnLanes,
+  getBossRespawnTone
+} from './bossRespawnPresentation.js';
 
 function entry(
   status: NpcRespawnTrackerEntry['respawnStatus'],
   isInstanceVariant: boolean,
-  times: Partial<Pick<NpcRespawnTrackerEntry, 'respawnMinTime' | 'respawnMaxTime'>> = {}
+  values: Partial<NpcRespawnTrackerEntry> = {}
 ) {
   return {
     respawnStatus: status,
     isInstanceVariant,
     respawnMinTime: null,
     respawnMaxTime: null,
-    ...times
+    progressPercent: null,
+    ...values
   } as NpcRespawnTrackerEntry;
 }
 
@@ -48,4 +53,60 @@ test('orders overworld before instance and keeps countdowns compact', () => {
       { variant: 'INST', status: 'Spawn window', detail: '2h 15m left' }
     ]
   );
+});
+
+test('builds a single countdown for the next current-phase change', () => {
+  const now = Date.parse('2026-08-24T16:00:00.000Z');
+  const countdown = buildBossRespawnCountdown(
+    [
+      entry('window', false, {
+        respawnMinMinutes: 180,
+        respawnMaxMinutes: 360,
+        respawnMinTime: '2026-08-24T15:00:00.000Z',
+        respawnMaxTime: '2026-08-24T18:00:00.000Z',
+        lastKill: {
+          id: 'kill-1',
+          killedAt: '2026-08-24T12:00:00.000Z'
+        } as NpcRespawnTrackerEntry['lastKill']
+      }),
+      entry('up', true, {
+        respawnMinMinutes: 120,
+        respawnMaxMinutes: null,
+        progressPercent: 44
+      })
+    ],
+    now
+  );
+
+  assert.equal(countdown?.variant, 'overworld');
+  assert.equal(countdown?.status, 'window');
+  assert.equal(Math.round(countdown?.remainingPercent ?? -1), 67);
+});
+
+test('drains the bar through the active down phase', () => {
+  const countdown = buildBossRespawnCountdown(
+    [
+      entry('down', false, {
+        respawnMinMinutes: 240,
+        respawnMaxMinutes: 360,
+        respawnMinTime: '2026-08-24T16:00:00.000Z',
+        lastKill: {
+          id: 'kill-2',
+          killedAt: '2026-08-24T12:00:00.000Z'
+        } as NpcRespawnTrackerEntry['lastKill']
+      })
+    ],
+    Date.parse('2026-08-24T14:00:00.000Z')
+  );
+
+  assert.equal(countdown?.status, 'down');
+  assert.equal(Math.round(countdown?.remainingPercent ?? -1), 50);
+});
+
+test('keeps an unknown respawn countdown dormant', () => {
+  const countdown = buildBossRespawnCountdown([
+    entry('unknown', false, { progressPercent: 65 })
+  ]);
+
+  assert.equal(countdown?.remainingPercent, null);
 });

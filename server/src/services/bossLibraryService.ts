@@ -552,6 +552,9 @@ export async function listGuildBossLibrary(guildId: string, userId: string) {
               name: true,
               slug: true,
               npcDefinitionId: true,
+              npcDefinition: {
+                select: { zoneName: true }
+              },
               imageUrl: true,
               image: {
                 select: { updatedAt: true }
@@ -573,7 +576,10 @@ export async function listGuildBossLibrary(guildId: string, userId: string) {
     guild: serializeBossLibraryGuild(guild),
     groups: guild.bossGroups.map((group) => ({
       ...group,
-      bosses: group.bosses.map((boss) => serializeBossImage(guildId, boss))
+      bosses: group.bosses.map(({ npcDefinition, ...boss }) => ({
+        ...serializeBossImage(guildId, boss),
+        zoneName: npcDefinition?.zoneName ?? null
+      }))
     })),
     permissions: access
   };
