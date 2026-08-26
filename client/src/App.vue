@@ -1115,6 +1115,7 @@ import {
   supportsPasskeyAutofill,
   supportsPasskeys
 } from './composables/usePasskeyAuth';
+import { useWebMcp } from './composables/useWebMcp';
 
 const authStore = useAuthStore();
 const webhookDebugStore = useWebhookDebugStore();
@@ -1124,6 +1125,7 @@ const route = useRoute();
 const monitorStore = useMonitorStore();
 const attentionStore = useAttentionStore();
 const npcRespawnStore = useNpcRespawnStore();
+useWebMcp(authStore, router);
 const brandHomeTo = computed(() => (authStore.isAuthenticated ? '/dashboard' : '/'));
 const webhookPendingActionCount = ref(0);
 let webhookPendingActionRefreshTimer: ReturnType<typeof setInterval> | null = null;
