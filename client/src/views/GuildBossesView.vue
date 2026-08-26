@@ -4177,7 +4177,7 @@ onBeforeUnmount(() => {
 
 /* Detail */
 .bosses-page--detail {
-  max-width: 1420px;
+  max-width: 1640px;
   padding-top: clamp(1rem, 2vw, 2rem);
 }
 
@@ -4411,7 +4411,7 @@ onBeforeUnmount(() => {
 
 .boss-notes-shell {
   margin: 1.4rem auto 0;
-  max-width: 1180px;
+  max-width: none;
 }
 
 .boss-notes-toolbar {
@@ -4576,7 +4576,7 @@ onBeforeUnmount(() => {
   align-items: start;
   display: grid;
   gap: 0.9rem;
-  grid-template-columns: repeat(2, minmax(0, 17.5rem));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 17.25rem), 17.5rem));
   justify-content: end;
   width: 100%;
 }
@@ -4622,7 +4622,7 @@ onBeforeUnmount(() => {
   z-index: 1;
 }
 
-@container boss-notes (max-width: 54rem) {
+@container boss-notes (max-width: 77rem) {
   .boss-notes-document__content {
     grid-row: 2;
   }
@@ -6370,7 +6370,6 @@ onBeforeUnmount(() => {
 
 @media (max-width: 540px) {
   .boss-raid-utilities {
-    grid-template-columns: minmax(0, 17.25rem);
     justify-content: center;
   }
 
