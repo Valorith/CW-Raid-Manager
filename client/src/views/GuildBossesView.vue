@@ -474,6 +474,12 @@
               key="view"
               class="boss-notes-document"
             >
+              <BossRaidUtilitiesBanner
+                class="boss-raid-utilities-banner"
+                :heals="currentBossHeals"
+                :cures="currentBossCures"
+              />
+
               <div class="boss-notes-document__content">
                 <MediaWikiContent :source="boss.notes ?? ''" :links="wikiLinks">
                   <template #empty>
@@ -506,11 +512,6 @@
                     </div>
                   </template>
                 </MediaWikiContent>
-              </div>
-
-              <div class="boss-raid-utilities">
-                <BossHealsCard :heals="currentBossHeals" />
-                <BossCuresCard :cures="currentBossCures" />
               </div>
             </article>
 
@@ -1611,6 +1612,7 @@ import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vu
 
 import BossCuresCard from '../components/BossCuresCard.vue';
 import BossHealsCard from '../components/BossHealsCard.vue';
+import BossRaidUtilitiesBanner from '../components/BossRaidUtilitiesBanner.vue';
 import BossRespawnSignal from '../components/BossRespawnSignal.vue';
 import BossRespawnTimeline from '../components/BossRespawnTimeline.vue';
 import BossWikiNavigator from '../components/BossWikiNavigator.vue';
@@ -4552,8 +4554,6 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(103, 146, 194, 0.2);
   border-radius: 18px;
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.16);
-  container-name: boss-notes;
-  container-type: inline-size;
   display: grid;
   min-height: 24rem;
   padding: var(--boss-notes-document-padding);
@@ -4581,75 +4581,24 @@ onBeforeUnmount(() => {
   width: 100%;
 }
 
+.boss-raid-utilities-banner {
+  display: grid;
+  grid-row: 1;
+  margin: 0 0 1.25rem;
+}
+
 .boss-notes-document__content {
+  grid-row: 2;
   min-width: 0;
-}
-
-.boss-notes-document__content :deep(.wiki-content)::before {
-  content: '';
-  float: right;
-  height: 16rem;
-  margin: 0 0 1.25rem 2rem;
-  width: 36rem;
-}
-
-.boss-notes-document__content :deep(.wiki-content:has(> .wiki-file--right:first-of-type))::before {
-  content: none;
 }
 
 .boss-notes-document__content :deep(.wiki-content--empty) {
   display: block;
-  padding-right: 19.5rem;
-}
-
-.boss-notes-document__content :deep(.wiki-content--empty)::before {
-  content: none;
+  padding-right: 0;
 }
 
 .boss-notes-document__content :deep(.wiki-content > .wiki-file--right:first-of-type) {
-  anchor-name: --boss-primary-media;
-  margin-bottom: calc(14.75rem + 2.5rem);
-}
-
-.boss-notes-document > .boss-raid-utilities {
-  position: absolute;
-  right: var(--boss-notes-document-padding);
-  top: var(--boss-notes-document-padding);
-  position-anchor: --boss-primary-media;
-  right: anchor(right, var(--boss-notes-document-padding));
-  top: anchor(bottom, var(--boss-notes-document-padding));
-  margin-top: 1.25rem;
-  z-index: 1;
-}
-
-@container boss-notes (max-width: 77rem) {
-  .boss-notes-document__content {
-    grid-row: 2;
-  }
-
-  .boss-notes-document__content :deep(.wiki-content)::before {
-    display: none;
-  }
-
-  .boss-notes-document__content
-    :deep(.wiki-content:has(> .wiki-file--right:first-of-type))::before {
-    content: none;
-  }
-
-  .boss-notes-document__content :deep(.wiki-content--empty) {
-    padding-right: 0;
-  }
-
-  .boss-notes-document__content :deep(.wiki-content > .wiki-file--right:first-of-type) {
-    margin-bottom: 1rem;
-  }
-
-  .boss-notes-document > .boss-raid-utilities {
-    grid-row: 1;
-    margin: 0 0 1.25rem;
-    position: static;
-    position-anchor: none;
-  }
+  margin-bottom: 1rem;
 }
 
 .boss-notes-empty {
@@ -6297,38 +6246,6 @@ onBeforeUnmount(() => {
     bottom: auto;
     right: 1.2rem;
     top: 1.2rem;
-  }
-
-  .boss-notes-document {
-    display: grid;
-  }
-
-  .boss-notes-document__content {
-    grid-row: 2;
-  }
-
-  .boss-notes-document__content :deep(.wiki-content)::before {
-    display: none;
-  }
-
-  .boss-notes-document__content
-    :deep(.wiki-content:has(> .wiki-file--right:first-of-type))::before {
-    content: none;
-  }
-
-  .boss-notes-document__content :deep(.wiki-content--empty) {
-    padding-right: 0;
-  }
-
-  .boss-notes-document__content :deep(.wiki-content > .wiki-file--right:first-of-type) {
-    margin-bottom: 1rem;
-  }
-
-  .boss-notes-document > .boss-raid-utilities {
-    grid-row: 1;
-    margin: 0 0 1.25rem;
-    position: static;
-    position-anchor: none;
   }
 
   .boss-raid-utilities {
