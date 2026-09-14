@@ -29,6 +29,13 @@ import {
   printWebhookMessage,
   textToHtml,
 } from "./format.js";
+import {
+  listRaids,
+  showRaid,
+  showRaidSignups,
+  showAttendance,
+  listRaidLoot,
+} from "./raids.js";
 import type {
   CrashReviewProvider,
   CrashTelemetryReport,
@@ -59,6 +66,7 @@ type Flags = Record<string, FlagValue>;
 
 const BOOLEAN_FLAGS = new Set([
   "json",
+  "all",
   "verbose",
   "yes",
   "open",
@@ -165,6 +173,33 @@ async function main(): Promise<void> {
     case "webhook-inbox":
     case "wi":
       await webhookInbox(rest, parsed.flags, jsonMode);
+      return;
+    case "raids":
+      await raids(rest, parsed.flags, jsonMode);
+      return;
+    case "attendance":
+      if (rest[0] !== "show")
+        throw new Error("Usage: nexus attendance show <raidId>");
+      {
+        const raidId = requireArg(rest, 1, "raidId");
+        await showAttendance(
+          await apiFromProfile(parsed.flags),
+          raidId,
+          jsonMode,
+        );
+      }
+      return;
+    case "loot":
+      if (rest[0] !== "list")
+        throw new Error("Usage: nexus loot list <raidId>");
+      {
+        const raidId = requireArg(rest, 1, "raidId");
+        await listRaidLoot(
+          await apiFromProfile(parsed.flags),
+          raidId,
+          jsonMode,
+        );
+      }
       return;
     default:
       throw new Error(`Unknown command "${command}". Run nexus --help.`);
@@ -572,6 +607,37 @@ async function profiles(
   }
 
   throw new Error(`Unknown profiles command "${action}".`);
+}
+
+async function raids(
+  args: string[],
+  flags: Flags,
+  jsonMode: boolean,
+): Promise<void> {
+  switch (args[0] ?? "list") {
+    case "list": {
+      const guild = requiredFlag(flags, "guild");
+      await listRaids(await apiFromProfile(flags), guild, {
+        all: boolFlag(flags, "all"),
+        json: jsonMode,
+      });
+      return;
+    }
+    case "show": {
+      const raidId = requireArg(args, 1, "raidId");
+      await showRaid(await apiFromProfile(flags), raidId);
+      return;
+    }
+    case "signups": {
+      const raidId = requireArg(args, 1, "raidId");
+      await showRaidSignups(await apiFromProfile(flags), raidId, jsonMode);
+      return;
+    }
+    default:
+      throw new Error(
+        "Usage: nexus raids list --guild <id|slug|name> | show <raidId> | signups <raidId>",
+      );
+  }
 }
 
 async function testManager(
@@ -2733,6 +2799,11 @@ Usage:
   nexus login --local
   nexus auth status | sessions list | sessions revoke <sessionId>
   nexus profiles list | use <profile> | remove <profile>
+  nexus raids list --guild <id|slug|name> [--all]
+  nexus raids show <raidId>
+  nexus raids signups <raidId>
+  nexus attendance show <raidId>
+  nexus loot list <raidId>
   nexus tm list [--status ACTIVE|CLOSED] [--search text]
   nexus tm dashboard
   nexus tm show <change>
@@ -2764,6 +2835,12 @@ Usage:
   nexus inbox crashes summary|list
   nexus inbox groups list|process <webhookId> <groupKey>
   nexus inbox hooks list|test|processing-status
+
+Raid commands are read-only. Lists show upcoming and active raids; --all includes history.
+Guild slugs and exact names are case-insensitive. Quote names containing spaces.
+Raid detail prints the full JSON response. Other raid commands support --json or tables.
+The raids scope requires a new device login. Existing sessions must log in again:
+  nexus login --url <nexus-url> --profile <name>
 
 Global flags:
   --profile <name>     Use a configured profile

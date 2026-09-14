@@ -32,6 +32,356 @@ type Handler = (
 
 const CLI_PATH = fileURLToPath(new URL("./index.js", import.meta.url));
 
+const raidFixture = {
+  id: "raid-1",
+  name: "Temple raid",
+  startTime: "2099-01-02T20:00:00.000Z",
+  startedAt: null,
+  endedAt: null,
+  canceledAt: null,
+  signupCounts: { confirmed: 1, notAttending: 0 },
+  signups: [
+    {
+      id: "signup-1",
+      characterName: "Valorith",
+      characterClass: "WARRIOR",
+      characterLevel: 65,
+      status: "CONFIRMED",
+      user: { displayName: "Raid leader" },
+    },
+  ],
+};
+const guildFixture = {
+  id: "guild-1",
+  slug: "clumsys-world",
+  name: "Clumsy's World",
+};
+
+for (const selector of [guildFixture.id, "CLUMSYS-WORLD", "clumsy's world"]) {
+  test(`raids list resolves guild ${selector} and uses profile Bearer auth`, async () => {
+    await withMockServer(
+      async ({ baseUrl, configPath, records }) => {
+        await writeConfig(configPath, baseUrl);
+        const result = await runCli(
+          ["raids", "list", "--guild", selector, "--json"],
+          { NEXUS_CONFIG_PATH: configPath },
+        );
+        assert.equal(result.code, 0, result.stderr);
+        assert.deepEqual(JSON.parse(result.stdout), {
+          raids: [raidFixture],
+          permissions: { canManage: true },
+        });
+        assert.deepEqual(
+          records.map((r) => [r.method, r.url, r.authorization]),
+          [
+            ["GET", "/api/guilds", "Bearer test-token"],
+            ["GET", "/api/raids/guild/guild-1", "Bearer test-token"],
+          ],
+        );
+      },
+      route({
+        "GET /api/guilds": () => ({ guilds: [guildFixture] }),
+        "GET /api/raids/guild/guild-1": () => ({
+          raids: [raidFixture],
+          permissions: { canManage: true },
+        }),
+      }),
+    );
+  });
+}
+
+test("raids list filters and sorts upcoming/active raids; --all includes history", async () => {
+  const active = {
+    ...raidFixture,
+    id: "active",
+    startTime: "2000-01-02T00:00:00Z",
+    startedAt: "2000-01-02T00:00:00Z",
+  };
+  const past = {
+    ...raidFixture,
+    id: "past",
+    startTime: "2000-01-01T00:00:00Z",
+  };
+  const canceled = {
+    ...raidFixture,
+    id: "canceled",
+    canceledAt: "2026-01-01T00:00:00Z",
+  };
+  const ended = {
+    ...raidFixture,
+    id: "ended",
+    endedAt: "2026-01-01T00:00:00Z",
+  };
+  await withMockServer(
+    async ({ baseUrl, configPath }) => {
+      await writeConfig(configPath, baseUrl);
+      const args = ["raids", "list", "--guild", "guild-1", "--json"];
+      const upcoming = await runCli(args, { NEXUS_CONFIG_PATH: configPath });
+      assert.equal(upcoming.code, 0, upcoming.stderr);
+      assert.deepEqual(JSON.parse(upcoming.stdout).raids, [
+        active,
+        raidFixture,
+      ]);
+      const all = await runCli([...args, "--all"], {
+        NEXUS_CONFIG_PATH: configPath,
+      });
+      assert.equal(all.code, 0, all.stderr);
+      assert.deepEqual(JSON.parse(all.stdout).raids, [
+        past,
+        active,
+        raidFixture,
+        canceled,
+        ended,
+      ]);
+      const table = await runCli(args.slice(0, -1), {
+        NEXUS_CONFIG_PATH: configPath,
+      });
+      assert.equal(table.code, 0, table.stderr);
+      assert.match(table.stdout, /Temple raid/);
+      assert.match(table.stdout, /Active/);
+      assert.match(table.stdout, /Confirmed/);
+    },
+    route({
+      "GET /api/guilds": () => ({ guilds: [guildFixture] }),
+      "GET /api/raids/guild/guild-1": () => ({
+        raids: [raidFixture, past, canceled, active, ended],
+      }),
+    }),
+  );
+});
+
+test("raids list rejects missing and ambiguous guild names before fetching raids", async () => {
+  await withMockServer(
+    async ({ baseUrl, configPath, records }) => {
+      await writeConfig(configPath, baseUrl);
+      for (const { selector, message } of [
+        { selector: "missing", message: /not found/ },
+        { selector: guildFixture.name, message: /ambiguous.*guild-1.*guild-2/ },
+      ]) {
+        const result = await runCli(
+          ["raids", "list", "--guild", selector],
+          { NEXUS_CONFIG_PATH: configPath },
+        );
+        assert.equal(result.code, 1);
+        assert.match(result.stderr, message);
+      }
+      assert.equal(records.length, 2);
+      assert.ok(records.every((r) => r.url === "/api/guilds"));
+    },
+    route({
+      "GET /api/guilds": () => ({
+        guilds: [
+          guildFixture,
+          { ...guildFixture, id: "guild-2", slug: "second" },
+        ],
+      }),
+    }),
+  );
+});
+
+const attendanceFixture = {
+  attendanceEvents: [
+    {
+      id: "event-1",
+      createdAt: "2026-09-01T00:00:00Z",
+      eventType: "LOG",
+      note: "First boss",
+      records: [
+        {
+          characterName: "Valorith",
+          class: "WARRIOR",
+          level: 65,
+          groupNumber: 1,
+          status: "PRESENT",
+        },
+      ],
+    },
+  ],
+};
+const lootFixture = {
+  loot: [
+    {
+      id: "loot-1",
+      itemName: "Blade of Testing",
+      looterName: "Valorith",
+      eventTime: null,
+      createdAt: "2026-09-01T00:00:00Z",
+      note: null,
+    },
+  ],
+};
+
+for (const scenario of [
+  {
+    args: ["raids", "show", "raid-1"],
+    path: "/api/raids/raid-1",
+    response: { raid: raidFixture },
+    json: { raid: raidFixture },
+    text: /Temple raid/,
+  },
+  {
+    args: ["raids", "signups", "raid-1"],
+    path: "/api/raids/raid-1",
+    response: { raid: raidFixture },
+    json: { signups: raidFixture.signups },
+    text: /Valorith.*WARRIOR.*65.*CONFIRMED.*Raid leader/,
+  },
+  {
+    args: ["attendance", "show", "raid-1"],
+    path: "/api/attendance/raid/raid-1",
+    response: attendanceFixture,
+    json: attendanceFixture,
+    text: /Valorith.*WARRIOR.*65.*1.*PRESENT/,
+  },
+  {
+    args: ["loot", "list", "raid-1"],
+    path: "/api/raids/raid-1/loot",
+    response: lootFixture,
+    json: lootFixture,
+    text: /Blade of Testing.*Valorith/,
+  },
+]) {
+  test(`${scenario.args.join(" ")} reads existing routes with Bearer auth and renders JSON/text`, async () => {
+    await withMockServer(
+      async ({ baseUrl, configPath, records }) => {
+        await writeConfig(configPath, baseUrl);
+        for (const json of [true, false]) {
+          const result = await runCli(
+            [...scenario.args, ...(json ? ["--json"] : [])],
+            { NEXUS_CONFIG_PATH: configPath },
+          );
+          assert.equal(result.code, 0, result.stderr);
+          if (json) assert.deepEqual(JSON.parse(result.stdout), scenario.json);
+          else assert.match(result.stdout, scenario.text);
+        }
+        assert.equal(records.length, 2);
+        assert.ok(
+          records.every(
+            (r) =>
+              r.method === "GET" &&
+              r.url === scenario.path &&
+              r.authorization === "Bearer test-token" &&
+              r.body === undefined,
+          ),
+        );
+      },
+      route({ [`GET ${scenario.path}`]: () => scenario.response }),
+    );
+  });
+}
+
+test("raid commands handle empty results without losing JSON response shapes", async () => {
+  await withMockServer(
+    async ({ baseUrl, configPath }) => {
+      await writeConfig(configPath, baseUrl);
+      for (const args of [
+        ["raids", "list", "--guild", "guild-1"],
+        ["raids", "signups", "raid-1"],
+        ["attendance", "show", "raid-1"],
+        ["loot", "list", "raid-1"],
+      ]) {
+        const result = await runCli(args, { NEXUS_CONFIG_PATH: configPath });
+        assert.equal(result.code, 0, result.stderr);
+        assert.match(result.stdout, /No .*found/);
+        const json = await runCli([...args, "--json"], {
+          NEXUS_CONFIG_PATH: configPath,
+        });
+        assert.equal(json.code, 0, json.stderr);
+        assert.deepEqual(Object.values(JSON.parse(json.stdout)), [[]]);
+      }
+    },
+    route({
+      "GET /api/guilds": () => ({ guilds: [guildFixture] }),
+      "GET /api/raids/guild/guild-1": () => ({ raids: [] }),
+      "GET /api/raids/raid-1": () => ({
+        raid: { ...raidFixture, signups: [] },
+      }),
+      "GET /api/attendance/raid/raid-1": () => ({ attendanceEvents: [] }),
+      "GET /api/raids/raid-1/loot": () => ({ loot: [] }),
+    }),
+  );
+});
+
+test("raid reads encode IDs, support environment Bearer auth, and report API failures", async () => {
+  await withMockServer(
+    async ({ baseUrl, configPath, records }) => {
+      const env = {
+        NEXUS_CONFIG_PATH: configPath,
+        NEXUS_URL: baseUrl,
+        NEXUS_TOKEN: "nxcli_env",
+      };
+      const encoded = await runCli(["raids", "show", "raid /?#"], env);
+      assert.equal(encoded.code, 0, encoded.stderr);
+      assert.equal(records[0].url, "/api/raids/raid%20%2F%3F%23");
+      assert.equal(records[0].authorization, "Bearer nxcli_env");
+      for (const status of [401, 403, 404]) {
+        const failed = await runCli(
+          ["loot", "list", String(status), "--json"],
+          env,
+        );
+        assert.equal(failed.code, 1);
+        assert.equal(failed.stdout, "");
+        assert.match(
+          failed.stderr,
+          new RegExp(`Nexus API error \\(${status}\\):`),
+        );
+      }
+    },
+    (request) => {
+      if (request.url?.includes("%20")) return { raid: raidFixture };
+      const status = Number(request.url?.split("/")[3]);
+      return {
+        statusCode: status,
+        body: {
+          message:
+            status === 403
+              ? "CLI session is not authorized for this API."
+              : "Read failed.",
+        },
+      };
+    },
+  );
+});
+
+test("raid command help and required arguments work without an authenticated profile", async () => {
+  await withMockServer(async ({ configPath, records }) => {
+    const env = {
+      NEXUS_CONFIG_PATH: configPath,
+      NEXUS_URL: "",
+      NEXUS_TOKEN: "",
+    };
+    for (const command of ["raids", "attendance", "loot"]) {
+      const help = await runCli([command, "--help"], env);
+      assert.equal(help.code, 0, help.stderr);
+      assert.match(help.stdout, /nexus raids list --guild/);
+      assert.match(help.stdout, /nexus attendance show <raidId>/);
+      assert.match(help.stdout, /nexus loot list <raidId>/);
+      assert.match(help.stdout, /Existing sessions must log in again/);
+    }
+    for (const args of [
+      ["raids", "list"],
+      ["raids", "show"],
+      ["raids", "signups"],
+      ["attendance", "show"],
+      ["loot", "list"],
+    ]) {
+      const missing = await runCli(args, env);
+      assert.equal(missing.code, 1);
+      assert.match(missing.stderr, /Missing required (argument|flag)/);
+    }
+    for (const args of [
+      ["raids", "delete", "raid-1"],
+      ["attendance", "create"],
+      ["loot", "delete", "raid-1"],
+    ]) {
+      const mutation = await runCli(args, env);
+      assert.equal(mutation.code, 1);
+      assert.match(mutation.stderr, /Usage:/);
+    }
+    assert.equal(records.length, 0);
+  }, route({}));
+});
+
 test("tm list sends bearer auth and renders JSON from the configured profile", async () => {
   await withMockServer(
     async ({ baseUrl, records, configPath }) => {

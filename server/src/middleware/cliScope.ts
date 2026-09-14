@@ -18,6 +18,15 @@ export function cliTokenCanAccessPath(
   if (pathIsOrChild(pathname, '/api/test-manager')) {
     return Boolean(scopes?.includes('test-manager'));
   }
+  if (
+    pathIsOrChild(pathname, '/api/raids') ||
+    pathIsOrChild(pathname, '/api/attendance') ||
+    /^\/api\/guilds\/[^/]+\/loot-lists(?:\/[^/]+)?$/.test(pathname) ||
+    /^\/api\/guilds\/[^/]+\/loot-settings$/.test(pathname) ||
+    (pathname === '/api/guilds' && normalizedMethod === 'GET')
+  ) {
+    return Boolean(scopes?.includes('raids'));
+  }
   const hasWebhookInboxScope = Boolean(scopes?.includes('webhook-inbox'));
   if (
     pathIsOrChild(pathname, '/api/admin/webhook-inbox') ||

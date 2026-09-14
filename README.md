@@ -183,8 +183,30 @@ The shorter `--url` flag is reserved for `login` and command-specific URL fields
 directly for development.
 
 High-impact commands such as deleting changes, resetting the next-patch queue, changing tester
-access, or updating Test Manager settings require `--yes`. CLI bearer tokens are scoped to
-Test Manager, Webhook Inbox, `/api/auth/me`, and CLI session-management endpoints.
+access, or updating Test Manager settings require `--yes`. New CLI device logins request
+`test-manager`, `webhook-inbox`, and `raids`. Existing sessions keep their old scopes;
+log in again with `nexus login --url <nexus-url> --profile <name>` to enable raid access.
+The `raids` scope allows the existing raid and attendance routes, guild loot lists and
+loot settings, and `GET /api/guilds` for guild resolution. Guild membership and role checks
+still apply. Other guild and admin APIs remain outside this scope.
+
+Read raid operations with the same profile and Bearer token:
+
+```bash
+npm run nexus -- raids list --guild "Clumsy's World"
+npm run nexus -- raids list --guild clumsys-world --all --json
+npm run nexus -- raids show <raidId>
+npm run nexus -- raids signups <raidId> --json
+npm run nexus -- attendance show <raidId> --json
+npm run nexus -- loot list <raidId> --json
+```
+
+Guild selectors accept an ID, slug, or exact name. Slugs and names are case-insensitive;
+ambiguous names require an ID. Raid lists show upcoming and active raids in start-time order;
+`--all` includes past, ended, and canceled raids. Raid detail prints the full JSON response.
+The other commands print tables by default and support `--json`. Signups are read from the
+existing raid detail response. These command families have no mutation commands in v1.
+Use `nexus raids --help` to see the commands and login requirements.
 
 ## Deploying to Railway
 

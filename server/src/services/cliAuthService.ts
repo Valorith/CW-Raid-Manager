@@ -11,7 +11,9 @@ const CLI_SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 const POLL_INTERVAL_SECONDS = 5;
 const USER_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const USER_CODE_LENGTH = 8;
-const DEFAULT_SCOPES = ['test-manager', 'webhook-inbox'] as const;
+// Scope-less records predate raids access and must not gain new permissions on read.
+const LEGACY_SCOPES = ['test-manager', 'webhook-inbox'] as const;
+const DEFAULT_SCOPES = [...LEGACY_SCOPES, 'raids'] as const;
 
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
@@ -83,7 +85,7 @@ function serializeCliUser(user: {
 
 function normalizeScopes(value: Prisma.JsonValue | null): string[] {
   if (!Array.isArray(value)) {
-    return [...DEFAULT_SCOPES];
+    return [...LEGACY_SCOPES];
   }
 
   return value.filter((scope): scope is string => typeof scope === 'string' && scope.length > 0);
@@ -162,7 +164,7 @@ export async function getCliDeviceLoginForApproval(userCode: string) {
     id: login.id,
     userCode: login.userCode,
     clientName: login.clientName,
-    scopes: Array.isArray(login.requestedScopes) ? login.requestedScopes : [...DEFAULT_SCOPES],
+    scopes: normalizeScopes(login.requestedScopes),
     status: login.deniedAt
       ? 'denied'
       : login.consumedAt
@@ -234,9 +236,7 @@ export async function approveCliDeviceLogin(actorUserId: string, userCode: strin
     id: approved.id,
     userCode: approved.userCode,
     clientName: approved.clientName,
-    scopes: Array.isArray(approved.requestedScopes)
-      ? approved.requestedScopes
-      : [...DEFAULT_SCOPES],
+    scopes: normalizeScopes(approved.requestedScopes),
     status: 'approved',
     createdAt: approved.createdAt.toISOString(),
     expiresAt: approved.expiresAt.toISOString()
@@ -340,7 +340,7 @@ export async function exchangeCliDeviceCode(deviceCode: string) {
         userId: login.approvedById!,
         tokenHash: sha256(token),
         name: login.clientName,
-        scopes: login.requestedScopes ?? [...DEFAULT_SCOPES],
+        scopes: normalizeScopes(login.requestedScopes),
         expiresAt
       }
     });
