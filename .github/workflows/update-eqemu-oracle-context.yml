@@ -27,14 +27,15 @@ jobs:
         with:
           node-version-file: .node-version
 
-      - name: Install dependencies
-        run: npm install
+      - name: Install Oracle updater runner
+        run: npm install --prefix "$RUNNER_TEMP/eqemu-oracle-runner" --no-save --package-lock=false --no-audit --no-fund tsx@4.20.6
 
       - name: Regenerate Oracle review index
+        working-directory: server
         run: |
           set -euo pipefail
           for attempt in 1 2 3; do
-            if npm --workspace server run oracle:context; then
+            if "$RUNNER_TEMP/eqemu-oracle-runner/node_modules/.bin/tsx" scripts/updateEqemuOracleContext.ts; then
               exit 0
             fi
             if [ "$attempt" -eq 3 ]; then
