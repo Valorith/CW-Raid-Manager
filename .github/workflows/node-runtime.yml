@@ -1,0 +1,39 @@
+name: Node runtime validation
+
+on:
+  pull_request:
+    paths:
+      - '.node-version'
+      - 'package.json'
+      - 'server/package.json'
+      - 'client/package.json'
+      - 'cli/package.json'
+      - '.github/workflows/node-runtime.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+      - run: test "$(node --version)" = "v$(cat .node-version)"
+      - run: npm install --package-lock=false --no-audit --no-fund
+      - run: npm run build
+      - run: npm run test:client
+      - run: npm run test:cli
+      - run: npm run test:server
+      - name: Validate isolated Oracle context runner
+        run: |
+          npm install --prefix "$RUNNER_TEMP/oracle-runner" --no-save --package-lock=false --no-audit --no-fund tsx@4.20.6
+          cd server
+          "$RUNNER_TEMP/oracle-runner/node_modules/.bin/tsx" scripts/updateEqemuOracleContext.ts --out "$RUNNER_TEMP/oracle-context.json"
+          node -e 'const fs=require("node:fs"); const file=process.env.RUNNER_TEMP+"/oracle-context.json"; const value=JSON.parse(fs.readFileSync(file)); if(!value.records?.length || !value.manifest?.sources || fs.statSync(file).size>6*1024*1024) throw new Error("Invalid Oracle output"); console.log(value.records.length,"records");'
+      - run: git diff --exit-code

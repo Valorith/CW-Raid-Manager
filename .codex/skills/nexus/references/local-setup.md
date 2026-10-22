@@ -36,7 +36,7 @@ If the repo is private, GitHub auth must already be available through Git Creden
 Prerequisites:
 
 - Git available on `PATH`.
-- Node.js matching the repo requirement, currently `>=20.19.0`.
+- Node.js matching the repo requirement, currently `22.23.4` (see `.node-version`).
 - npm available on `PATH`.
 - Hosted Nexus API URL for normal use. Local server configuration is only needed for explicit local development.
 

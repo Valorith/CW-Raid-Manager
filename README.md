@@ -29,7 +29,7 @@ CW Raid Manager/
 
 ## Prerequisites
 
-- Node.js 20.19+ (the repo also declares this in `.node-version`)
+- Node.js 22.23.4 (also pinned in `.node-version`)
 - npm 9+ (or a compatible package manager that supports workspaces)
 - MySQL instance (local or remote)
 - Google OAuth 2.0 credentials (Client ID & Secret)
