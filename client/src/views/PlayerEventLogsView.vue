@@ -614,8 +614,12 @@ function setPresetDates() {
 }
 
 function applyDateRange() {
-  if (dateRange.value === 'custom') return;
-  setPresetDates();
+  if (dateRange.value === 'custom') {
+    // Match the input's minute precision while keeping the preset in UTC.
+    filters.startDate = filters.startDate.slice(0, 16);
+  } else {
+    setPresetDates();
+  }
   applyFilters();
 }
 
