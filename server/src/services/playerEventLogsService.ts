@@ -2,6 +2,23 @@ import type { RowDataPacket } from 'mysql2/promise';
 
 import { isEqDbConfigured, queryEqDb } from '../utils/eqDb.js';
 
+const SPEECH_EVENT_TYPE_ID = 54;
+const SPEECH_CHANNEL_LABELS: Readonly<Record<number, string>> = {
+  0: 'Guild',
+  2: 'Group',
+  3: 'Shout',
+  4: 'Auction',
+  5: 'OOC',
+  6: 'Broadcast',
+  7: 'Tell',
+  8: 'Say & Whispers',
+  10: 'Petition',
+  11: 'GM Say',
+  14: 'Tell Echo',
+  15: 'Raid Say',
+  22: 'Emote'
+};
+
 /**
  * Event type IDs mapped to their names
  */
@@ -52,7 +69,18 @@ export const EVENT_TYPE_MAP: Record<number, string> = {
   44: 'KILLED_NPC',
   45: 'KILLED_NAMED_NPC',
   46: 'KILLED_RAID_NPC',
-  47: 'ITEM_CREATION'
+  47: 'ITEM_CREATION',
+  48: 'GUILD_TRIBUTE_DONATE_ITEM',
+  49: 'GUILD_TRIBUTE_DONATE_PLAT',
+  50: 'PARCEL_SEND',
+  51: 'PARCEL_RETRIEVE',
+  52: 'PARCEL_DELETE',
+  53: 'BARTER_TRANSACTION',
+  [SPEECH_EVENT_TYPE_ID]: 'SPEECH',
+  55: 'EVOLVE_ITEM',
+  56: 'GUILD_BANK_DEPOSIT',
+  57: 'GUILD_BANK_WITHDRAWAL',
+  58: 'GUILD_BANK_MOVE_TO_BANK_AREA'
 };
 
 /**
@@ -105,7 +133,18 @@ export const EVENT_TYPE_LABELS: Record<string, string> = {
   KILLED_NPC: 'Killed NPC',
   KILLED_NAMED_NPC: 'Killed Named NPC',
   KILLED_RAID_NPC: 'Killed Raid NPC',
-  ITEM_CREATION: 'Item Creation'
+  ITEM_CREATION: 'Item Creation',
+  GUILD_TRIBUTE_DONATE_ITEM: 'Guild Tribute Item Donation',
+  GUILD_TRIBUTE_DONATE_PLAT: 'Guild Tribute Platinum Donation',
+  PARCEL_SEND: 'Parcel Sent',
+  PARCEL_RETRIEVE: 'Parcel Retrieved',
+  PARCEL_DELETE: 'Parcel Pruned',
+  BARTER_TRANSACTION: 'Barter Transaction',
+  SPEECH: 'Player Speech',
+  EVOLVE_ITEM: 'Evolving Item Update',
+  GUILD_BANK_DEPOSIT: 'Guild Bank Deposit',
+  GUILD_BANK_WITHDRAWAL: 'Guild Bank Withdrawal',
+  GUILD_BANK_MOVE_TO_BANK_AREA: 'Guild Bank Move to Bank Area'
 };
 
 export interface PlayerEventLog {
@@ -119,6 +158,7 @@ export interface PlayerEventLog {
   eventTypeId: number;
   eventTypeName: string;
   eventTypeLabel: string;
+  speechChannel?: { id: number | null; label: string };
   eventData: Record<string, unknown> | null;
   createdAt: string;
 }
@@ -129,6 +169,8 @@ export interface PlayerEventLogFilters {
   characterId?: number;
   characterName?: string;
   eventTypes?: number[];
+  includeUnknownEventTypes?: boolean;
+  speechChannel?: number | 'unknown';
   zoneId?: number;
   startDate?: string;
   endDate?: string;
@@ -283,6 +325,35 @@ const ZONES_CACHE_TTL_MS = 60000; // 1 minute
 // Performance limits
 const MAX_PAGE_SIZE = 100;
 const MAX_SEARCH_LENGTH = 100;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_SEARCH_DAYS = 7;
+const MAX_SEARCH_DAYS = 31;
+
+function parseSearchDate(value: string): number {
+  const hasNoOffset = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(value);
+  return Date.parse(hasNoOffset ? `${value}Z` : value);
+}
+
+function getSearchDates(startDate?: string, endDate?: string): [Date, Date] {
+  const end = endDate ? parseSearchDate(endDate) : Date.now();
+  const start = startDate ? parseSearchDate(startDate) : end - DEFAULT_SEARCH_DAYS * DAY_MS;
+
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start > end) {
+    throw new Error('Enter a valid date range to search events.');
+  }
+  if (end - start > MAX_SEARCH_DAYS * DAY_MS) {
+    throw new Error(`Choose a date range of ${MAX_SEARCH_DAYS} days or less to search events.`);
+  }
+  return [new Date(start), new Date(end)];
+}
+
+function getSpeechChannel(type: unknown): NonNullable<PlayerEventLog['speechChannel']> {
+  const id = typeof type === 'string' && /^(0|[1-9]\d*)$/.test(type) ? Number(type) : type;
+  if (typeof id !== 'number' || !Number.isSafeInteger(id) || id < 0) {
+    return { id: null, label: 'Unknown Channel' };
+  }
+  return { id, label: SPEECH_CHANNEL_LABELS[id] ?? `Unknown Channel (${id})` };
+}
 
 async function getTableColumns(tableName: string): Promise<string[]> {
   try {
@@ -922,6 +993,8 @@ export async function fetchPlayerEventLogs(
     characterId,
     characterName,
     eventTypes,
+    includeUnknownEventTypes,
+    speechChannel,
     zoneId,
     startDate,
     endDate,
@@ -932,7 +1005,8 @@ export async function fetchPlayerEventLogs(
 
   // Enforce performance limits
   const pageSize = Math.min(Math.max(1, requestedPageSize), MAX_PAGE_SIZE);
-  const search = rawSearch ? rawSearch.slice(0, MAX_SEARCH_LENGTH) : undefined;
+  const search = rawSearch?.trim().slice(0, MAX_SEARCH_LENGTH);
+  const [rangeStart, rangeEnd] = search ? getSearchDates(startDate, endDate) : [startDate, endDate];
 
   // Discover schemas
   const [zoneSchema, characterSchema] = await Promise.all([
@@ -953,14 +1027,16 @@ export async function fetchPlayerEventLogs(
 
   let joins = `FROM player_event_logs pel`;
   const whereConditions: string[] = [];
-  const params: (string | number)[] = [];
+  const params: (string | number | Date)[] = [];
 
   // Add character_data join if available
+  let characterNameField: string | undefined;
+  let characterJoin = '';
   if (characterSchema?.exists && characterSchema.idColumn && characterSchema.nameColumn) {
-    selectFields += `,
-    cd.${characterSchema.nameColumn} as character_name`;
-    joins += `
-    LEFT JOIN character_data cd ON pel.character_id = cd.${characterSchema.idColumn}`;
+    characterNameField = `cd.${characterSchema.nameColumn}`;
+    characterJoin = ` LEFT JOIN character_data cd ON pel.character_id = cd.${characterSchema.idColumn}`;
+    selectFields += `, ${characterNameField} as character_name`;
+    joins += characterJoin;
   } else {
     selectFields += `,
     NULL as character_name`;
@@ -991,17 +1067,43 @@ export async function fetchPlayerEventLogs(
   if (characterId !== undefined) {
     whereConditions.push(`pel.character_id = ?`);
     params.push(characterId);
-  } else if (characterName) {
+  } else if (characterName && characterNameField) {
     // Fall back to name-based LIKE search only when no ID is provided
-    if (characterSchema?.exists && characterSchema.nameColumn) {
-      whereConditions.push(`cd.${characterSchema.nameColumn} LIKE ?`);
-      params.push(`%${characterName}%`);
-    }
+    whereConditions.push(`${characterNameField} LIKE ?`);
+    params.push(`%${characterName}%`);
   }
 
-  if (eventTypes && eventTypes.length > 0) {
-    whereConditions.push(`pel.event_type_id IN (${eventTypes.map(() => '?').join(', ')})`);
+  const eventTypeConditions: string[] = [];
+  if (eventTypes?.length) {
+    eventTypeConditions.push(`pel.event_type_id IN (${eventTypes.map(() => '?').join(', ')})`);
     params.push(...eventTypes);
+  }
+  if (includeUnknownEventTypes) {
+    const knownEventTypes = Object.keys(EVENT_TYPE_MAP).map(Number);
+    eventTypeConditions.push(
+      `pel.event_type_id NOT IN (${knownEventTypes.map(() => '?').join(', ')})`
+    );
+    params.push(...knownEventTypes);
+  }
+  if (eventTypeConditions.length) {
+    whereConditions.push(`(${eventTypeConditions.join(' OR ')})`);
+  }
+
+  if (speechChannel !== undefined) {
+    const channelField = `CASE WHEN JSON_VALID(pel.event_data)
+      THEN CAST(JSON_UNQUOTE(JSON_EXTRACT(pel.event_data, '$.type')) AS BINARY) END`;
+    whereConditions.push('pel.event_type_id = ?');
+    params.push(SPEECH_EVENT_TYPE_ID);
+    if (speechChannel === 'unknown') {
+      const knownChannels = Object.keys(SPEECH_CHANNEL_LABELS);
+      whereConditions.push(
+        `COALESCE(${channelField}, '') NOT IN (${knownChannels.map(() => '?').join(', ')})`
+      );
+      params.push(...knownChannels);
+    } else {
+      whereConditions.push(`(${channelField}) = ?`);
+      params.push(String(speechChannel));
+    }
   }
 
   if (zoneId !== undefined) {
@@ -1009,20 +1111,31 @@ export async function fetchPlayerEventLogs(
     params.push(zoneId);
   }
 
-  if (startDate) {
+  if (rangeStart) {
     whereConditions.push(`pel.created_at >= ?`);
-    params.push(startDate);
+    params.push(rangeStart);
   }
 
-  if (endDate) {
+  if (rangeEnd) {
     whereConditions.push(`pel.created_at <= ?`);
-    params.push(endDate);
+    params.push(rangeEnd);
   }
 
-  // General search - only search character name (event_data LIKE is too expensive)
-  if (search && characterSchema?.exists && characterSchema.nameColumn) {
-    whereConditions.push(`cd.${characterSchema.nameColumn} LIKE ?`);
-    params.push(`%${search}%`);
+  if (search) {
+    const searchConditions = ['LOCATE(LOWER(?), LOWER(pel.event_data)) > 0'];
+    params.push(search);
+    // Serialized JSON escapes quotes and backslashes inside message text.
+    if (search.includes('"') || search.includes('\\')) {
+      searchConditions.push(`CASE WHEN JSON_VALID(pel.event_data) THEN
+        LOCATE(LOWER(?), LOWER(JSON_UNQUOTE(JSON_EXTRACT(pel.event_data, '$.message')))) > 0
+      END`);
+      params.push(search);
+    }
+    if (characterNameField) {
+      searchConditions.push(`LOCATE(LOWER(?), LOWER(${characterNameField})) > 0`);
+      params.push(search);
+    }
+    whereConditions.push(`(${searchConditions.join(' OR ')})`);
   }
 
   const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
@@ -1030,9 +1143,7 @@ export async function fetchPlayerEventLogs(
   // Validate sort column to prevent SQL injection
   const validSortColumns: Record<string, string> = {
     created_at: 'pel.created_at',
-    character_name: characterSchema?.nameColumn
-      ? `cd.${characterSchema.nameColumn}`
-      : 'pel.character_id',
+    character_name: characterNameField ?? 'pel.character_id',
     event_type_id: 'pel.event_type_id',
     zone_id: 'pel.zone_id'
   };
@@ -1041,11 +1152,8 @@ export async function fetchPlayerEventLogs(
 
   // Get total count - use optimized query without unnecessary JOINs when possible
   // Only need JOINs if filtering by character name or searching
-  const needsCharacterJoinForCount = !!(characterName || search);
-  let countJoins = 'FROM player_event_logs pel';
-  if (needsCharacterJoinForCount && characterSchema?.exists && characterSchema.idColumn) {
-    countJoins += ` LEFT JOIN character_data cd ON pel.character_id = cd.${characterSchema.idColumn}`;
-  }
+  const needsCharacterJoinForCount = search || (characterId === undefined && characterName);
+  const countJoins = `FROM player_event_logs pel${needsCharacterJoinForCount ? characterJoin : ''}`;
 
   const countQuery = `SELECT COUNT(*) as total ${countJoins} ${whereClause}`;
   const [countResult] = await queryEqDb<RowDataPacket[]>(countQuery, params);
@@ -1060,7 +1168,7 @@ export async function fetchPlayerEventLogs(
     SELECT ${selectFields}
     ${joins}
     ${whereClause}
-    ORDER BY ${sortColumn} ${order}
+    ORDER BY ${sortColumn} ${order}, pel.id ${order}
     LIMIT ? OFFSET ?
   `;
 
@@ -1089,7 +1197,11 @@ export async function fetchPlayerEventLogs(
       instanceId: row.instance_id,
       eventTypeId: row.event_type_id,
       eventTypeName,
-      eventTypeLabel: EVENT_TYPE_LABELS[eventTypeName] || eventTypeName,
+      eventTypeLabel:
+        EVENT_TYPE_LABELS[eventTypeName] ?? `Unknown Event Type (${row.event_type_id})`,
+      ...(row.event_type_id === SPEECH_EVENT_TYPE_ID
+        ? { speechChannel: getSpeechChannel(parsedEventData?.type) }
+        : {}),
       eventData: parsedEventData,
       createdAt: row.created_at
     };
@@ -1188,6 +1300,10 @@ export function getEventTypes(): Array<{ id: number; name: string; label: string
     name,
     label: EVENT_TYPE_LABELS[name] || name
   }));
+}
+
+export function getSpeechChannels(): Array<{ id: number; label: string }> {
+  return Object.entries(SPEECH_CHANNEL_LABELS).map(([id, label]) => ({ id: Number(id), label }));
 }
 
 /**

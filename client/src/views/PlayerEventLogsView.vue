@@ -3,7 +3,6 @@
     <header class="section-header">
       <div class="section-header__titles">
         <h1>Player Event Logs</h1>
-        <p class="muted">View and search player events from the EQEmu server.</p>
       </div>
       <div class="section-header__actions">
         <router-link to="/admin" class="btn btn--outline"> Back to Admin </router-link>
@@ -58,12 +57,13 @@
       <div v-if="showFilters" class="filters">
         <div class="filters__row">
           <div class="filter-group">
-            <label class="filter-label">Search</label>
+            <label for="event-log-search" class="filter-label">Search</label>
             <input
+              id="event-log-search"
               v-model="filters.search"
               type="search"
               class="input input--search"
-              placeholder="Search events..."
+              maxlength="100"
               @input="debouncedSearch"
             />
           </div>
@@ -136,9 +136,29 @@
             </div>
           </div>
           <div class="filter-group">
-            <label class="filter-label">Date Range</label>
-            <select v-model="dateRange" class="select" @change="applyDateRange">
-              <option value="all">All Time</option>
+            <label for="event-log-channel" class="filter-label">Chat Channel</label>
+            <select
+              id="event-log-channel"
+              v-model="filters.speechChannel"
+              class="select"
+              @change="applyFilters"
+            >
+              <option :value="undefined">All Channels</option>
+              <option v-for="channel in speechChannels" :key="channel.id" :value="channel.id">
+                {{ channel.label }}
+              </option>
+              <option value="unknown">Unknown Channel</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label for="event-log-date-range" class="filter-label">Date Range</label>
+            <select
+              id="event-log-date-range"
+              v-model="dateRange"
+              class="select"
+              @change="applyDateRange"
+            >
+              <option value="all" :disabled="Boolean(filters.search.trim())">All Time</option>
               <option value="1h">Last Hour</option>
               <option value="24h">Last 24 Hours</option>
               <option value="7d">Last 7 Days</option>
@@ -247,7 +267,7 @@
                 </td>
                 <td class="col-event">
                   <span :class="['event-badge', getEventBadgeClass(event.eventTypeName)]">
-                    {{ event.eventTypeLabel }}
+                    {{ event.speechChannel?.label ?? event.eventTypeLabel }}
                   </span>
                 </td>
                 <td class="col-zone">{{ event.zoneName }}</td>
@@ -331,8 +351,20 @@ import {
   type PlayerEventLog,
   type PlayerEventLogStats,
   type PlayerEventType,
-  type PlayerEventZone
+  type PlayerEventZone,
+  type PlayerSpeechChannel
 } from '../services/api';
+import { extractErrorMessage } from '../utils/errors';
+
+type EventTypeFilter = number | 'unknown';
+const UNKNOWN_EVENT_TYPE = { id: 'unknown', name: 'UNKNOWN', label: 'Unknown Event Type' } as const;
+const HOUR_MS = 60 * 60 * 1000;
+const DATE_RANGE_MS: Record<string, number> = {
+  '1h': HOUR_MS,
+  '24h': 24 * HOUR_MS,
+  '7d': 7 * 24 * HOUR_MS,
+  '30d': 30 * 24 * HOUR_MS
+};
 
 const loading = ref(true);
 const showLoading = useMinimumLoading(loading);
@@ -363,12 +395,14 @@ const stats = ref<PlayerEventLogStats>({
 });
 
 const eventTypes = ref<PlayerEventType[]>([]);
+const speechChannels = ref<PlayerSpeechChannel[]>([]);
 const zones = ref<PlayerEventZone[]>([]);
 
 const filters = reactive({
   search: '',
   characterName: '',
-  eventTypes: [] as number[],
+  eventTypes: [] as EventTypeFilter[],
+  speechChannel: undefined as number | 'unknown' | undefined,
   zoneId: undefined as number | undefined,
   startDate: '',
   endDate: '',
@@ -381,6 +415,7 @@ const dateRange = ref('all');
 
 let refreshInterval: ReturnType<typeof setInterval> | null = null;
 let searchTimeout: ReturnType<typeof setTimeout> | null = null;
+let activeEventRequest = 0;
 const AUTO_REFRESH_INTERVAL = 30000; // 30 seconds
 
 const formatLastUpdated = computed(() => {
@@ -394,11 +429,12 @@ const formatLastUpdated = computed(() => {
 });
 
 const filteredEventTypes = computed(() => {
+  const options = [...eventTypes.value, UNKNOWN_EVENT_TYPE];
   if (!eventTypeSearch.value) {
-    return eventTypes.value;
+    return options;
   }
   const search = eventTypeSearch.value.toLowerCase();
-  return eventTypes.value.filter(
+  return options.filter(
     (et) => et.label.toLowerCase().includes(search) || et.name.toLowerCase().includes(search)
   );
 });
@@ -491,7 +527,8 @@ function getEventBadgeClass(eventTypeName: string): string {
     'RAID_LEAVE',
     'TRADE',
     'GIVE_ITEM',
-    'SAY'
+    'SAY',
+    'SPEECH'
   ];
   const combatEvents = ['KILLED_NPC', 'KILLED_NAMED_NPC', 'KILLED_RAID_NPC'];
 
@@ -532,12 +569,13 @@ function handleClickOutside(event: MouseEvent) {
   }
 }
 
-function getEventTypeLabel(typeId: number): string {
+function getEventTypeLabel(typeId: EventTypeFilter): string {
+  if (typeId === 'unknown') return UNKNOWN_EVENT_TYPE.label;
   const eventType = eventTypes.value.find((et) => et.id === typeId);
   return eventType?.label || `Type ${typeId}`;
 }
 
-function removeEventType(typeId: number) {
+function removeEventType(typeId: EventTypeFilter) {
   const index = filters.eventTypes.indexOf(typeId);
   if (index !== -1) {
     filters.eventTypes.splice(index, 1);
@@ -559,7 +597,7 @@ function toggleRawJson(eventId: number | string) {
   showRawJson[id] = !showRawJson[id];
 }
 
-function toggleEventType(eventTypeId: number) {
+function toggleEventType(eventTypeId: EventTypeFilter) {
   const index = filters.eventTypes.indexOf(eventTypeId);
   if (index === -1) {
     filters.eventTypes.push(eventTypeId);
@@ -569,50 +607,30 @@ function toggleEventType(eventTypeId: number) {
   applyFilters();
 }
 
+function setPresetDates() {
+  const duration = DATE_RANGE_MS[dateRange.value];
+  filters.startDate = duration ? new Date(Date.now() - duration).toISOString() : '';
+  filters.endDate = '';
+}
+
 function applyDateRange() {
-  const now = new Date();
-
-  switch (dateRange.value) {
-    case '1h':
-      filters.startDate = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
-      filters.endDate = '';
-      break;
-    case '24h':
-      filters.startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
-      filters.endDate = '';
-      break;
-    case '7d':
-      filters.startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
-      filters.endDate = '';
-      break;
-    case '30d':
-      filters.startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
-      filters.endDate = '';
-      break;
-    case 'all':
-      filters.startDate = '';
-      filters.endDate = '';
-      break;
-    // 'custom' keeps whatever the user sets
-  }
-
-  if (dateRange.value !== 'custom') {
-    applyFilters();
-  }
+  if (dateRange.value === 'custom') return;
+  setPresetDates();
+  applyFilters();
 }
 
 function clearFilters() {
   filters.search = '';
   filters.characterName = '';
   filters.eventTypes = [];
+  filters.speechChannel = undefined;
   filters.zoneId = undefined;
   filters.startDate = '';
   filters.endDate = '';
   filters.sortBy = 'created_at';
   filters.sortOrder = 'desc';
   dateRange.value = 'all';
-  page.value = 1;
-  loadEvents(true);
+  applyFilters();
 }
 
 function sortBy(column: typeof filters.sortBy) {
@@ -631,6 +649,14 @@ function setPage(newPage: number) {
 }
 
 function applyFilters() {
+  if (searchTimeout) {
+    clearTimeout(searchTimeout);
+    searchTimeout = null;
+  }
+  if (filters.search.trim() && dateRange.value === 'all') {
+    dateRange.value = '7d';
+    setPresetDates();
+  }
   page.value = 1;
   loadEvents(true);
 }
@@ -645,6 +671,7 @@ function debouncedSearch() {
 }
 
 async function loadEvents(isRefresh = false) {
+  const request = ++activeEventRequest;
   if (isRefresh) {
     loading.value = true;
   }
@@ -657,7 +684,9 @@ async function loadEvents(isRefresh = false) {
       page: page.value,
       pageSize: filters.pageSize,
       characterName: filters.characterName || undefined,
-      eventTypes: filters.eventTypes.length > 0 ? filters.eventTypes : undefined,
+      eventTypes: filters.eventTypes.filter((id): id is number => typeof id === 'number'),
+      includeUnknownEventTypes: filters.eventTypes.includes('unknown'),
+      speechChannel: filters.speechChannel,
       zoneId: filters.zoneId,
       startDate: filters.startDate || undefined,
       endDate: filters.endDate || undefined,
@@ -666,15 +695,18 @@ async function loadEvents(isRefresh = false) {
       search: filters.search || undefined
     });
 
+    if (request !== activeEventRequest) return;
     events.value = response.events;
     total.value = response.total;
     page.value = response.page;
     totalPages.value = response.totalPages;
     lastUpdated.value = new Date();
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Failed to load player event logs.';
+    if (request === activeEventRequest) {
+      error.value = extractErrorMessage(err, 'Failed to load player event logs.');
+    }
   } finally {
-    if (isRefresh) {
+    if (request === activeEventRequest) {
       loading.value = false;
     }
   }
@@ -690,11 +722,12 @@ async function loadStats() {
 
 async function loadMetadata() {
   try {
-    const [types, zoneList] = await Promise.all([
-      api.fetchPlayerEventTypes(),
+    const [metadata, zoneList] = await Promise.all([
+      api.fetchPlayerEventLogMetadata(),
       api.fetchPlayerEventZones()
     ]);
-    eventTypes.value = types;
+    eventTypes.value = metadata.eventTypes;
+    speechChannels.value = metadata.speechChannels;
     zones.value = zoneList;
   } catch (err) {
     console.error('Failed to load metadata:', err);

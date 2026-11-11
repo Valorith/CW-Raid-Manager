@@ -2181,6 +2181,7 @@ export interface PlayerEventLog {
   eventTypeId: number;
   eventTypeName: string;
   eventTypeLabel: string;
+  speechChannel?: { id: number | null; label: string };
   eventData: Record<string, unknown> | null;
   createdAt: string;
 }
@@ -2190,6 +2191,8 @@ export interface PlayerEventLogFilters {
   pageSize?: number;
   characterName?: string;
   eventTypes?: number[];
+  includeUnknownEventTypes?: boolean;
+  speechChannel?: number | 'unknown';
   zoneId?: number;
   startDate?: string;
   endDate?: string;
@@ -2220,6 +2223,11 @@ export interface PlayerEventLogStats {
 export interface PlayerEventType {
   id: number;
   name: string;
+  label: string;
+}
+
+export interface PlayerSpeechChannel {
+  id: number;
   label: string;
 }
 
@@ -6827,6 +6835,9 @@ export const api = {
     if (filters.eventTypes && filters.eventTypes.length > 0) {
       params.append('eventTypes', filters.eventTypes.join(','));
     }
+    if (filters.includeUnknownEventTypes) params.append('includeUnknownEventTypes', 'true');
+    if (filters.speechChannel !== undefined)
+      params.append('speechChannel', String(filters.speechChannel));
     if (filters.zoneId !== undefined) params.append('zoneId', String(filters.zoneId));
     if (filters.startDate) params.append('startDate', filters.startDate);
     if (filters.endDate) params.append('endDate', filters.endDate);
@@ -6850,8 +6861,18 @@ export const api = {
    * Fetches available event types for filtering.
    */
   async fetchPlayerEventTypes(): Promise<PlayerEventType[]> {
+    return (await api.fetchPlayerEventLogMetadata()).eventTypes;
+  },
+
+  async fetchPlayerEventLogMetadata(): Promise<{
+    eventTypes: PlayerEventType[];
+    speechChannels: PlayerSpeechChannel[];
+  }> {
     const response = await axios.get('/api/admin/player-event-logs/event-types');
-    return response.data.eventTypes ?? [];
+    return {
+      eventTypes: response.data.eventTypes ?? [],
+      speechChannels: response.data.speechChannels ?? []
+    };
   },
 
   /**
