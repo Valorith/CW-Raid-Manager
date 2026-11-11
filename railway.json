@@ -11,7 +11,7 @@
     "pr": {
       "deploy": {
         "preDeployCommand": [
-          "sh -c 'if [ \"$RAILWAY_SERVICE_NAME\" != \"CW-Nexus-Manager\" ]; then npm --workspace server run prisma:push; fi'"
+          "sh -c 'if [ \"$RAILWAY_SERVICE_NAME\" != \"CW-Nexus-Manager\" ]; then npm --workspace server run prisma:push-preview; fi'"
         ]
       }
     }
