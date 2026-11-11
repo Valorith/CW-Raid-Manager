@@ -70,7 +70,17 @@ export const EVENT_TYPE_MAP: Record<number, string> = {
   45: 'KILLED_NAMED_NPC',
   46: 'KILLED_RAID_NPC',
   47: 'ITEM_CREATION',
-  [SPEECH_EVENT_TYPE_ID]: 'SPEECH'
+  48: 'GUILD_TRIBUTE_DONATE_ITEM',
+  49: 'GUILD_TRIBUTE_DONATE_PLAT',
+  50: 'PARCEL_SEND',
+  51: 'PARCEL_RETRIEVE',
+  52: 'PARCEL_DELETE',
+  53: 'BARTER_TRANSACTION',
+  [SPEECH_EVENT_TYPE_ID]: 'SPEECH',
+  55: 'EVOLVE_ITEM',
+  56: 'GUILD_BANK_DEPOSIT',
+  57: 'GUILD_BANK_WITHDRAWAL',
+  58: 'GUILD_BANK_MOVE_TO_BANK_AREA'
 };
 
 /**
@@ -124,7 +134,17 @@ export const EVENT_TYPE_LABELS: Record<string, string> = {
   KILLED_NAMED_NPC: 'Killed Named NPC',
   KILLED_RAID_NPC: 'Killed Raid NPC',
   ITEM_CREATION: 'Item Creation',
-  SPEECH: 'Player Speech'
+  GUILD_TRIBUTE_DONATE_ITEM: 'Guild Tribute Item Donation',
+  GUILD_TRIBUTE_DONATE_PLAT: 'Guild Tribute Platinum Donation',
+  PARCEL_SEND: 'Parcel Sent',
+  PARCEL_RETRIEVE: 'Parcel Retrieved',
+  PARCEL_DELETE: 'Parcel Pruned',
+  BARTER_TRANSACTION: 'Barter Transaction',
+  SPEECH: 'Player Speech',
+  EVOLVE_ITEM: 'Evolving Item Update',
+  GUILD_BANK_DEPOSIT: 'Guild Bank Deposit',
+  GUILD_BANK_WITHDRAWAL: 'Guild Bank Withdrawal',
+  GUILD_BANK_MOVE_TO_BANK_AREA: 'Guild Bank Move to Bank Area'
 };
 
 export interface PlayerEventLog {
