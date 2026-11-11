@@ -123,6 +123,7 @@ import {
   fetchConnectionEventOverlaySnapshot,
   getPlayerEventLogStats,
   getEventTypes,
+  getSpeechChannels,
   getEventLogZones
 } from '../services/playerEventLogsService.js';
 import { createSlackInstallSession } from '../services/slackIntegrationService.js';
@@ -782,6 +783,17 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
               .map(Number)
               .filter((n) => !Number.isNaN(n));
           }),
+        includeUnknownEventTypes: z.literal('true').optional().transform(Boolean),
+        speechChannel: z
+          .union([
+            z.literal('unknown'),
+            z
+              .string()
+              .regex(/^(0|[1-9]\d{0,4})$/)
+              .transform(Number)
+              .pipe(z.number().max(65535))
+          ])
+          .optional(),
         zoneId: z.coerce.number().int().optional(),
         startDate: z.string().optional(),
         endDate: z.string().optional(),
@@ -837,7 +849,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
     },
     async () => {
       const eventTypes = getEventTypes();
-      return { eventTypes };
+      return { eventTypes, speechChannels: getSpeechChannels() };
     }
   );
 

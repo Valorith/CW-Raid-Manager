@@ -524,17 +524,16 @@
       </div>
     </template>
 
-    <!-- SAY -->
-    <template v-else-if="event.eventTypeName === 'SAY'">
+    <template v-else-if="event.eventTypeName === 'SAY' || event.eventTypeName === 'SPEECH'">
       <div class="data-row">
         <span class="data-label">Message:</span>
         <span class="data-value data-value--message"
           >"{{ eventData.message || eventData.text || 'No message' }}"</span
         >
       </div>
-      <div v-if="eventData.target" class="data-row">
+      <div v-if="eventData.to || eventData.target" class="data-row">
         <span class="data-label">To:</span>
-        <span class="data-value">{{ eventData.target }}</span>
+        <span class="data-value">{{ eventData.to || eventData.target }}</span>
       </div>
     </template>
 
