@@ -5892,18 +5892,23 @@ async function persistRaidNpcKillEvents(kills: ParsedNpcKillEvent[]) {
     pendingClarifications: allPendingClarifications.length,
     pendingZoneClarifications: allPendingZoneClarifications.length
   });
+  // The queue may persist several batches back to back; merge prompts so a later
+  // batch does not discard clarifications (or selections) from an earlier one.
   if (allPendingClarifications.length > 0) {
-    instanceClarifications.value = allPendingClarifications.map((c) => ({
-      ...c,
-      isInstance: false
-    }));
+    instanceClarifications.value = mergeClarificationsById(
+      instanceClarifications.value,
+      allPendingClarifications.map((c) => ({ ...c, isInstance: false }))
+    );
   }
   // Show zone clarification modal first if needed, then instance clarification
   if (allPendingZoneClarifications.length > 0) {
-    zoneClarifications.value = allPendingZoneClarifications.map((c) => ({
-      ...c,
-      selectedNpcDefinitionId: c.zoneOptions[0]?.npcDefinitionId ?? ''
-    }));
+    zoneClarifications.value = mergeClarificationsById(
+      zoneClarifications.value,
+      allPendingZoneClarifications.map((c) => ({
+        ...c,
+        selectedNpcDefinitionId: c.zoneOptions[0]?.npcDefinitionId ?? ''
+      }))
+    );
     showZoneClarificationModal.value = true;
     appendDebugLog('Showing zone clarification modal', {
       count: allPendingZoneClarifications.length
@@ -5914,6 +5919,11 @@ async function persistRaidNpcKillEvents(kills: ParsedNpcKillEvent[]) {
       count: instanceClarifications.value.length
     });
   }
+}
+
+function mergeClarificationsById<T extends { id: string }>(existing: T[], incoming: T[]) {
+  const knownIds = new Set(existing.map((entry) => entry.id));
+  return [...existing, ...incoming.filter((entry) => !knownIds.has(entry.id))];
 }
 
 // Instance clarification modal functions
