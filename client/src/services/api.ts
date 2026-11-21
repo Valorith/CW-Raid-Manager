@@ -4917,7 +4917,8 @@ export const api = {
       killerName?: string | null;
       rawLine?: string | null;
       zoneName?: string | null;
-    }>
+    }>,
+    { replace = false }: { replace?: boolean } = {}
   ): Promise<{
     inserted: number;
     pendingClarifications: PendingInstanceClarification[];
@@ -4926,7 +4927,11 @@ export const api = {
     if (!Array.isArray(kills) || kills.length === 0) {
       return { inserted: 0, pendingClarifications: [], pendingZoneClarifications: [] };
     }
-    const response = await axios.post(`/api/raids/${raidId}/npc-kills`, { kills });
+    const response = await axios.request({
+      method: replace ? 'put' : 'post',
+      url: `/api/raids/${raidId}/npc-kills`,
+      data: { kills }
+    });
     return {
       inserted: response.data.inserted ?? 0,
       pendingClarifications: response.data.pendingClarifications ?? [],

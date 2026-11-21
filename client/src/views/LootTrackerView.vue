@@ -412,6 +412,12 @@
       </div>
     </div>
 
+    <p v-if="rejectedNpcKillCount" class="card monitor-card__health-warning" role="alert">
+      {{ rejectedNpcKillCount }} NPC kill
+      {{ rejectedNpcKillCount === 1 ? 'entry was' : 'entries were' }} rejected.
+      Other kills can still sync. Keep the original log for review or re-import.
+    </p>
+
     <section
       v-if="canManageLoot && monitorSession"
       class="card monitor-card"
@@ -1796,11 +1802,18 @@ const monitorHealth = reactive({
 });
 const processedLogKeys = new Set<string>();
 const processedNpcKillKeys = new Set<string>();
+const rejectedNpcKillCount = ref(0);
 const npcKillPersistenceQueue = new ReliableBatchQueue<ParsedNpcKillEvent>({
   buildKey: buildNpcKillKey,
   isProcessed: (key) => processedNpcKillKeys.has(key),
   markProcessed: (key) => processedNpcKillKeys.add(key),
   persist: persistRaidNpcKillEvents,
+  maxBatchSize: 100,
+  isRejectedBatch: (error) =>
+    isAxiosError(error) && [400, 413, 422].includes(error.response?.status ?? 0),
+  onRejected: () => {
+    rejectedNpcKillCount.value += 1;
+  },
   onRetry: (error, delayMs, pendingCount) => {
     appendDebugLog('NPC kill persist failed; retry scheduled', {
       error: String(error),
@@ -5862,23 +5875,14 @@ async function persistRaidNpcKillEvents(kills: ParsedNpcKillEvent[]) {
     firstKill: payload[0]
   });
 
-  const chunkSize = 100;
-  const allPendingClarifications: PendingInstanceClarification[] = [];
-  const allPendingZoneClarifications: PendingZoneClarification[] = [];
-  for (let index = 0; index < payload.length; index += chunkSize) {
-    const result = await api.recordRaidNpcKills(raidId, payload.slice(index, index + chunkSize));
-    appendDebugLog('NPC kill persist: API response', {
-      inserted: result.inserted,
-      pendingClarifications: result.pendingClarifications?.length ?? 0,
-      pendingZoneClarifications: result.pendingZoneClarifications?.length ?? 0
-    });
-    if (result.pendingClarifications && result.pendingClarifications.length > 0) {
-      allPendingClarifications.push(...result.pendingClarifications);
-    }
-    if (result.pendingZoneClarifications && result.pendingZoneClarifications.length > 0) {
-      allPendingZoneClarifications.push(...result.pendingZoneClarifications);
-    }
-  }
+  const result = await api.recordRaidNpcKills(raidId, payload);
+  const allPendingClarifications = result.pendingClarifications;
+  const allPendingZoneClarifications = result.pendingZoneClarifications;
+  appendDebugLog('NPC kill persist: API response', {
+    inserted: result.inserted,
+    pendingClarifications: allPendingClarifications.length,
+    pendingZoneClarifications: allPendingZoneClarifications.length
+  });
   if (allPendingClarifications.length > 0) {
     instanceClarifications.value = allPendingClarifications.map((c) => ({
       ...c,

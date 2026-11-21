@@ -80,3 +80,40 @@ test('does not mark an in-flight batch processed after the queue is reset', asyn
   assert.equal(queue.pendingCount, 0);
   assert.deepEqual([...processed], []);
 });
+
+test('isolates permanent row errors without blocking valid, later, or transient work', async () => {
+  const processed = new Set<string>();
+  const attempts: string[][] = [];
+  const scheduled: Array<() => void> = [];
+  const rejected: string[] = [];
+  const invalid = new Error('invalid row');
+  let transient = true;
+  const queue = new ReliableBatchQueue<string>({
+    buildKey: (item) => item,
+    isProcessed: (key) => processed.has(key),
+    markProcessed: (key) => processed.add(key),
+    maxBatchSize: 3,
+    isRejectedBatch: (error) => error === invalid,
+    onRejected: (item) => rejected.push(item),
+    persist: async (items) => {
+      attempts.push(items);
+      if (items.includes('bad')) throw invalid;
+      if (items.includes('later') && transient) throw new Error('temporarily unavailable');
+    },
+    schedule: (callback) => scheduled.push(callback)
+  });
+
+  queue.enqueue(['bad', 'good', 'later']);
+  await queue.flush();
+  assert.deepEqual(rejected, ['bad']);
+  assert.equal(queue.enqueue(['bad']), 0);
+  assert.deepEqual([...processed], []);
+  assert.equal(queue.pendingCount, 2);
+  assert.equal(scheduled.length, 1);
+  assert.deepEqual(attempts, [['bad', 'good', 'later'], ['bad'], ['good', 'later']]);
+  transient = false;
+  scheduled[0]?.();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual([...processed], ['good', 'later']);
+  assert.equal(queue.pendingCount, 0);
+});

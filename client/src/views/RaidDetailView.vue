@@ -4891,7 +4891,6 @@ async function uploadKillLogFile(file: File) {
     const parsed = parseNpcKills(content, start, end, {
       endGraceMinutes: RAID_NPC_KILL_END_GRACE_MINUTES
     });
-    await api.deleteRaidNpcKills(raidId);
     if (parsed.length > 0) {
       const payload = parsed.map((entry) => ({
         npcName: entry.npcName,
@@ -4900,18 +4899,10 @@ async function uploadKillLogFile(file: File) {
         rawLine: entry.rawLine,
         zoneName: entry.zoneName ?? null
       }));
-      // Collect all pending clarifications from batched uploads
-      const allPendingClarifications: PendingInstanceClarification[] = [];
-      const allPendingZoneClarifications: PendingZoneClarification[] = [];
-      for (let index = 0; index < payload.length; index += 100) {
-        const result = await api.recordRaidNpcKills(raidId, payload.slice(index, index + 100));
-        if (result.pendingClarifications && result.pendingClarifications.length > 0) {
-          allPendingClarifications.push(...result.pendingClarifications);
-        }
-        if (result.pendingZoneClarifications && result.pendingZoneClarifications.length > 0) {
-          allPendingZoneClarifications.push(...result.pendingZoneClarifications);
-        }
-      }
+      const {
+        pendingClarifications: allPendingClarifications,
+        pendingZoneClarifications: allPendingZoneClarifications
+      } = await api.recordRaidNpcKills(raidId, payload, { replace: true });
       await loadRaid();
       if (allPendingClarifications.length > 0) {
         instanceClarifications.value = allPendingClarifications.map((c) => ({
@@ -4934,7 +4925,9 @@ async function uploadKillLogFile(file: File) {
     }
   } catch (error) {
     console.error('Failed to upload kill log', error);
-    window.alert('Unable to upload kill log. Please try again.');
+    window.alert(
+      extractErrorMessage(error, 'Unable to upload the kill log. Refresh the raid before retrying.')
+    );
   } finally {
     uploadingKillLog.value = false;
   }

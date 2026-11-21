@@ -7,11 +7,17 @@ export interface ReliableBatchQueueOptions<T> {
   cancelScheduled?: (handle: unknown) => void;
   retryBaseMs?: number;
   retryMaxMs?: number;
+  maxBatchSize?: number;
+  isRejectedBatch?: (error: unknown) => boolean;
+  onRejected?: (item: T, error: unknown) => void;
   onRetry?: (error: unknown, delayMs: number, pendingCount: number) => void;
 }
 
 export class ReliableBatchQueue<T> {
   private readonly pending = new Map<string, T>();
+  private readonly rejected = new Map<string, T>();
+  private readonly maxBatchSize: number;
+  private batchSize: number;
   private readonly retryBaseMs: number;
   private readonly retryMaxMs: number;
   private inFlight = false;
@@ -21,6 +27,8 @@ export class ReliableBatchQueue<T> {
   private generation = 0;
 
   constructor(private readonly options: ReliableBatchQueueOptions<T>) {
+    this.maxBatchSize = Math.max(1, options.maxBatchSize ?? Number.MAX_SAFE_INTEGER);
+    this.batchSize = this.maxBatchSize;
     this.retryBaseMs = Math.max(1, options.retryBaseMs ?? 2_000);
     this.retryMaxMs = Math.max(this.retryBaseMs, options.retryMaxMs ?? 30_000);
   }
@@ -29,7 +37,12 @@ export class ReliableBatchQueue<T> {
     let added = 0;
     for (const item of items) {
       const key = this.options.buildKey(item);
-      if (!key || this.options.isProcessed(key) || this.pending.has(key)) {
+      if (
+        !key ||
+        this.options.isProcessed(key) ||
+        this.pending.has(key) ||
+        this.rejected.has(key)
+      ) {
         continue;
       }
       this.pending.set(key, item);
@@ -49,7 +62,11 @@ export class ReliableBatchQueue<T> {
 
     this.inFlight = true;
     const batchGeneration = this.generation;
-    const batch = [...this.pending.entries()];
+    const batch: Array<[string, T]> = [];
+    for (const entry of this.pending) {
+      batch.push(entry);
+      if (batch.length >= this.batchSize) break;
+    }
     let failed = false;
     try {
       await this.options.persist(batch.map(([, item]) => item));
@@ -61,12 +78,27 @@ export class ReliableBatchQueue<T> {
         this.options.markProcessed(key);
       }
       this.retryAttempt = 0;
+      this.batchSize = this.maxBatchSize;
     } catch (error) {
       if (this.disposed || batchGeneration !== this.generation) {
         return;
       }
-      failed = true;
-      this.scheduleRetry(error);
+      if (this.options.isRejectedBatch?.(error)) {
+        this.retryAttempt = 0;
+        if (batch.length > 1) {
+          // Shrink a rejected batch so one bad item does not block valid ones.
+          this.batchSize = Math.floor(batch.length / 2);
+        } else {
+          const [key, item] = batch[0]!;
+          this.pending.delete(key);
+          this.rejected.set(key, item);
+          this.batchSize = this.maxBatchSize;
+          this.options.onRejected?.(item, error);
+        }
+      } else {
+        failed = true;
+        this.scheduleRetry(error);
+      }
     } finally {
       this.inFlight = false;
     }
@@ -79,6 +111,8 @@ export class ReliableBatchQueue<T> {
   reset() {
     this.generation += 1;
     this.pending.clear();
+    this.rejected.clear();
+    this.batchSize = this.maxBatchSize;
     this.retryAttempt = 0;
     this.clearRetry();
   }
