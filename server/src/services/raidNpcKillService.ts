@@ -13,6 +13,7 @@ import {
   isEnragedTwinNpcName,
   shouldDeferStandaloneTrackerKill
 } from '../utils/raidEncounterCompletions.js';
+import { persistRaidNpcKillBatch } from '../utils/raidNpcKillPersistence.js';
 
 const RAID_NPC_KILL_END_GRACE_MINUTES = 10;
 const RAID_NPC_KILL_END_GRACE_MS = RAID_NPC_KILL_END_GRACE_MINUTES * 60 * 1000;
@@ -67,14 +68,6 @@ function buildSignature(npcNameNormalized: string, occurredAt: Date, rawLine?: s
   return hash.digest('hex');
 }
 
-function chunkArray<T>(items: T[], size: number) {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
-}
-
 function getRaidStartTime(raid: { startedAt: Date | null; startTime: Date }) {
   return raid.startedAt ?? raid.startTime;
 }
@@ -126,7 +119,8 @@ export async function recordRaidNpcKills(
   raidId: string,
   guildId: string,
   kills: NpcKillInput[],
-  logger?: FastifyBaseLogger
+  logger?: FastifyBaseLogger,
+  { replace = false }: { replace?: boolean } = {}
 ) {
   if (kills.length === 0) {
     return { inserted: 0 };
@@ -160,96 +154,9 @@ export async function recordRaidNpcKills(
     return { inserted: 0 };
   }
 
-  await prisma.raidEvent.findUnique({
-    where: { id: raidId },
-    select: {
-      id: true,
-      name: true,
-      guild: {
-        select: {
-          id: true,
-          name: true
-        }
-      }
-    }
-  });
-
-  // Build lookup of NPCs from the respawn tracker that are flagged as raid targets for webhook triggering
-  const raidTargetNpcs = await prisma.npcDefinition.findMany({
-    where: {
-      guildId,
-      isRaidTarget: true
-    },
-    select: {
-      npcName: true,
-      npcNameNormalized: true
-    }
-  });
-  const raidTargetNpcLookup = new Map<string, string>();
-  for (const npc of raidTargetNpcs) {
-    raidTargetNpcLookup.set(npc.npcNameNormalized, npc.npcName);
-  }
-
-  const signatures = prepared.map((entry) => entry.logSignature);
-  let uniqueEntries = prepared;
-
-  console.log('[recordRaidNpcKills] Processing NPC kills:', {
-    raidId,
-    guildId,
-    preparedCount: prepared.length,
-    preparedKills: prepared.slice(0, 5).map(e => ({ npcName: e.npcName, signature: e.logSignature.substring(0, 8) }))
-  });
-
-  if (signatures.length > 0) {
-    const existing = await prisma.raidNpcKillEvent.findMany({
-      where: {
-        raidId,
-        logSignature: {
-          in: signatures
-        }
-      },
-      select: { logSignature: true }
-    });
-
-    console.log('[recordRaidNpcKills] Duplicate check result:', {
-      raidId,
-      existingCount: existing.length,
-      existingSignatures: existing.slice(0, 5).map(e => e.logSignature.substring(0, 8))
-    });
-
-    const seen = new Set(existing.map((item) => item.logSignature));
-    uniqueEntries = [];
-    for (const entry of prepared) {
-      if (seen.has(entry.logSignature)) {
-        continue;
-      }
-      seen.add(entry.logSignature);
-      uniqueEntries.push(entry);
-    }
-
-    console.log('[recordRaidNpcKills] After filtering duplicates:', {
-      uniqueCount: uniqueEntries.length
-    });
-  }
-
-  // Also check total count in database for this raid
-  const totalInDb = await prisma.raidNpcKillEvent.count({ where: { raidId } });
-  console.log('[recordRaidNpcKills] Total kills in DB for this raid:', totalInDb);
-
-  let inserted = 0;
-  if (uniqueEntries.length > 0) {
-    for (const chunk of chunkArray(uniqueEntries, 100)) {
-      try {
-        const result = await prisma.raidNpcKillEvent.createMany({
-          data: chunk,
-          skipDuplicates: true
-        });
-        inserted += result.count;
-      } catch (error) {
-        logger?.warn({ error, errorMessage: String(error) }, 'Failed to persist NPC kill chunk.');
-      }
-    }
-  }
+  // Never report success for a failed write; queue retries are deduplicated
+  // by the database's (raidId, logSignature) unique key.
+  const inserted = await persistRaidNpcKillBatch(prisma, { raidId, guildId }, prepared, replace);
 
   // Some encounters need more evidence than a standalone NPC death. Classic Braag's normal
   // death line is an intermediate morph, while Enraged Twins only completes when both named
@@ -258,45 +165,49 @@ export async function recordRaidNpcKills(
   const trackerEntries = prepared.filter(
     (entry) => !isEnragedTwinNpcName(entry.npcName) && !shouldDeferStandaloneTrackerKill(entry)
   );
-  const preparedTwinKills = prepared.filter((entry) => isEnragedTwinNpcName(entry.npcName));
-  if (preparedTwinKills.length > 0) {
-    const preparedTimes = preparedTwinKills.map((entry) => entry.occurredAt.getTime());
-    const twinEvents = await prisma.raidNpcKillEvent.findMany({
-      where: {
-        raidId,
-        npcNameNormalized: {
-          in: [ENRAGED_CORFLUNK_NAME.toLowerCase(), ENRAGED_ZARCHOOMI_NAME.toLowerCase()]
+  try {
+    const preparedTwinKills = prepared.filter((entry) => isEnragedTwinNpcName(entry.npcName));
+    if (preparedTwinKills.length > 0) {
+      const preparedTimes = preparedTwinKills.map((entry) => entry.occurredAt.getTime());
+      const twinEvents = await prisma.raidNpcKillEvent.findMany({
+        where: {
+          raidId,
+          npcNameNormalized: {
+            in: [ENRAGED_CORFLUNK_NAME.toLowerCase(), ENRAGED_ZARCHOOMI_NAME.toLowerCase()]
+          },
+          occurredAt: {
+            gte: new Date(Math.min(...preparedTimes) - ENRAGED_TWINS_COMPLETION_WINDOW_MS),
+            lte: new Date(Math.max(...preparedTimes) + ENRAGED_TWINS_COMPLETION_WINDOW_MS)
+          }
         },
-        occurredAt: {
-          gte: new Date(Math.min(...preparedTimes) - ENRAGED_TWINS_COMPLETION_WINDOW_MS),
-          lte: new Date(Math.max(...preparedTimes) + ENRAGED_TWINS_COMPLETION_WINDOW_MS)
+        select: {
+          npcName: true,
+          occurredAt: true,
+          killerName: true,
+          zoneName: true
         }
-      },
-      select: {
-        npcName: true,
-        occurredAt: true,
-        killerName: true,
-        zoneName: true
-      }
-    });
-    const relevantTwinKeys = new Set(preparedTwinKills.map(buildEncounterKillKey));
-    const twinCompletions = findEnragedTwinsCompletions(twinEvents, relevantTwinKeys);
-    for (const completion of twinCompletions) {
-      trackerEntries.push({
-        raidId,
-        guildId,
-        npcName: completion.npcName,
-        npcNameNormalized: completion.npcName.toLowerCase(),
-        killerName: completion.killerName,
-        occurredAt: completion.occurredAt,
-        logSignature: buildSignature(
-          completion.npcName.toLowerCase(),
-          completion.occurredAt,
-          'enraged-twins-completion'
-        ),
-        zoneName: completion.zoneName
       });
+      const relevantTwinKeys = new Set(preparedTwinKills.map(buildEncounterKillKey));
+      const twinCompletions = findEnragedTwinsCompletions(twinEvents, relevantTwinKeys);
+      for (const completion of twinCompletions) {
+        trackerEntries.push({
+          raidId,
+          guildId,
+          npcName: completion.npcName,
+          npcNameNormalized: completion.npcName.toLowerCase(),
+          killerName: completion.killerName,
+          occurredAt: completion.occurredAt,
+          logSignature: buildSignature(
+            completion.npcName.toLowerCase(),
+            completion.occurredAt,
+            'enraged-twins-completion'
+          ),
+          zoneName: completion.zoneName
+        });
+      }
     }
+  } catch (error) {
+    logger?.warn({ error, raidId }, 'Could not reconcile twin tracker credit after raid kills were saved.');
   }
 
   // Record kills in the NPC Respawn Tracker for any tracked NPCs

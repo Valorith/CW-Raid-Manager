@@ -36,6 +36,7 @@ import {
   searchGuildCharactersForSignup
 } from '../services/raidSignupService.js';
 import { prisma } from '../utils/prisma.js';
+import { raidNpcKillAppendSchema, raidNpcKillImportSchema } from '../utils/raidNpcKillPayload.js';
 
 export async function raidsRoutes(server: FastifyInstance): Promise<void> {
   const recurrenceSchema = z
@@ -421,82 +422,37 @@ export async function raidsRoutes(server: FastifyInstance): Promise<void> {
     }
   );
 
-  server.post(
-    '/:raidId/npc-kills',
-    {
-      preHandler: [authenticate]
-    },
-    async (request, reply) => {
-      const paramsSchema = z.object({
-        raidId: z.string()
-      });
-      const { raidId } = paramsSchema.parse(request.params);
+  // The existing POST appends; PUT replaces a complete, validated upload.
+  for (const method of ['POST', 'PUT'] as const) {
+    const replace = method === 'PUT';
+    server.route({
+      method,
+      url: '/:raidId/npc-kills',
+      preHandler: [authenticate],
+      ...(replace ? { bodyLimit: 4 * 1024 * 1024 } : {}),
+      async handler(request, reply) {
+        const { raidId } = z.object({ raidId: z.string() }).parse(request.params);
+        const parsed = (replace ? raidNpcKillImportSchema : raidNpcKillAppendSchema).safeParse(
+          request.body
+        );
+        if (!parsed.success) {
+          return reply.badRequest('Invalid NPC kill payload.');
+        }
+        if (!parsed.data.kills.length) return { inserted: 0 };
 
-      const killsSchema = z.array(
-        z.object({
-          npcName: z.string().min(2).max(191),
-          occurredAt: z.string().datetime({ offset: true }),
-          killerName: z.string().min(1).max(191).optional(),
-          rawLine: z.string().max(500).optional(),
-          zoneName: z.string().max(191).nullable().optional()
-        })
-      );
+        const raid = await prisma.raidEvent.findUnique({
+          where: { id: raidId },
+          select: { guildId: true }
+        });
+        if (!raid) return reply.notFound('Raid event not found.');
+        await ensureCanManageRaid(request.user.userId, raid.guildId);
 
-      const bodySchema = z.object({
-        kills: killsSchema.max(500)
-      });
-
-      const parsed = bodySchema.safeParse(request.body);
-      if (!parsed.success) {
-        return reply.badRequest('Invalid NPC kill payload.');
+        return recordRaidNpcKills(raidId, raid.guildId, parsed.data.kills, request.log, {
+          replace
+        });
       }
-
-      if (parsed.data.kills.length === 0) {
-        return { inserted: 0 };
-      }
-
-      const raid = await prisma.raidEvent.findUnique({
-        where: { id: raidId },
-        select: { guildId: true }
-      });
-      if (!raid) {
-        return reply.notFound('Raid event not found.');
-      }
-
-      await ensureCanManageRaid(request.user.userId, raid.guildId);
-
-      const normalizedKills = parsed.data.kills
-        .map((kill) => {
-          const occurredAt = new Date(kill.occurredAt);
-          if (Number.isNaN(occurredAt.getTime())) {
-            return null;
-          }
-          const npcName = kill.npcName.trim();
-          if (!npcName) {
-            return null;
-          }
-          return {
-            npcName,
-            occurredAt,
-            killerName: kill.killerName?.trim() ?? null,
-            rawLine: kill.rawLine ?? null,
-            zoneName: kill.zoneName?.trim() ?? null
-          };
-        })
-        .filter((kill): kill is NonNullable<typeof kill> => Boolean(kill));
-
-      if (normalizedKills.length === 0) {
-        return { inserted: 0 };
-      }
-
-      const result = await recordRaidNpcKills(raidId, raid.guildId, normalizedKills, request.log);
-      return {
-        inserted: result.inserted,
-        pendingClarifications: result.pendingClarifications,
-        pendingZoneClarifications: result.pendingZoneClarifications
-      };
-    }
-  );
+    });
+  }
 
   server.delete(
     '/:raidId/npc-kills',

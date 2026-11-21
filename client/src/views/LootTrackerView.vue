@@ -412,6 +412,12 @@
       </div>
     </div>
 
+    <p v-if="rejectedNpcKillCount" class="card monitor-card__health-warning" role="alert">
+      {{ rejectedNpcKillCount }} NPC kill
+      {{ rejectedNpcKillCount === 1 ? 'entry was' : 'entries were' }} rejected.
+      Other kills can still sync. Keep the original log for review or re-import.
+    </p>
+
     <section
       v-if="canManageLoot && monitorSession"
       class="card monitor-card"
@@ -1796,11 +1802,23 @@ const monitorHealth = reactive({
 });
 const processedLogKeys = new Set<string>();
 const processedNpcKillKeys = new Set<string>();
+const rejectedNpcKillCount = ref(0);
 const npcKillPersistenceQueue = new ReliableBatchQueue<ParsedNpcKillEvent>({
   buildKey: buildNpcKillKey,
   isProcessed: (key) => processedNpcKillKeys.has(key),
   markProcessed: (key) => processedNpcKillKeys.add(key),
   persist: persistRaidNpcKillEvents,
+  maxBatchSize: 100,
+  isRejectedBatch: (error) =>
+    isAxiosError(error) && [400, 413, 422].includes(error.response?.status ?? 0),
+  onRejected: (kill, error) => {
+    rejectedNpcKillCount.value += 1;
+    appendDebugLog('NPC kill rejected by server; set aside for this session', {
+      error: String(error),
+      npcName: kill.npcName,
+      rawLine: kill.rawLine
+    });
+  },
   onRetry: (error, delayMs, pendingCount) => {
     appendDebugLog('NPC kill persist failed; retry scheduled', {
       error: String(error),
@@ -1809,6 +1827,10 @@ const npcKillPersistenceQueue = new ReliableBatchQueue<ParsedNpcKillEvent>({
     });
   }
 });
+function resetNpcKillPersistence() {
+  npcKillPersistenceQueue.reset();
+  rejectedNpcKillCount.value = 0;
+}
 const processedLootCouncilKeys = new Set<string>();
 let lootCouncilItemSequence = 0;
 const summarySessionState = {
@@ -2042,7 +2064,7 @@ function activateProcessedLogSignature(signature: string | null, reset: boolean)
   if (shouldReload) {
     processedLogKeys.clear();
     processedNpcKillKeys.clear();
-    npcKillPersistenceQueue.reset();
+    resetNpcKillPersistence();
     const stored = loadStoredProcessedKeys(signature);
     for (const key of stored) {
       processedLogKeys.add(key);
@@ -2068,7 +2090,7 @@ function resetProcessedLogState(options?: { clearStorage?: boolean; signature?: 
   }
   processedLogKeys.clear();
   processedNpcKillKeys.clear();
-  npcKillPersistenceQueue.reset();
+  resetNpcKillPersistence();
   resetLootCouncilTracking();
   if (options?.signature !== undefined) {
     activeLogSignature.value = options.signature;
@@ -5862,35 +5884,31 @@ async function persistRaidNpcKillEvents(kills: ParsedNpcKillEvent[]) {
     firstKill: payload[0]
   });
 
-  const chunkSize = 100;
-  const allPendingClarifications: PendingInstanceClarification[] = [];
-  const allPendingZoneClarifications: PendingZoneClarification[] = [];
-  for (let index = 0; index < payload.length; index += chunkSize) {
-    const result = await api.recordRaidNpcKills(raidId, payload.slice(index, index + chunkSize));
-    appendDebugLog('NPC kill persist: API response', {
-      inserted: result.inserted,
-      pendingClarifications: result.pendingClarifications?.length ?? 0,
-      pendingZoneClarifications: result.pendingZoneClarifications?.length ?? 0
-    });
-    if (result.pendingClarifications && result.pendingClarifications.length > 0) {
-      allPendingClarifications.push(...result.pendingClarifications);
-    }
-    if (result.pendingZoneClarifications && result.pendingZoneClarifications.length > 0) {
-      allPendingZoneClarifications.push(...result.pendingZoneClarifications);
-    }
-  }
+  const result = await api.recordRaidNpcKills(raidId, payload);
+  const allPendingClarifications = result.pendingClarifications;
+  const allPendingZoneClarifications = result.pendingZoneClarifications;
+  appendDebugLog('NPC kill persist: API response', {
+    inserted: result.inserted,
+    pendingClarifications: allPendingClarifications.length,
+    pendingZoneClarifications: allPendingZoneClarifications.length
+  });
+  // The queue may persist several batches back to back; merge prompts so a later
+  // batch does not discard clarifications (or selections) from an earlier one.
   if (allPendingClarifications.length > 0) {
-    instanceClarifications.value = allPendingClarifications.map((c) => ({
-      ...c,
-      isInstance: false
-    }));
+    instanceClarifications.value = mergeClarificationsById(
+      instanceClarifications.value,
+      allPendingClarifications.map((c) => ({ ...c, isInstance: false }))
+    );
   }
   // Show zone clarification modal first if needed, then instance clarification
   if (allPendingZoneClarifications.length > 0) {
-    zoneClarifications.value = allPendingZoneClarifications.map((c) => ({
-      ...c,
-      selectedNpcDefinitionId: c.zoneOptions[0]?.npcDefinitionId ?? ''
-    }));
+    zoneClarifications.value = mergeClarificationsById(
+      zoneClarifications.value,
+      allPendingZoneClarifications.map((c) => ({
+        ...c,
+        selectedNpcDefinitionId: c.zoneOptions[0]?.npcDefinitionId ?? ''
+      }))
+    );
     showZoneClarificationModal.value = true;
     appendDebugLog('Showing zone clarification modal', {
       count: allPendingZoneClarifications.length
@@ -5901,6 +5919,11 @@ async function persistRaidNpcKillEvents(kills: ParsedNpcKillEvent[]) {
       count: instanceClarifications.value.length
     });
   }
+}
+
+function mergeClarificationsById<T extends { id: string }>(existing: T[], incoming: T[]) {
+  const knownIds = new Set(existing.map((entry) => entry.id));
+  return [...existing, ...incoming.filter((entry) => !knownIds.has(entry.id))];
 }
 
 // Instance clarification modal functions
@@ -6226,7 +6249,7 @@ function processLogContent(
   if (options.resetKeys) {
     processedLogKeys.clear();
     processedNpcKillKeys.clear();
-    npcKillPersistenceQueue.reset();
+    resetNpcKillPersistence();
     resetLootCouncilTracking();
     parsedLootPage.value = 1;
   }
