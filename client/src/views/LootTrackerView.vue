@@ -1811,8 +1811,13 @@ const npcKillPersistenceQueue = new ReliableBatchQueue<ParsedNpcKillEvent>({
   maxBatchSize: 100,
   isRejectedBatch: (error) =>
     isAxiosError(error) && [400, 413, 422].includes(error.response?.status ?? 0),
-  onRejected: () => {
+  onRejected: (kill, error) => {
     rejectedNpcKillCount.value += 1;
+    appendDebugLog('NPC kill rejected by server; set aside for this session', {
+      error: String(error),
+      npcName: kill.npcName,
+      rawLine: kill.rawLine
+    });
   },
   onRetry: (error, delayMs, pendingCount) => {
     appendDebugLog('NPC kill persist failed; retry scheduled', {
@@ -1822,6 +1827,10 @@ const npcKillPersistenceQueue = new ReliableBatchQueue<ParsedNpcKillEvent>({
     });
   }
 });
+function resetNpcKillPersistence() {
+  npcKillPersistenceQueue.reset();
+  rejectedNpcKillCount.value = 0;
+}
 const processedLootCouncilKeys = new Set<string>();
 let lootCouncilItemSequence = 0;
 const summarySessionState = {
@@ -2055,7 +2064,7 @@ function activateProcessedLogSignature(signature: string | null, reset: boolean)
   if (shouldReload) {
     processedLogKeys.clear();
     processedNpcKillKeys.clear();
-    npcKillPersistenceQueue.reset();
+    resetNpcKillPersistence();
     const stored = loadStoredProcessedKeys(signature);
     for (const key of stored) {
       processedLogKeys.add(key);
@@ -2081,7 +2090,7 @@ function resetProcessedLogState(options?: { clearStorage?: boolean; signature?: 
   }
   processedLogKeys.clear();
   processedNpcKillKeys.clear();
-  npcKillPersistenceQueue.reset();
+  resetNpcKillPersistence();
   resetLootCouncilTracking();
   if (options?.signature !== undefined) {
     activeLogSignature.value = options.signature;
@@ -6230,7 +6239,7 @@ function processLogContent(
   if (options.resetKeys) {
     processedLogKeys.clear();
     processedNpcKillKeys.clear();
-    npcKillPersistenceQueue.reset();
+    resetNpcKillPersistence();
     resetLootCouncilTracking();
     parsedLootPage.value = 1;
   }

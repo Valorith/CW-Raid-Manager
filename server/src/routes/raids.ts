@@ -425,13 +425,13 @@ export async function raidsRoutes(server: FastifyInstance): Promise<void> {
   // The existing POST appends; PUT replaces a complete, validated upload.
   for (const method of ['POST', 'PUT'] as const) {
     const replace = method === 'PUT';
-    server.route<{ Params: { raidId: string } }>({
+    server.route({
       method,
       url: '/:raidId/npc-kills',
       preHandler: [authenticate],
       ...(replace ? { bodyLimit: 4 * 1024 * 1024 } : {}),
       async handler(request, reply) {
-        const { raidId } = request.params;
+        const { raidId } = z.object({ raidId: z.string() }).parse(request.params);
         const parsed = (replace ? raidNpcKillImportSchema : raidNpcKillAppendSchema).safeParse(
           request.body
         );
@@ -447,7 +447,9 @@ export async function raidsRoutes(server: FastifyInstance): Promise<void> {
         if (!raid) return reply.notFound('Raid event not found.');
         await ensureCanManageRaid(request.user.userId, raid.guildId);
 
-        return recordRaidNpcKills(raidId, raid.guildId, parsed.data.kills, request.log, { replace });
+        return recordRaidNpcKills(raidId, raid.guildId, parsed.data.kills, request.log, {
+          replace
+        });
       }
     });
   }

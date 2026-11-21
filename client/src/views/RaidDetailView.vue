@@ -4921,7 +4921,9 @@ async function uploadKillLogFile(file: File) {
         showInstanceClarificationModal.value = true;
       }
     } else {
-      window.alert('No kills found within the raid window.');
+      window.alert(
+        'No kills found within the raid window. Existing kill history was left unchanged.'
+      );
     }
   } catch (error) {
     console.error('Failed to upload kill log', error);
