@@ -5922,12 +5922,45 @@ async function persistRaidNpcKillEvents(kills: ParsedNpcKillEvent[]) {
     pendingZoneClarifications: allPendingZoneClarifications.length
   });
   // The queue may persist several batches back to back; merge prompts so a later
-  // batch does not discard clarifications (or selections) from an earlier one.
-  if (allPendingClarifications.length > 0) {
-    instanceClarifications.value = mergeClarificationsById(
+  // batch does not discard clarifications (or selections) from an earlier one. Prompts the
+  // server replaced (a death line superseded their loot-inferred kill) give way to the new
+  // prompt for the same kill, keeping the selection already made.
+  const replacedIds = new Set(result.replacedClarificationIds);
+  if (allPendingClarifications.length > 0 || replacedIds.size > 0) {
+    const instance = carryOverReplacedClarifications(
       instanceClarifications.value,
-      allPendingClarifications.map((c) => ({ ...c, isInstance: false }))
+      allPendingClarifications.map((c) => ({ ...c, isInstance: false })),
+      replacedIds,
+      (previous, next) => previous.npcDefinitionId === next.npcDefinitionId,
+      (previous, next) => ({ ...next, isInstance: previous.isInstance })
     );
+    instanceClarifications.value = mergeClarificationsById(instance.kept, instance.incoming);
+  }
+  if (allPendingZoneClarifications.length > 0 || replacedIds.size > 0) {
+    const zone = carryOverReplacedClarifications(
+      zoneClarifications.value,
+      allPendingZoneClarifications.map((c) => ({
+        ...c,
+        selectedNpcDefinitionId: c.zoneOptions[0]?.npcDefinitionId ?? ''
+      })),
+      replacedIds,
+      (previous, next) => previous.npcName.toLowerCase() === next.npcName.toLowerCase(),
+      (previous, next) => ({
+        ...next,
+        selectedNpcDefinitionId: next.zoneOptions.some(
+          (option) => option.npcDefinitionId === previous.selectedNpcDefinitionId
+        )
+          ? previous.selectedNpcDefinitionId
+          : next.selectedNpcDefinitionId
+      })
+    );
+    zoneClarifications.value = mergeClarificationsById(zone.kept, zone.incoming);
+  }
+  if (zoneClarifications.value.length === 0) {
+    showZoneClarificationModal.value = false;
+  }
+  if (instanceClarifications.value.length === 0) {
+    showInstanceClarificationModal.value = false;
   }
   // Show zone clarification modal first if needed, then instance clarification
   if (allPendingZoneClarifications.length > 0) {
@@ -5948,6 +5981,39 @@ async function persistRaidNpcKillEvents(kills: ParsedNpcKillEvent[]) {
       count: instanceClarifications.value.length
     });
   }
+}
+
+function carryOverReplacedClarifications<T extends { id: string; killedAt: string }>(
+  existing: T[],
+  incoming: T[],
+  replacedIds: ReadonlySet<string>,
+  isSameNpc: (previous: T, next: T) => boolean,
+  carry: (previous: T, next: T) => T
+) {
+  const carried = [...incoming];
+  const used = new Set<number>();
+  for (const previous of existing.filter((entry) => replacedIds.has(entry.id))) {
+    const previousMs = Date.parse(previous.killedAt);
+    let bestIndex = -1;
+    carried.forEach((next, index) => {
+      if (used.has(index) || !isSameNpc(previous, next)) {
+        return;
+      }
+      const best = carried[bestIndex];
+      if (
+        !best ||
+        Math.abs(Date.parse(next.killedAt) - previousMs) <
+          Math.abs(Date.parse(best.killedAt) - previousMs)
+      ) {
+        bestIndex = index;
+      }
+    });
+    if (bestIndex >= 0) {
+      used.add(bestIndex);
+      carried[bestIndex] = carry(previous, carried[bestIndex]!);
+    }
+  }
+  return { kept: existing.filter((entry) => !replacedIds.has(entry.id)), incoming: carried };
 }
 
 function mergeClarificationsById<T extends { id: string }>(existing: T[], incoming: T[]) {
@@ -6017,10 +6083,19 @@ async function submitZoneClarifications() {
   try {
     for (const clarification of zoneClarifications.value) {
       if (!clarification.selectedNpcDefinitionId) continue;
-      await api.resolvePendingNpcKillClarification(raid.value.guildId, clarification.id, {
-        npcDefinitionId: clarification.selectedNpcDefinitionId,
-        isInstance: false
-      });
+      try {
+        await api.resolvePendingNpcKillClarification(raid.value.guildId, clarification.id, {
+          npcDefinitionId: clarification.selectedNpcDefinitionId,
+          isInstance: false
+        });
+      } catch (error) {
+        // A death line that arrived after a loot-inferred kill replaces that kill's prompt.
+        if (isAxiosError(error) && error.response?.status === 404) {
+          appendDebugLog('Skipped a zone clarification that was replaced', { id: clarification.id });
+          continue;
+        }
+        throw error;
+      }
     }
     appendDebugLog('Zone clarifications submitted', { count: zoneClarifications.value.length });
     closeZoneClarificationModal();

@@ -206,7 +206,7 @@ async function removeSupersededInferredKills(
   guildId: string,
   superseded: Array<KillMoment & { id: string }>,
   logger?: FastifyBaseLogger
-) {
+): Promise<string[]> {
   await prisma.raidNpcKillEvent.deleteMany({
     where: { raidId, id: { in: superseded.map((row) => row.id) } }
   });
@@ -233,8 +233,10 @@ async function removeSupersededInferredKills(
         where: { id: { in: replacedPromptIds } }
       });
     }
+    return replacedPromptIds;
   } catch (error) {
     logger?.warn({ error, raidId }, 'Could not clear prompts for replaced loot-inferred kills.');
+    return [];
   }
 }
 
@@ -305,9 +307,11 @@ export async function recordRaidNpcKills(
   // Never report success for a failed write; queue retries are deduplicated
   // by the database's (raidId, logSignature) unique key.
   const inserted = await persistRaidNpcKillBatch(prisma, { raidId, guildId }, prepared, replace);
-  if (superseded.length > 0) {
-    await removeSupersededInferredKills(raidId, guildId, superseded, logger);
-  }
+  // Prompt ids the client should drop: their kill was replaced by a death line in this batch.
+  const replacedClarificationIds =
+    superseded.length > 0
+      ? await removeSupersededInferredKills(raidId, guildId, superseded, logger)
+      : [];
 
   // Some encounters need more evidence than a standalone NPC death. Classic Braag's normal
   // death line is an intermediate morph, while Enraged Twins only completes when both named
@@ -536,7 +540,7 @@ export async function recordRaidNpcKills(
     }
   }
 
-  return { inserted, pendingClarifications, pendingZoneClarifications };
+  return { inserted, pendingClarifications, pendingZoneClarifications, replacedClarificationIds };
 }
 
 export async function recordTrackedNpcKillInRecentRaid(
