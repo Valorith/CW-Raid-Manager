@@ -1,8 +1,21 @@
 import { createHash } from 'crypto';
 
+import type { NpcDefinition, Prisma } from '@prisma/client';
 import type { FastifyBaseLogger } from 'fastify';
 
 import { recordKillForTrackedNpc, type ZoneOption } from './npcRespawnService.js';
+import {
+  INFERRED_KILL_DUPLICATE_WINDOW_MS,
+  INFERRED_KILL_SIGNATURE_SOURCE,
+  type KillMoment,
+  findInferredKillsSupersededByDeaths,
+  resolveInferredKillZone,
+  selectInferredKillsToKeep
+} from '../utils/inferredNpcKills.js';
+import {
+  findBestTrackedNpcNameMatches,
+  npcNamesReferToSameNpc
+} from '../utils/npcNameMatching.js';
 import { prisma } from '../utils/prisma.js';
 import {
   buildEncounterKillKey,
@@ -42,6 +55,14 @@ export type NpcKillInput = {
   killerName?: string | null;
   rawLine?: string | null;
   zoneName?: string | null;
+  // No death line was logged; the client inferred the kill from the corpse's loot listing.
+  inferred?: boolean | null;
+};
+
+type PreparedRaidNpcKill = Prisma.RaidNpcKillEventCreateManyInput & {
+  npcName: string;
+  occurredAt: Date;
+  logSignature: string;
 };
 
 function normalizeNpcName(name: string) {
@@ -115,6 +136,110 @@ async function findRaidForNpcKill(guildId: string, killedAt: Date) {
   );
 }
 
+// Decides which loot-inferred kills to keep and which stored inferred kills the incoming death
+// lines replace. In replacement mode the stored kills are about to be replaced, so only the
+// incoming batch is compared.
+async function reconcileInferredKills<T extends { inferred: boolean; row: PreparedRaidNpcKill }>(
+  raidId: string,
+  entries: T[],
+  definitions: NpcDefinition[],
+  replace: boolean
+) {
+  // Inferred kills are stored only for tracked NPCs, so only those deaths can replace one.
+  const trackedDeaths = entries
+    .filter(
+      (entry) =>
+        !entry.inferred &&
+        findBestTrackedNpcNameMatches(entry.row.npcName, definitions, { allowOmittedTitle: true })
+          .length > 0
+    )
+    .map((entry) => entry.row);
+  const relevantTimes = entries
+    .filter((entry) => entry.inferred)
+    .map((entry) => entry.row)
+    .concat(trackedDeaths)
+    .map((row) => row.occurredAt.getTime());
+  if (replace || relevantTimes.length === 0) {
+    return {
+      accepted: selectInferredKillsToKeep(entries, [], definitions),
+      superseded: [] as Array<KillMoment & { id: string }>
+    };
+  }
+
+  const existing = await prisma.raidNpcKillEvent.findMany({
+    where: {
+      raidId,
+      occurredAt: {
+        gte: new Date(Math.min(...relevantTimes) - INFERRED_KILL_DUPLICATE_WINDOW_MS),
+        lte: new Date(Math.max(...relevantTimes) + INFERRED_KILL_DUPLICATE_WINDOW_MS)
+      }
+    },
+    select: {
+      id: true,
+      npcName: true,
+      npcNameNormalized: true,
+      occurredAt: true,
+      logSignature: true
+    }
+  });
+  const storedInferred = existing.filter(
+    (row) =>
+      row.logSignature ===
+      buildSignature(row.npcNameNormalized, row.occurredAt, INFERRED_KILL_SIGNATURE_SOURCE)
+  );
+  const superseded = findInferredKillsSupersededByDeaths(storedInferred, trackedDeaths);
+  const supersededIds = new Set(superseded.map((row) => row.id));
+  return {
+    accepted: selectInferredKillsToKeep(
+      entries,
+      existing.filter((row) => !supersededIds.has(row.id)),
+      definitions
+    ),
+    superseded
+  };
+}
+
+// The death lines just stored replace these approximate loot-inferred kills, including any
+// instance/zone prompt still waiting on them; the death opens its own prompt if one is needed.
+async function removeSupersededInferredKills(
+  raidId: string,
+  guildId: string,
+  superseded: Array<KillMoment & { id: string }>,
+  logger?: FastifyBaseLogger
+): Promise<string[]> {
+  await prisma.raidNpcKillEvent.deleteMany({
+    where: { raidId, id: { in: superseded.map((row) => row.id) } }
+  });
+  try {
+    const prompts = await prisma.pendingNpcKillClarification.findMany({
+      where: {
+        guildId,
+        resolvedAt: null,
+        killedAt: { in: superseded.map((row) => row.occurredAt) }
+      },
+      select: { id: true, npcName: true, killedAt: true }
+    });
+    const replacedPromptIds = prompts
+      .filter((prompt) =>
+        superseded.some(
+          (row) =>
+            row.occurredAt.getTime() === prompt.killedAt.getTime() &&
+            npcNamesReferToSameNpc(row.npcName, prompt.npcName)
+        )
+      )
+      .map((prompt) => prompt.id);
+    if (replacedPromptIds.length > 0) {
+      await prisma.pendingNpcKillClarification.deleteMany({
+        where: { id: { in: replacedPromptIds } }
+      });
+    }
+    return replacedPromptIds;
+  } catch (error) {
+    logger?.warn({ error, raidId }, 'Could not clear prompts for replaced loot-inferred kills.');
+    return [];
+  }
+}
+
 export async function recordRaidNpcKills(
   raidId: string,
   guildId: string,
@@ -126,7 +251,7 @@ export async function recordRaidNpcKills(
     return { inserted: 0 };
   }
 
-  const prepared = kills
+  const preparedCandidates = kills
     .map((entry) => {
       const normalizedName = normalizeNpcName(entry.npcName ?? '');
       if (!normalizedName) {
@@ -136,19 +261,44 @@ export async function recordRaidNpcKills(
         return null;
       }
       const npcNameNormalized = normalizedName.toLowerCase();
-      const signature = buildSignature(npcNameNormalized, entry.occurredAt, entry.rawLine);
-      return {
-        raidId,
-        guildId,
-        npcName: normalizedName,
+      const inferred = entry.inferred === true;
+      const signature = buildSignature(
         npcNameNormalized,
-        killerName: normalizeKillerName(entry.killerName),
-        occurredAt: entry.occurredAt,
-        logSignature: signature,
-        zoneName: entry.zoneName?.trim() || null
+        entry.occurredAt,
+        inferred ? INFERRED_KILL_SIGNATURE_SOURCE : entry.rawLine
+      );
+      const zoneName = entry.zoneName?.trim() || null;
+      return {
+        inferred,
+        row: {
+          raidId,
+          guildId,
+          npcName: normalizedName,
+          npcNameNormalized,
+          killerName: normalizeKillerName(entry.killerName),
+          occurredAt: entry.occurredAt,
+          logSignature: signature,
+          zoneName: inferred ? resolveInferredKillZone(entry.rawLine, zoneName) : zoneName
+        }
       };
     })
     .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+
+  if (preparedCandidates.length === 0) {
+    return { inserted: 0 };
+  }
+
+  const definitions = await prisma.npcDefinition.findMany({ where: { guildId } });
+  const { accepted: acceptedCandidates, superseded } = await reconcileInferredKills(
+    raidId,
+    preparedCandidates,
+    definitions,
+    replace
+  );
+  const prepared = acceptedCandidates.map((entry) => entry.row);
+  const inferredSignatures = new Set(
+    acceptedCandidates.filter((entry) => entry.inferred).map((entry) => entry.row.logSignature)
+  );
 
   if (prepared.length === 0) {
     return { inserted: 0 };
@@ -157,6 +307,11 @@ export async function recordRaidNpcKills(
   // Never report success for a failed write; queue retries are deduplicated
   // by the database's (raidId, logSignature) unique key.
   const inserted = await persistRaidNpcKillBatch(prisma, { raidId, guildId }, prepared, replace);
+  // Prompt ids the client should drop: their kill was replaced by a death line in this batch.
+  const replacedClarificationIds =
+    superseded.length > 0
+      ? await removeSupersededInferredKills(raidId, guildId, superseded, logger)
+      : [];
 
   // Some encounters need more evidence than a standalone NPC death. Classic Braag's normal
   // death line is an intermediate morph, while Enraged Twins only completes when both named
@@ -231,13 +386,23 @@ export async function recordRaidNpcKills(
           },
           'Attempting to record kill in respawn tracker'
         );
-        const result = await recordKillForTrackedNpc(guildId, {
-          npcName: entry.npcName,
-          npcNameNormalized: entry.npcNameNormalized,
-          killedAt: entry.occurredAt,
-          killedByName: entry.killerName,
-          zoneName: entry.zoneName
-        });
+        const result = await recordKillForTrackedNpc(
+          guildId,
+          {
+            npcName: entry.npcName,
+            npcNameNormalized: entry.npcNameNormalized,
+            killedAt: entry.occurredAt,
+            killedByName: entry.killerName,
+            zoneName: entry.zoneName
+          },
+          {
+            definitions,
+            inferredFromLoot: inferredSignatures.has(entry.logSignature),
+            replacesInferredKillsAt: findInferredKillsSupersededByDeaths(superseded, [entry]).map(
+              (row) => row.occurredAt
+            )
+          }
+        );
         logger?.info?.(
           {
             npcName: entry.npcName,
@@ -375,7 +540,7 @@ export async function recordRaidNpcKills(
     }
   }
 
-  return { inserted, pendingClarifications, pendingZoneClarifications };
+  return { inserted, pendingClarifications, pendingZoneClarifications, replacedClarificationIds };
 }
 
 export async function recordTrackedNpcKillInRecentRaid(

@@ -4917,15 +4917,23 @@ export const api = {
       killerName?: string | null;
       rawLine?: string | null;
       zoneName?: string | null;
+      inferred?: boolean;
     }>,
     { replace = false }: { replace?: boolean } = {}
   ): Promise<{
     inserted: number;
     pendingClarifications: PendingInstanceClarification[];
     pendingZoneClarifications: PendingZoneClarification[];
+    // Prompts the server removed because a death line replaced their loot-inferred kill.
+    replacedClarificationIds: string[];
   }> {
     if (!Array.isArray(kills) || kills.length === 0) {
-      return { inserted: 0, pendingClarifications: [], pendingZoneClarifications: [] };
+      return {
+        inserted: 0,
+        pendingClarifications: [],
+        pendingZoneClarifications: [],
+        replacedClarificationIds: []
+      };
     }
     const response = await axios.request({
       method: replace ? 'put' : 'post',
@@ -4935,7 +4943,8 @@ export const api = {
     return {
       inserted: response.data.inserted ?? 0,
       pendingClarifications: response.data.pendingClarifications ?? [],
-      pendingZoneClarifications: response.data.pendingZoneClarifications ?? []
+      pendingZoneClarifications: response.data.pendingZoneClarifications ?? [],
+      replacedClarificationIds: response.data.replacedClarificationIds ?? []
     };
   },
 

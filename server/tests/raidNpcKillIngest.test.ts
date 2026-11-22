@@ -5,6 +5,11 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 
 import { parseNpcKills } from '../../client/src/services/npcKillParser.js';
 import {
+  findInferredKillsSupersededByDeaths,
+  resolveInferredKillZone,
+  selectInferredKillsToKeep
+} from '../src/utils/inferredNpcKills.js';
+import {
   raidNpcKillAppendSchema,
   raidNpcKillImportSchema
 } from '../src/utils/raidNpcKillPayload.js';
@@ -130,4 +135,112 @@ test('replacement is scoped and deduplicated; subsequent append keeps both histo
   const appended = row('appended');
   assert.equal(await persistRaidNpcKillBatch(app.db, scope, [replacement, appended], false), 1);
   assert.deepEqual(app.rows(), [anotherRaid, replacement, appended]);
+});
+
+const trackedDefinitions = [
+  { npcName: "Grand Magus D'Nor" },
+  { npcName: 'Prince Thirneg the Petulant' },
+  { npcName: 'All Seeing Eye' }
+];
+
+const killAt = (npcName: string, isoTime: string, logSignature: string) => ({
+  npcName,
+  occurredAt: new Date(isoTime),
+  logSignature
+});
+
+test('sends loot-inferred kills from the parser with the inferred flag accepted by the API', () => {
+  const logs = [
+    '[Sun Aug 30 22:42:10 2026] You have entered Lake of Ill Omen.',
+    '[Sun Aug 30 23:02:39 2026] Grand Magus D`Nor begins to cast a spell.',
+    '[Sun Aug 30 23:03:36 2026] 1) [lakeofillomen] Gauntlets of Spite\t | Status: Pending\t | NPC: Grand Magus D`Nor '
+  ].join('\n');
+  const [kill] = parseNpcKills(logs, new Date(2026, 7, 30, 22, 0));
+  assert.equal(kill?.inferredFromLoot, true);
+
+  const parsed = raidNpcKillAppendSchema.parse({
+    kills: [
+      {
+        npcName: kill?.npcName,
+        occurredAt: kill?.timestamp?.toISOString(),
+        killerName: kill?.killerName ?? null,
+        rawLine: kill?.rawLine,
+        zoneName: kill?.zoneName ?? null,
+        inferred: true
+      }
+    ]
+  });
+  assert.equal(parsed.kills[0]?.inferred, true);
+});
+
+test('keeps loot-inferred kills only for tracked NPCs without a nearby known kill', () => {
+  const entries = [
+    { inferred: false, row: killAt('a goblin', '2026-08-31T03:00:00Z', 'goblin') },
+    { inferred: true, row: killAt('a giant chest', '2026-08-31T03:01:00Z', 'chest') },
+    { inferred: true, row: killAt('Grand Magus D`Nor', '2026-08-31T03:03:36Z', 'dnor-loot') },
+    { inferred: true, row: killAt('AllSeeing Eye', '2026-08-31T04:00:00Z', 'eye-loot') }
+  ];
+
+  assert.deepEqual(
+    selectInferredKillsToKeep(entries, [], trackedDefinitions).map((entry) => entry.row.logSignature),
+    ['goblin', 'dnor-loot', 'eye-loot']
+  );
+});
+
+test('drops a loot-inferred kill when the same NPC already has a kill near that time', () => {
+  const inferred = {
+    inferred: true,
+    row: killAt('Prince Thirneg', '2025-12-30T02:33:14Z', 'thirneg-loot')
+  };
+  const loggedDeath = killAt('Prince Thirneg the Petulant', '2025-12-30T02:12:40Z', 'thirneg-death');
+
+  assert.deepEqual(selectInferredKillsToKeep([inferred], [loggedDeath], trackedDefinitions), []);
+  // A retry of the same inferred kill is still processed so tracker recording stays idempotent.
+  assert.deepEqual(
+    selectInferredKillsToKeep([inferred], [inferred.row], trackedDefinitions),
+    [inferred]
+  );
+  // A kill of the same NPC outside the window does not suppress the inference.
+  assert.deepEqual(
+    selectInferredKillsToKeep(
+      [inferred],
+      [killAt('Prince Thirneg the Petulant', '2025-12-30T01:30:00Z', 'earlier')],
+      trackedDefinitions
+    ),
+    [inferred]
+  );
+  // Within one batch, a logged death wins over the inference whichever comes first.
+  for (const batch of [
+    [{ inferred: false, row: loggedDeath }, inferred],
+    [inferred, { inferred: false, row: { ...loggedDeath, occurredAt: new Date('2025-12-30T02:45:00Z') } }]
+  ]) {
+    assert.deepEqual(
+      selectInferredKillsToKeep(batch, [], trackedDefinitions).map((entry) => entry.row.logSignature),
+      ['thirneg-death']
+    );
+  }
+});
+
+test('replaces a stored loot-inferred kill when the death line for that kill arrives later', () => {
+  const storedInferred = [
+    { id: 'venril-loot', ...killAt('Venril Sathir', '2026-02-10T03:36:54Z', 'venril-loot') },
+    { id: 'other', ...killAt('Lord Vyemm', '2026-02-10T03:30:00Z', 'vyemm-loot') },
+    { id: 'old', ...killAt('Venril Sathir', '2026-02-09T23:00:00Z', 'old-loot') }
+  ];
+  const deaths = [killAt('Venril Sathir', '2026-02-10T03:48:10Z', 'venril-death')];
+
+  assert.deepEqual(
+    findInferredKillsSupersededByDeaths(storedInferred, deaths).map((row) => row.id),
+    ['venril-loot']
+  );
+});
+
+test('uses the drop zone named by the loot listing for an inferred kill', () => {
+  const rawLine =
+    "[Sun Aug 30 23:03:36 2026] 1) [lakeofillomen] Herald's Sleeves	 | Status: Pending	 | NPC: Grand Magus D`Nor ";
+  assert.equal(resolveInferredKillZone(rawLine, 'The Dreadlands'), 'Lake of Ill Omen');
+  assert.equal(
+    resolveInferredKillZone('[Sun Aug 30 23:03:36 2026] 1) [unknownzone] Item | Status: Pending | NPC: X', 'Kerra Isle'),
+    'Kerra Isle'
+  );
 });

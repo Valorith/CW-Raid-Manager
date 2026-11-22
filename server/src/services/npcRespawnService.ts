@@ -1,14 +1,14 @@
-import { Prisma } from '@prisma/client';
+import { Prisma, type NpcDefinition } from '@prisma/client';
 import type { RowDataPacket } from 'mysql2/promise';
 
 import { emitDiscordWebhookEvent } from './discordWebhookService.js';
 import { resetRespawnNotification } from './npcRespawnNotificationService.js';
 import { isEqDbConfigured, queryEqDb } from '../utils/eqDb.js';
 import {
-  buildTrackedNpcLookupCandidates,
-  buildTrackedNpcLookupPrefix,
-  getTrackedNpcNameMatchRank
-} from '../utils/npcNameMatching.js';
+  INFERRED_KILL_DUPLICATE_WINDOW_MS,
+  INFERRED_KILL_NOTE
+} from '../utils/inferredNpcKills.js';
+import { findBestTrackedNpcNameMatches } from '../utils/npcNameMatching.js';
 import { findUniqueBestTrackedNpcZoneMatch } from '../utils/npcZoneMatching.js';
 import { prisma } from '../utils/prisma.js';
 
@@ -657,32 +657,31 @@ export async function recordKillForTrackedNpc(
     // When true, auto-record kills as overworld even if NPC has hasInstanceVersion=true
     // This is useful for continuous monitoring where we don't want to interrupt with clarification dialogs
     autoRecordAsOverworld?: boolean;
+    // The guild's definitions, when the caller already loaded them for a batch of kills.
+    definitions?: NpcDefinition[];
+    // The kill was inferred from loot because no death line was logged. Its time is only
+    // approximate, so a nearby existing record (including a manual entry) counts as this kill.
+    inferredFromLoot?: boolean;
+    // Times of stored loot-inferred kills this death replaces. A tracker record created from one
+    // of them (including through a resolved instance prompt) is corrected instead of duplicated.
+    replacesInferredKillsAt?: Date[];
   }
 ): Promise<RecordKillResult> {
-  // Find all plausible definitions, then keep only the strongest name match. EQ log names can
-  // differ from configured names by apostrophe style, a leading "The", or a log-only title.
-  const lookupCandidates = buildTrackedNpcLookupCandidates(input.npcNameNormalized);
-  const lookupPrefix = buildTrackedNpcLookupPrefix(input.npcNameNormalized);
-  const lookupDefinitions = await prisma.npcDefinition.findMany({
-    where: {
-      guildId,
-      OR: [
-        { npcNameNormalized: { in: lookupCandidates } },
-        ...(lookupPrefix ? [{ npcNameNormalized: { startsWith: lookupPrefix } }] : [])
-      ]
-    }
+  // Name variants such as a missing title or hyphenation cannot be expressed as a database
+  // filter, so rank the guild's (small) definition list in memory.
+  const guildDefinitions =
+    options?.definitions ?? (await prisma.npcDefinition.findMany({ where: { guildId } }));
+  const definitions = findBestTrackedNpcNameMatches(input.npcName, guildDefinitions, {
+    allowOmittedTitle: options?.inferredFromLoot
   });
-  const rankedDefinitions = lookupDefinitions.flatMap((definition) => {
-    const rank = getTrackedNpcNameMatchRank(input.npcName, definition.npcName);
-    return rank === null ? [] : [{ definition, rank }];
-  });
-  const bestRank = rankedDefinitions.reduce(
-    (best, candidate) => Math.min(best, candidate.rank),
-    Number.POSITIVE_INFINITY
-  );
-  const definitions = rankedDefinitions
-    .filter((candidate) => candidate.rank === bestRank)
-    .map((candidate) => candidate.definition);
+  const nearbyKillTime = {
+    gte: new Date(input.killedAt.getTime() - INFERRED_KILL_DUPLICATE_WINDOW_MS),
+    lte: new Date(input.killedAt.getTime() + INFERRED_KILL_DUPLICATE_WINDOW_MS)
+  };
+  const existingKillTime = options?.inferredFromLoot ? nearbyKillTime : input.killedAt;
+  const autoRecordedNote = options?.inferredFromLoot
+    ? INFERRED_KILL_NOTE
+    : 'Auto-recorded from raid log';
 
   console.log('[recordKillForTrackedNpc] Lookup result:', {
     guildId,
@@ -741,6 +740,47 @@ export async function recordKillForTrackedNpc(
     }
   }
 
+  // A death line arriving after a loot-inferred record of the same kill corrects that record
+  // (exact time and killer) instead of adding a second kill, prompt or webhook.
+  if (!options?.inferredFromLoot) {
+    const inferredRecord = await prisma.npcKillRecord.findFirst({
+      where: {
+        guildId,
+        npcDefinitionId: definition.id,
+        AND: [
+          { killedAt: nearbyKillTime },
+          {
+            OR: [
+              { notes: { startsWith: INFERRED_KILL_NOTE } },
+              ...(options?.replacesInferredKillsAt?.length
+                ? [{ killedAt: { in: options.replacesInferredKillsAt } }]
+                : [])
+            ]
+          }
+        ]
+      },
+      orderBy: { killedAt: 'desc' }
+    });
+    if (inferredRecord) {
+      const wasAutoRecorded = inferredRecord.notes?.startsWith(INFERRED_KILL_NOTE) ?? false;
+      await prisma.npcKillRecord.update({
+        where: { id: inferredRecord.id },
+        data: {
+          killedAt: input.killedAt,
+          killedByName: input.killedByName?.trim() || null,
+          ...(wasAutoRecorded
+            ? {
+                notes: inferredRecord.notes?.endsWith('(overworld)')
+                  ? 'Auto-recorded from raid log (overworld)'
+                  : 'Auto-recorded from raid log'
+              }
+            : {})
+        }
+      });
+      return { recorded: true, needsInstanceClarification: false };
+    }
+  }
+
   // If NPC has instance version tracking, behavior depends on options
   console.log('[recordKillForTrackedNpc] Checking instance version:', {
     npcName: definition.npcName,
@@ -754,7 +794,7 @@ export async function recordKillForTrackedNpc(
       where: {
         guildId,
         npcDefinitionId: definition.id,
-        killedAt: input.killedAt
+        killedAt: existingKillTime
       }
     });
 
@@ -780,7 +820,7 @@ export async function recordKillForTrackedNpc(
           killedAt: input.killedAt,
           killedByName: input.killedByName?.trim() || null,
           killedById: null,
-          notes: 'Auto-recorded from raid log (overworld)',
+          notes: `${autoRecordedNote} (overworld)`,
           isInstance: false
         }
       });
@@ -825,7 +865,7 @@ export async function recordKillForTrackedNpc(
     where: {
       guildId,
       npcDefinitionId: definition.id,
-      killedAt: input.killedAt
+      killedAt: existingKillTime
     }
   });
 
@@ -842,7 +882,7 @@ export async function recordKillForTrackedNpc(
       killedAt: input.killedAt,
       killedByName: input.killedByName?.trim() || null,
       killedById: null,
-      notes: 'Auto-recorded from raid log',
+      notes: autoRecordedNote,
       isInstance: false
     }
   });

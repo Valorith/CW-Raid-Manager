@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  createNpcKillParserState,
   extractLastIdentifyingZoneFromLog,
   parseNpcKillEvents,
   parseNpcKills
@@ -359,5 +360,268 @@ test('replays both actual Enraged Twins completions from the August 24 raid', ()
         timestamp: '2026-08-25T02:15:47.000Z'
       }
     ]
+  );
+});
+
+const summarizeKill = (kill: ReturnType<typeof parseNpcKillEvents>[number]) => ({
+  npcName: kill.npcName,
+  killerName: kill.killerName,
+  zoneName: kill.zoneName,
+  inferredFromLoot: Boolean(kill.inferredFromLoot),
+  timestamp: kill.timestamp?.toISOString()
+});
+
+test('infers the August 30 D`Nor kill that died outside death-message range', () => {
+  const content = [
+    '[Sun Aug 30 22:42:10 2026] You have entered Lake of Ill Omen.',
+    '[Sun Aug 30 23:02:39 2026] Grand Magus D`Nor begins to cast a spell.',
+    '[Sun Aug 30 23:02:39 2026] Your target is too far away, get closer!',
+    '[Sun Aug 30 23:02:44 2026] You have gained (37931) raid experience! (0.071%)',
+    '[Sun Aug 30 23:03:36 2026] [-----------Pending Raid Loot-----------]',
+    "[Sun Aug 30 23:03:36 2026] 1) [lakeofillomen] Herald's Sleeves\t | Status: Pending\t | NPC: Grand Magus D`Nor ",
+    '[Sun Aug 30 23:03:36 2026] 2) [lakeofillomen] Gauntlets of Spite\t | Status: Pending\t | NPC: Grand Magus D`Nor  ',
+    '[Sun Aug 30 23:03:36 2026] [-------------------------------------------------]',
+    "[Sun Aug 30 23:07:40 2026] 1) [lakeofillomen] Herald's Sleeves\t | Status: Pending\t | NPC: Grand Magus D`Nor ",
+    '[Sun Aug 30 23:15:35 2026] You have entered The Dreadlands.'
+  ].join('\n');
+
+  const kills = parseNpcKillEvents(content);
+
+  assert.deepEqual(kills.map(summarizeKill), [
+    {
+      npcName: 'Grand Magus D`Nor',
+      killerName: null,
+      zoneName: 'Lake of Ill Omen',
+      inferredFromLoot: true,
+      timestamp: '2026-08-31T03:03:36.000Z'
+    }
+  ]);
+  assert.match(kills[0]?.rawLine ?? '', /NPC: Grand Magus D`Nor/);
+});
+
+test('infers the April 12 Silvlit Xor kill that died out of death-message range', () => {
+  const content = [
+    '[Sun Apr 12 20:59:02 2026] You have entered The Iceclad Ocean.',
+    '[Sun Apr 12 21:09:12 2026] Silvlit Xor has taken 55 damage from your Venomous Blast.',
+    '[Sun Apr 12 21:09:14 2026] Your Venomous Blast spell has worn off of Silvlit Xor.',
+    '[Sun Apr 12 21:09:14 2026] You have gained (40195) raid experience! (0.075%)',
+    '[Sun Apr 12 21:09:48 2026] | 1) [iceclad] Gift of the Sphinx\t | Status: Pending | NPC: Silvlit Xor',
+    '[Sun Apr 12 21:20:02 2026] Valgor tells the raid, \'next\''
+  ].join('\n');
+
+  const [kill, ...rest] = parseNpcKillEvents(content, { state: createNpcKillParserState() });
+
+  assert.equal(rest.length, 0);
+  assert.equal(kill?.npcName, 'Silvlit Xor');
+  assert.equal(kill?.inferredFromLoot, true);
+  assert.equal(kill?.zoneName, 'The Iceclad Ocean');
+});
+
+test('attributes a late loot listing to the death line logged before it', () => {
+  const content = [
+    '[Mon Mar 02 21:47:19 2026] Lord Koi`Doken has been slain by Ribbet!',
+    '[Mon Mar 02 22:02:15 2026] 1) [templeveeshan] Siren Song, Dagger of the Sea\t | Status: Pending\t | NPC: Lord Koi`Doken ',
+    '[Mon Mar 02 22:20:00 2026] Valgor tells the raid, \'next\''
+  ].join('\n');
+
+  assert.deepEqual(
+    parseNpcKillEvents(content).map((kill) => [kill.npcName, kill.killerName]),
+    [['Lord Koi`Doken', 'Ribbet']]
+  );
+});
+
+test('lets a death line logged after an early loot listing replace the inference', () => {
+  const content = [
+    '[Mon Feb 09 22:36:54 2026] 1) [karnor] Gnarled Staff\t | Status: Pending\t | NPC: Venril Sathir ',
+    '[Mon Feb 09 22:39:40 2026] Venril Sathir has been slain by Zephyr!',
+    '[Mon Feb 09 22:50:00 2026] Valgor tells the raid, \'next\''
+  ].join('\n');
+
+  assert.deepEqual(
+    parseNpcKillEvents(content).map((kill) => [kill.npcName, kill.killerName]),
+    [['Venril Sathir', 'Zephyr']]
+  );
+});
+
+test('matches title-less loot names to the titled death line for the same kill', () => {
+  const content = [
+    '[Mon Dec 29 21:32:40 2025] Prince Thirneg the Petulant has been slain by Dirt!',
+    '[Mon Dec 29 21:33:14 2025] 1) [growthplane] Thirneg\'s Crown\t | Status: Pending\t | NPC: Prince Thirneg '
+  ].join('\n');
+
+  assert.deepEqual(
+    parseNpcKillEvents(content).map((kill) => [kill.npcName, Boolean(kill.inferredFromLoot)]),
+    [['Prince Thirneg the Petulant', false]]
+  );
+});
+
+test('does not infer new kills when pending loot is listed again later in the raid', () => {
+  const content = [
+    '[Sun Aug 23 21:19:20 2026] Rotrage has been slain by Valgor!',
+    "[Sun Aug 23 21:19:24 2026] 1) [emeraldjungle] Herald's Boots\t | Status: Pending\t | NPC: Rotrage ",
+    "[Sun Aug 23 22:10:00 2026] 1) [emeraldjungle] Herald's Boots\t | Status: Pending\t | NPC: Rotrage ",
+    "[Sun Aug 23 23:30:00 2026] 1) [emeraldjungle] Herald's Boots\t | Status: Pending\t | NPC: Rotrage "
+  ].join('\n');
+
+  assert.deepEqual(
+    parseNpcKillEvents(content).map((kill) => kill.killerName),
+    ['Valgor']
+  );
+});
+
+test('confirms a live-monitor loot inference in a later chunk once the window passes', () => {
+  const state = createNpcKillParserState();
+  const firstChunk = [
+    '[Sun Aug 30 22:42:10 2026] You have entered Lake of Ill Omen.',
+    '[Sun Aug 30 23:02:39 2026] Grand Magus D`Nor begins to cast a spell.'
+  ].join('\n');
+  // The combat evidence is in the previous chunk, so it must carry across the chunk boundary.
+  const secondChunk =
+    '[Sun Aug 30 23:03:36 2026] 1) [lakeofillomen] Gauntlets of Spite\t | Status: Pending\t | NPC: Grand Magus D`Nor ';
+  const thirdChunk = '[Sun Aug 30 23:10:00 2026] You feel replenished.';
+  const fourthChunk = '[Sun Aug 30 23:14:00 2026] You feel replenished.';
+
+  assert.deepEqual(parseNpcKillEvents(firstChunk, { state }), []);
+  // The live monitor carries the zone forward through initialZoneName.
+  assert.deepEqual(
+    parseNpcKillEvents(secondChunk, { state, initialZoneName: 'Lake of Ill Omen' }),
+    []
+  );
+  assert.deepEqual(parseNpcKillEvents(thirdChunk, { state }), []);
+  assert.deepEqual(parseNpcKillEvents(fourthChunk, { state }).map(summarizeKill), [
+    {
+      npcName: 'Grand Magus D`Nor',
+      killerName: null,
+      zoneName: 'Lake of Ill Omen',
+      inferredFromLoot: true,
+      timestamp: '2026-08-31T03:03:36.000Z'
+    }
+  ]);
+});
+
+test('drops a pending live inference when the death line arrives in a later chunk', () => {
+  const state = createNpcKillParserState();
+  const pending = parseNpcKillEvents(
+    [
+      '[Mon Feb 09 22:36:40 2026] You try to slash Venril Sathir, but miss!',
+      '[Mon Feb 09 22:36:54 2026] 1) [karnor] Gnarled Staff\t | Status: Pending\t | NPC: Venril Sathir '
+    ].join('\n'),
+    { state }
+  );
+  assert.deepEqual(pending, []);
+  assert.equal(state.pendingLootKills.length, 1);
+
+  const kills = parseNpcKillEvents(
+    [
+      '[Mon Feb 09 22:39:40 2026] Venril Sathir has been slain by Zephyr!',
+      '[Mon Feb 09 22:55:00 2026] You feel replenished.'
+    ].join('\n'),
+    { state }
+  );
+
+  assert.deepEqual(
+    kills.map((kill) => [kill.npcName, kill.killerName]),
+    [['Venril Sathir', 'Zephyr']]
+  );
+});
+
+test('reports one kill when an out-of-range kill keeps being re-listed across live chunks', () => {
+  const state = createNpcKillParserState();
+  const listing = (time: string, item: string) =>
+    `[Sun Aug 30 ${time} 2026] 1) [lakeofillomen] ${item}\t | Status: Pending\t | NPC: Grand Magus D\`Nor `;
+  const chunks = [
+    [
+      '[Sun Aug 30 22:42:10 2026] You have entered Lake of Ill Omen.',
+      '[Sun Aug 30 23:02:39 2026] Grand Magus D`Nor begins to cast a spell.',
+      listing('23:03:36', 'Gauntlets of Spite')
+    ],
+    [listing('23:04:10', 'Gauntlets of Spite'), listing('23:04:10', "Herald's Sleeves")],
+    ['[Sun Aug 30 23:14:00 2026] You feel replenished.'],
+    // Re-listings and a newly shown item after the kill was confirmed belong to the same kill.
+    [listing('23:16:00', 'Gauntlets of Spite'), listing('23:30:00', 'Essence of D`Nor')],
+    [listing('23:55:00', 'Gauntlets of Spite'), '[Mon Aug 31 01:00:00 2026] You feel replenished.']
+  ];
+
+  const kills = chunks.flatMap((lines) => parseNpcKillEvents(lines.join('\n'), { state }));
+
+  assert.deepEqual(
+    kills.map((kill) => [kill.npcName, kill.timestamp?.toISOString()]),
+    [['Grand Magus D`Nor', '2026-08-31T03:03:36.000Z']]
+  );
+});
+
+test('does not infer a kill from loot a character never saw fought, such as after a swap', () => {
+  const content = [
+    '[Sun Aug 30 23:40:00 2026] You have entered Lake of Ill Omen.',
+    '[Sun Aug 30 23:41:00 2026] a goblin has been slain by Dirt!',
+    '[Sun Aug 30 23:41:05 2026] 1) [lakeofillomen] Gauntlets of Spite\t | Status: Pending\t | NPC: Grand Magus D`Nor '
+  ].join('\n');
+
+  assert.deepEqual(
+    parseNpcKillEvents(content).map((kill) => kill.npcName),
+    ['a goblin']
+  );
+});
+
+test('does not infer a second kill from a first listing printed long after the logged death', () => {
+  const content = [
+    '[Sun Aug 23 21:19:20 2026] Rotrage has been slain by Valgor!',
+    '[Sun Aug 23 21:40:00 2026] You have entered Firiona Vie.',
+    "[Sun Aug 23 21:55:00 2026] 1) [emeraldjungle] Herald's Boots\t | Status: Pending\t | NPC: Rotrage "
+  ].join('\n');
+
+  assert.deepEqual(
+    parseNpcKillEvents(content).map((kill) => [kill.npcName, kill.killerName]),
+    [['Rotrage', 'Valgor']]
+  );
+});
+
+test('keeps different NPCs that share a base name apart', () => {
+  const content = [
+    '[Sun Aug 30 21:00:00 2026] an Avatar of the Sky has been slain by Dirt!',
+    '[Sun Aug 30 21:08:00 2026] Dirt hits an Avatar of the Storm for 300 points of damage.',
+    '[Sun Aug 30 21:10:00 2026] 1) [airplane] Storm Shard\t | Status: Pending\t | NPC: an Avatar of the Storm '
+  ].join('\n');
+
+  assert.deepEqual(
+    parseNpcKillEvents(content).map((kill) => [kill.npcName, Boolean(kill.inferredFromLoot)]),
+    [
+      ['an Avatar of the Sky', false],
+      ['an Avatar of the Storm', true]
+    ]
+  );
+});
+
+test('does not let unwitnessed loot block a later real out-of-range kill of the same NPC', () => {
+  const content = [
+    // Leftover loot from a kill this character never saw fought: no inference, no lockout.
+    '[Sun Aug 30 22:40:00 2026] 1) [lakeofillomen] Old Gauntlets\t | Status: Pending\t | NPC: Grand Magus D`Nor ',
+    '[Sun Aug 30 22:42:10 2026] You have entered Lake of Ill Omen.',
+    '[Sun Aug 30 23:02:39 2026] Grand Magus D`Nor begins to cast a spell.',
+    '[Sun Aug 30 23:03:36 2026] 1) [lakeofillomen] Old Gauntlets\t | Status: Pending\t | NPC: Grand Magus D`Nor ',
+    "[Sun Aug 30 23:03:36 2026] 2) [lakeofillomen] Herald's Sleeves\t | Status: Pending\t | NPC: Grand Magus D`Nor "
+  ].join('\n');
+
+  assert.deepEqual(
+    parseNpcKillEvents(content).map((kill) => [kill.npcName, kill.timestamp?.toISOString()]),
+    [['Grand Magus D`Nor', '2026-08-31T03:03:36.000Z']]
+  );
+});
+
+test('does not treat a longer word as a mention of a short NPC name', () => {
+  const content = [
+    '[Sun Aug 30 21:00:00 2026] You have entered The Dreadlands.',
+    '[Sun Aug 30 21:01:00 2026] 1) [fearplane] Fear Fragment\t | Status: Pending\t | NPC: Dread '
+  ].join('\n');
+
+  assert.deepEqual(parseNpcKillEvents(content), []);
+  // The same listing after Dread is actually named in the log is inferred.
+  const witnessed = content.replace(
+    'The Dreadlands.',
+    'The Dreadlands.\n[Sun Aug 30 21:00:30 2026] Dirt hits Dread for 300 points of damage.'
+  );
+  assert.deepEqual(
+    parseNpcKillEvents(witnessed).map((kill) => kill.npcName),
+    ['Dread']
   );
 });

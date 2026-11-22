@@ -9,11 +9,48 @@ export interface ParsedNpcKillEvent {
   killerName?: string | null;
   rawLine: string;
   zoneName?: string | null;
+  // Set when no death line was logged and the kill was inferred from the corpse's loot listing.
+  inferredFromLoot?: boolean;
+}
+
+interface PendingLootInferredKill {
+  npcKey: string;
+  timestampMs: number;
+  event: ParsedNpcKillEvent;
+}
+
+interface TimedLogLine {
+  line: string;
+  timestampMs: number;
+}
+
+// Carries loot-inference context between incremental chunks of the same log. NPC maps are keyed
+// by canonical name and compared with isSameNpcName, so name variants still match.
+export interface NpcKillParserState {
+  lootListingSeenAt: Map<string, { timestampMs: number; attributed: boolean }>;
+  lastLootListingAtByNpc: Map<string, number>;
+  lastKillAtByNpc: Map<string, number>;
+  pendingLootKills: PendingLootInferredKill[];
+  recentLines: TimedLogLine[];
 }
 
 export interface NpcKillParserOptions {
   endGraceMinutes?: number;
   initialZoneName?: string | null;
+  // Reuse one state for a live log so loot inference can span chunks. Without a state the
+  // content is treated as a complete log and unconfirmed loot inferences are emitted at its end.
+  state?: NpcKillParserState;
+  flushPendingLootKills?: boolean;
+}
+
+export function createNpcKillParserState(): NpcKillParserState {
+  return {
+    lootListingSeenAt: new Map(),
+    lastLootListingAtByNpc: new Map(),
+    lastKillAtByNpc: new Map(),
+    pendingLootKills: [],
+    recentLines: []
+  };
 }
 
 // Pattern to extract zone entry: "[...] You have entered South Ro." or "There is X hours, Y minutes remaining..."
@@ -108,6 +145,187 @@ const encounterCompletionPatterns: typeof killPatterns = [
 
 const npcKillEventPatterns = [...killPatterns, ...encounterCompletionPatterns];
 
+// Loot listings name the NPC that dropped each item, for example:
+//   "1) [lakeofillomen] Herald's Sleeves\t | Status: Pending\t | NPC: Grand Magus D`Nor "
+//   "| 1) [emeraldjungle] Brass Earring\t | Status: Pending | NPC: a tottering gorilla"
+const lootListingPattern =
+  /^\[[^\]]+\] (?:\| )?\d+\) \[(?<zone>[^\]]+)\] (?<item>.+?)\s*\| Status: [^|]*\| NPC: (?<npc>.+?)\s*(?:<--.*)?$/;
+
+// EQ writes a death line only to players close enough to the NPC when it dies, so a boss that
+// dies out of range leaves no "slain" text; its loot listing is then the only evidence.
+// Listings repeat while items stay pending and can first appear minutes before or well after a
+// logged death, and a character that joins mid-raid sees loot from kills it never witnessed. A
+// kill is therefore inferred only from a listing that is new for that NPC, that follows recent
+// log activity naming the NPC, with no death of the NPC shortly before it, and only after the
+// confirmation window passes without one.
+export const LOOT_INFERRED_KILL_CONFIRM_MS = 10 * 60 * 1000;
+const LOOT_KILL_ATTRIBUTION_WINDOW_MS = 30 * 60 * 1000;
+const LOOT_NPC_LISTING_MEMORY_MS = 30 * 60 * 1000;
+const LOOT_ITEM_LISTING_MEMORY_MS = 6 * 60 * 60 * 1000;
+const LOOT_EVIDENCE_WINDOW_MS = 10 * 60 * 1000;
+const MAX_RECENT_LINES = 50_000;
+
+function canonicalNpcName(name: string) {
+  return name
+    .normalize('NFKC')
+    .replace(/[`´‘’ʼ]/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function compactNpcName(canonicalName: string) {
+  return canonicalName.replace(/^the /, '').replace(/[^\p{L}\p{N}]/gu, '');
+}
+
+// Mirrors the server's npcNamesReferToSameNpc so death and loot lines naming one NPC differently
+// ("Prince Thirneg the Petulant" / "Prince Thirneg", "All-Seeing Eye" / "AllSeeing Eye") match.
+function isSameNpcName(left: string, right: string) {
+  if (left === right || left.replace(/^the /, '') === right.replace(/^the /, '')) {
+    return true;
+  }
+  if (left.startsWith(`${right} the `) || right.startsWith(`${left} the `)) {
+    return true;
+  }
+  const compactLeft = compactNpcName(left);
+  return compactLeft.length >= 4 && compactLeft === compactNpcName(right);
+}
+
+// Returns the newest time recorded for the NPC within the window, dropping expired entries.
+function findRecentNpcTime(
+  times: Map<string, number>,
+  npcKey: string,
+  nowMs: number,
+  windowMs: number
+) {
+  let latest: number | null = null;
+  for (const [key, timeMs] of times) {
+    if (nowMs - timeMs > windowMs) {
+      times.delete(key);
+    } else if (isSameNpcName(key, npcKey) && (latest === null || timeMs > latest)) {
+      latest = timeMs;
+    }
+  }
+  return latest;
+}
+
+// Matches the NPC's name as whole words, tolerating punctuation or spacing between letters
+// ("All-Seeing Eye" / "AllSeeing Eye") but not inside a longer word ("Dreadlands" for "Dread").
+function buildNpcMentionPattern(npcKey: string) {
+  const letters = [...compactNpcName(npcKey)].map((letter) =>
+    letter.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  );
+  if (letters.length < 4) {
+    return null;
+  }
+  const boundary = '[\\p{L}\\p{N}]';
+  return new RegExp(
+    `(?<!${boundary})${letters.join('[^\\p{L}\\p{N}]*')}(?!${boundary})`,
+    'iu'
+  );
+}
+
+function isLootListingText(line: string) {
+  const normalized = line.toLowerCase();
+  return normalized.includes('| npc: ') || normalized.includes('| status: ');
+}
+
+function confirmPendingLootKills(
+  state: NpcKillParserState,
+  kills: ParsedNpcKillEvent[],
+  nowMs: number | null
+) {
+  if (state.pendingLootKills.length === 0) {
+    return;
+  }
+  const stillPending: PendingLootInferredKill[] = [];
+  for (const pending of state.pendingLootKills) {
+    if (nowMs === null || nowMs - pending.timestampMs >= LOOT_INFERRED_KILL_CONFIRM_MS) {
+      kills.push(pending.event);
+      state.lastKillAtByNpc.set(pending.npcKey, pending.timestampMs);
+    } else {
+      stillPending.push(pending);
+    }
+  }
+  state.pendingLootKills = stillPending;
+}
+
+// Keeps the last few minutes of log lines so evidence for a listing at the start of the next
+// live chunk can still be found.
+function retainRecentLines(state: NpcKillParserState, lines: string[]) {
+  const retained: TimedLogLine[] = [];
+  let cutoffMs: number | null = null;
+  let reachedCutoff = false;
+  for (let index = lines.length - 1; index >= 0 && retained.length < MAX_RECENT_LINES; index -= 1) {
+    const line = lines[index] ?? '';
+    const timestampMs = extractTimestamp(line)?.getTime();
+    if (timestampMs === undefined) {
+      continue;
+    }
+    cutoffMs ??= timestampMs - LOOT_EVIDENCE_WINDOW_MS;
+    if (timestampMs < cutoffMs) {
+      reachedCutoff = true;
+      break;
+    }
+    if (!isLootListingText(line)) {
+      retained.push({ line, timestampMs });
+    }
+  }
+  if (cutoffMs === null) {
+    return;
+  }
+  retained.reverse();
+  if (!reachedCutoff) {
+    const carried = state.recentLines.filter((entry) => entry.timestampMs >= (cutoffMs ?? 0));
+    retained.unshift(...carried.slice(-(MAX_RECENT_LINES - retained.length)));
+  }
+  state.recentLines = retained;
+}
+
+function hasRecentNpcMention(
+  state: NpcKillParserState,
+  lines: string[],
+  lineIndex: number,
+  npcKey: string,
+  nowMs: number
+) {
+  const pattern = buildNpcMentionPattern(npcKey);
+  if (!pattern) {
+    return false;
+  }
+  const cutoffMs = nowMs - LOOT_EVIDENCE_WINDOW_MS;
+  for (let index = lineIndex - 1; index >= 0; index -= 1) {
+    const line = lines[index] ?? '';
+    const timestampMs = extractTimestamp(line)?.getTime();
+    if (timestampMs !== undefined && timestampMs < cutoffMs) {
+      return false;
+    }
+    if (!isLootListingText(line) && pattern.test(line)) {
+      return true;
+    }
+  }
+  for (let index = state.recentLines.length - 1; index >= 0; index -= 1) {
+    const entry = state.recentLines[index]!;
+    if (entry.timestampMs < cutoffMs) {
+      return false;
+    }
+    if (pattern.test(entry.line)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function findLastTimestampMs(lines: string[]) {
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const timestamp = extractTimestamp(lines[index] ?? '');
+    if (timestamp) {
+      return timestamp.getTime();
+    }
+  }
+  return null;
+}
+
 function extractTimestamp(line: string) {
   const match = line.match(timestampRegex);
   if (!match?.groups) {
@@ -148,11 +366,13 @@ export function parseNpcKills(
 
 export function parseNpcKillEvents(
   logContent: string,
-  options?: Pick<NpcKillParserOptions, 'initialZoneName'>
+  options?: Omit<NpcKillParserOptions, 'endGraceMinutes'>
 ): ParsedNpcKillEvent[] {
   const lines = logContent.split(/\r?\n/);
   const kills: ParsedNpcKillEvent[] = [];
   const initialZoneName = options?.initialZoneName?.trim() || null;
+  const state = options?.state ?? createNpcKillParserState();
+  const flushPendingLootKills = options?.flushPendingLootKills ?? !options?.state;
 
   // Track zone changes with timestamps so we can match zones to kills
   const zoneChanges: Array<{ timestamp: Date; zoneName: string }> = [];
@@ -199,9 +419,12 @@ export function parseNpcKillEvents(
   }
 
   // Second pass: extract kills and attach zone context
-  for (const line of lines) {
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex] ?? '';
     const normalizedLine = line.toLowerCase();
+    const isLootListing = normalizedLine.includes('| npc: ');
     if (
+      !isLootListing &&
       !normalizedLine.includes('slain') &&
       !normalizedLine.includes('pulled away by an unseen force') &&
       !normalizedLine.includes('until next time...') &&
@@ -212,6 +435,71 @@ export function parseNpcKillEvents(
 
     const timestamp = extractTimestamp(line);
     if (!timestamp) {
+      continue;
+    }
+    const timestampMs = timestamp.getTime();
+    confirmPendingLootKills(state, kills, timestampMs);
+
+    if (isLootListing) {
+      const lootMatch = line.match(lootListingPattern);
+      const npcName = lootMatch?.groups?.npc?.replace(/\s+/g, ' ').trim() ?? '';
+      const npcKey = canonicalNpcName(npcName);
+      if (!lootMatch?.groups || !npcKey) {
+        continue;
+      }
+      const listingKey = [
+        npcKey,
+        lootMatch.groups.zone.trim().toLowerCase(),
+        lootMatch.groups.item.replace(/\s+/g, ' ').trim().toLowerCase()
+      ].join('|');
+      const lastItemListing = state.lootListingSeenAt.get(listingKey);
+      if (lastItemListing && timestampMs - lastItemListing.timestampMs <= LOOT_ITEM_LISTING_MEMORY_MS) {
+        // A re-listed item. Only loot attributed to a kill keeps the NPC marked as being listed;
+        // loot this character never saw fought must not suppress a later real kill.
+        lastItemListing.timestampMs = timestampMs;
+        if (lastItemListing.attributed) {
+          state.lastLootListingAtByNpc.set(npcKey, timestampMs);
+        }
+        continue;
+      }
+      // New items while the NPC's loot is still being listed, or shortly after its death, belong
+      // to the kill that produced that loot.
+      const belongsToKnownKill =
+        findRecentNpcTime(
+          state.lastLootListingAtByNpc,
+          npcKey,
+          timestampMs,
+          LOOT_NPC_LISTING_MEMORY_MS
+        ) !== null ||
+        findRecentNpcTime(
+          state.lastKillAtByNpc,
+          npcKey,
+          timestampMs,
+          LOOT_KILL_ATTRIBUTION_WINDOW_MS
+        ) !== null ||
+        state.pendingLootKills.some((pending) => isSameNpcName(pending.npcKey, npcKey));
+      const attributed =
+        belongsToKnownKill || hasRecentNpcMention(state, lines, lineIndex, npcKey, timestampMs);
+      state.lootListingSeenAt.set(listingKey, { timestampMs, attributed });
+      if (!attributed) {
+        continue;
+      }
+      state.lastLootListingAtByNpc.set(npcKey, timestampMs);
+      if (belongsToKnownKill) {
+        continue;
+      }
+      state.pendingLootKills.push({
+        npcKey,
+        timestampMs,
+        event: {
+          timestamp,
+          npcName,
+          killerName: null,
+          rawLine: line,
+          zoneName: getZoneAtTime(timestamp),
+          inferredFromLoot: true
+        }
+      });
       continue;
     }
 
@@ -249,9 +537,20 @@ export function parseNpcKillEvents(
         rawLine: line,
         zoneName
       });
+      // A logged death supersedes a loot inference for the same NPC that is still unconfirmed.
+      const npcKey = canonicalNpcName(npcName);
+      state.lastKillAtByNpc.set(npcKey, timestampMs);
+      state.pendingLootKills = state.pendingLootKills.filter(
+        (pending) => !isSameNpcName(pending.npcKey, npcKey)
+      );
       break;
     }
   }
 
-  return kills;
+  confirmPendingLootKills(state, kills, flushPendingLootKills ? null : findLastTimestampMs(lines));
+  retainRecentLines(state, lines);
+
+  return kills.sort(
+    (left, right) => (left.timestamp?.getTime() ?? 0) - (right.timestamp?.getTime() ?? 0)
+  );
 }
