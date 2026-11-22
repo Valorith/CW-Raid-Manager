@@ -617,10 +617,11 @@ export async function endRaidEvent(raidId: string, userId: string) {
 
   stopLootMonitorSession(raidId);
 
-  // Clean up all pending NPC kill clarifications for this raid (both resolved and unresolved)
-  // since they're no longer needed after the raid ends
+  // Unresolved clarifications are real kills still waiting for an instance/zone answer; deleting
+  // them here dropped those kills from the respawn tracker. Keep them for the respawn tracker's
+  // pending list and remove only the resolved ones.
   await prisma.pendingNpcKillClarification.deleteMany({
-    where: { raidId }
+    where: { raidId, resolvedAt: { not: null } }
   });
 
   if (shouldEmitRaidEnded) {

@@ -1257,7 +1257,7 @@
           <h3>Instance Kill Clarification</h3>
           <p class="muted small">
             These NPCs exist in both instance and overworld versions. Please confirm where each kill
-            occurred.
+            occurred. Kills you skip stay pending on the NPC Respawn Tracker.
           </p>
         </div>
         <button class="icon-button" type="button" @click="closeInstanceClarificationModal">
@@ -1301,7 +1301,7 @@
       </div>
       <footer class="modal__footer">
         <button class="btn btn--outline" type="button" @click="closeInstanceClarificationModal">
-          Cancel
+          Decide later
         </button>
         <button
           class="btn btn--primary"
