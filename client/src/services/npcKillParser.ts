@@ -137,8 +137,8 @@ const npcKillEventPatterns = [...killPatterns, ...encounterCompletionPatterns];
 const lootListingPattern =
   /^\[[^\]]+\] (?:\| )?\d+\) \[(?<zone>[^\]]+)\] (?<item>.+?)\s*\| Status: [^|]*\| NPC: (?<npc>.+?)\s*(?:<--.*)?$/;
 
-// EQ shows death lines only to nearby players and omits them for some deaths (such as a DoT
-// tick), so a boss can die without any "slain" text; its loot listing is then the only evidence.
+// EQ writes a death line only to players close enough to the NPC when it dies, so a boss that
+// dies out of range leaves no "slain" text; its loot listing is then the only evidence.
 // Listings repeat while items stay pending and can first appear minutes before or well after a
 // logged death, so a kill is inferred only from a listing not seen recently, with no death of
 // that NPC shortly before it, and only after the confirmation window passes without one.

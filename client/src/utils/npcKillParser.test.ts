@@ -399,7 +399,7 @@ test('infers the August 30 D`Nor kill that died outside death-message range', ()
   assert.match(kills[0]?.rawLine ?? '', /NPC: Grand Magus D`Nor/);
 });
 
-test('infers the April 12 Silvlit Xor kill whose final DoT tick logged no death line', () => {
+test('infers the April 12 Silvlit Xor kill that died out of death-message range', () => {
   const content = [
     '[Sun Apr 12 20:59:02 2026] You have entered The Iceclad Ocean.',
     '[Sun Apr 12 21:09:12 2026] Silvlit Xor has taken 55 damage from your Venomous Blast.',
