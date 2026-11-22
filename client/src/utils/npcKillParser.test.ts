@@ -510,3 +510,24 @@ test('drops a pending live inference when the death line arrives in a later chun
     [['Venril Sathir', 'Zephyr']]
   );
 });
+
+test('reports one kill when an out-of-range kill keeps being re-listed across live chunks', () => {
+  const state = createNpcKillParserState();
+  const listing = (time: string, item: string) =>
+    `[Sun Aug 30 ${time} 2026] 1) [lakeofillomen] ${item}\t | Status: Pending\t | NPC: Grand Magus D\`Nor `;
+  const chunks = [
+    ['[Sun Aug 30 22:42:10 2026] You have entered Lake of Ill Omen.', listing('23:03:36', 'Gauntlets of Spite')],
+    [listing('23:04:10', 'Gauntlets of Spite'), listing('23:04:10', "Herald's Sleeves")],
+    ['[Sun Aug 30 23:09:00 2026] You feel replenished.'],
+    // Re-listings and a newly shown item after the kill was confirmed belong to the same kill.
+    [listing('23:12:00', 'Gauntlets of Spite'), listing('23:20:00', 'Essence of D`Nor')],
+    [listing('23:55:00', 'Gauntlets of Spite'), '[Mon Aug 31 01:00:00 2026] You feel replenished.']
+  ];
+
+  const kills = chunks.flatMap((lines) => parseNpcKillEvents(lines.join('\n'), { state }));
+
+  assert.deepEqual(
+    kills.map((kill) => [kill.npcName, kill.timestamp?.toISOString()]),
+    [['Grand Magus D`Nor', '2026-08-31T03:03:36.000Z']]
+  );
+});
