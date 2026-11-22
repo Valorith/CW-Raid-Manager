@@ -4917,6 +4917,7 @@ export const api = {
       killerName?: string | null;
       rawLine?: string | null;
       zoneName?: string | null;
+      inferred?: boolean;
     }>,
     { replace = false }: { replace?: boolean } = {}
   ): Promise<{

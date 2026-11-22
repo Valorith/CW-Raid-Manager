@@ -9,7 +9,8 @@ const killSchema = z.object({
     .refine((value) => !Number.isNaN(value.getTime()), 'Invalid kill timestamp.'),
   killerName: z.string().min(1).max(191).nullish(),
   rawLine: z.string().max(500).nullish(),
-  zoneName: z.string().max(191).nullish()
+  zoneName: z.string().max(191).nullish(),
+  inferred: z.boolean().nullish()
 });
 
 // Existing clients send explicit null for special encounters.

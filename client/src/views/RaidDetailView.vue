@@ -4897,7 +4897,8 @@ async function uploadKillLogFile(file: File) {
         occurredAt: entry.timestamp ? entry.timestamp.toISOString() : start.toISOString(),
         killerName: entry.killerName ?? null,
         rawLine: entry.rawLine,
-        zoneName: entry.zoneName ?? null
+        zoneName: entry.zoneName ?? null,
+        ...(entry.inferredFromLoot ? { inferred: true } : {})
       }));
       const {
         pendingClarifications: allPendingClarifications,

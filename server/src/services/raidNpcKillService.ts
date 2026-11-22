@@ -1,8 +1,13 @@
 import { createHash } from 'crypto';
 
+import type { NpcDefinition, Prisma } from '@prisma/client';
 import type { FastifyBaseLogger } from 'fastify';
 
 import { recordKillForTrackedNpc, type ZoneOption } from './npcRespawnService.js';
+import {
+  INFERRED_KILL_DUPLICATE_WINDOW_MS,
+  selectInferredKillsToKeep
+} from '../utils/inferredNpcKills.js';
 import { prisma } from '../utils/prisma.js';
 import {
   buildEncounterKillKey,
@@ -42,6 +47,14 @@ export type NpcKillInput = {
   killerName?: string | null;
   rawLine?: string | null;
   zoneName?: string | null;
+  // No death line was logged; the client inferred the kill from the corpse's loot listing.
+  inferred?: boolean | null;
+};
+
+type PreparedRaidNpcKill = Prisma.RaidNpcKillEventCreateManyInput & {
+  npcName: string;
+  occurredAt: Date;
+  logSignature: string;
 };
 
 function normalizeNpcName(name: string) {
@@ -115,6 +128,37 @@ async function findRaidForNpcKill(guildId: string, killedAt: Date) {
   );
 }
 
+// In replacement mode the stored kills are about to be replaced, so loot-inferred kills are
+// compared only with the incoming batch.
+async function filterInferredKills<T extends { inferred: boolean; row: PreparedRaidNpcKill }>(
+  raidId: string,
+  entries: T[],
+  definitions: NpcDefinition[],
+  replace: boolean
+) {
+  const inferredTimes = entries
+    .filter((entry) => entry.inferred)
+    .map((entry) => entry.row.occurredAt.getTime());
+  if (inferredTimes.length === 0) {
+    return entries;
+  }
+
+  const existing = replace
+    ? []
+    : await prisma.raidNpcKillEvent.findMany({
+        where: {
+          raidId,
+          occurredAt: {
+            gte: new Date(Math.min(...inferredTimes) - INFERRED_KILL_DUPLICATE_WINDOW_MS),
+            lte: new Date(Math.max(...inferredTimes) + INFERRED_KILL_DUPLICATE_WINDOW_MS)
+          }
+        },
+        select: { npcName: true, occurredAt: true, logSignature: true }
+      });
+
+  return selectInferredKillsToKeep(entries, existing, definitions);
+}
+
 export async function recordRaidNpcKills(
   raidId: string,
   guildId: string,
@@ -126,7 +170,7 @@ export async function recordRaidNpcKills(
     return { inserted: 0 };
   }
 
-  const prepared = kills
+  const preparedCandidates = kills
     .map((entry) => {
       const normalizedName = normalizeNpcName(entry.npcName ?? '');
       if (!normalizedName) {
@@ -138,17 +182,36 @@ export async function recordRaidNpcKills(
       const npcNameNormalized = normalizedName.toLowerCase();
       const signature = buildSignature(npcNameNormalized, entry.occurredAt, entry.rawLine);
       return {
-        raidId,
-        guildId,
-        npcName: normalizedName,
-        npcNameNormalized,
-        killerName: normalizeKillerName(entry.killerName),
-        occurredAt: entry.occurredAt,
-        logSignature: signature,
-        zoneName: entry.zoneName?.trim() || null
+        inferred: entry.inferred === true,
+        row: {
+          raidId,
+          guildId,
+          npcName: normalizedName,
+          npcNameNormalized,
+          killerName: normalizeKillerName(entry.killerName),
+          occurredAt: entry.occurredAt,
+          logSignature: signature,
+          zoneName: entry.zoneName?.trim() || null
+        }
       };
     })
     .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+
+  if (preparedCandidates.length === 0) {
+    return { inserted: 0 };
+  }
+
+  const definitions = await prisma.npcDefinition.findMany({ where: { guildId } });
+  const acceptedCandidates = await filterInferredKills(
+    raidId,
+    preparedCandidates,
+    definitions,
+    replace
+  );
+  const prepared = acceptedCandidates.map((entry) => entry.row);
+  const inferredSignatures = new Set(
+    acceptedCandidates.filter((entry) => entry.inferred).map((entry) => entry.row.logSignature)
+  );
 
   if (prepared.length === 0) {
     return { inserted: 0 };
@@ -231,13 +294,17 @@ export async function recordRaidNpcKills(
           },
           'Attempting to record kill in respawn tracker'
         );
-        const result = await recordKillForTrackedNpc(guildId, {
-          npcName: entry.npcName,
-          npcNameNormalized: entry.npcNameNormalized,
-          killedAt: entry.occurredAt,
-          killedByName: entry.killerName,
-          zoneName: entry.zoneName
-        });
+        const result = await recordKillForTrackedNpc(
+          guildId,
+          {
+            npcName: entry.npcName,
+            npcNameNormalized: entry.npcNameNormalized,
+            killedAt: entry.occurredAt,
+            killedByName: entry.killerName,
+            zoneName: entry.zoneName
+          },
+          { definitions, inferredFromLoot: inferredSignatures.has(entry.logSignature) }
+        );
         logger?.info?.(
           {
             npcName: entry.npcName,

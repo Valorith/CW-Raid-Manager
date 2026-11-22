@@ -34,51 +34,13 @@ function normalizePunctuation(value: string) {
   );
 }
 
-function addPunctuationVariants(values: Set<string>, value: string) {
-  const normalized = normalizeWhitespace(value);
-  if (!normalized) {
-    return;
-  }
-  const canonical = normalizePunctuation(normalized);
-  values.add(normalized);
-  values.add(canonical);
-  for (const variant of NPC_NAME_APOSTROPHE_VARIANTS) {
-    values.add(canonical.replace(/'/g, variant));
-  }
+function compactName(value: string) {
+  return value.replace(/^the /, '').replace(/[^\p{L}\p{N}]/gu, '');
 }
 
-export function buildTrackedNpcLookupCandidates(value: string) {
-  const normalized = normalizePunctuation(value);
-  const structuralCandidates = new Set<string>([normalized]);
-
-  if (normalized.startsWith('the ')) {
-    structuralCandidates.add(normalized.slice(4));
-  } else {
-    structuralCandidates.add(`the ${normalized}`);
-  }
-
-  const descriptorIndex = normalized.indexOf(' the ', 1);
-  if (descriptorIndex > 0) {
-    structuralCandidates.add(normalized.slice(0, descriptorIndex));
-  }
-
-  const candidates = new Set<string>();
-  for (const candidate of structuralCandidates) {
-    addPunctuationVariants(candidates, candidate);
-  }
-  candidates.delete('');
-  return [...candidates];
-}
-
-export function buildTrackedNpcLookupPrefix(value: string) {
-  const normalized = normalizePunctuation(value);
-  const apostropheIndex = normalized.indexOf("'");
-  if (apostropheIndex < 3) {
-    return null;
-  }
-  return normalized.slice(0, apostropheIndex);
-}
-
+// Lower ranks are stronger. EQ log names can differ from configured names by apostrophe style,
+// a leading "The", a title present on only one side ("Vynoissu the Undying" in death lines,
+// "Prince Thirneg" in loot lines), or hyphenation and spacing ("All-Seeing Eye", "AllSeeing Eye").
 export function getTrackedNpcNameMatchRank(logName: string, configuredName: string) {
   const log = normalizePunctuation(logName);
   const configured = normalizePunctuation(configuredName);
@@ -100,5 +62,38 @@ export function getTrackedNpcNameMatchRank(logName: string, configuredName: stri
     return 2;
   }
 
+  if (configured.startsWith(`${log} the `)) {
+    return 3;
+  }
+
+  const compactLog = compactName(log);
+  if (compactLog.length >= 4 && compactLog === compactName(configured)) {
+    return 4;
+  }
+
   return null;
+}
+
+export function findBestTrackedNpcNameMatches<T extends { npcName: string }>(
+  logName: string,
+  definitions: readonly T[]
+): T[] {
+  const ranked = definitions.flatMap((definition) => {
+    const rank = getTrackedNpcNameMatchRank(logName, definition.npcName);
+    return rank === null ? [] : [{ definition, rank }];
+  });
+  const bestRank = ranked.reduce(
+    (best, candidate) => Math.min(best, candidate.rank),
+    Number.POSITIVE_INFINITY
+  );
+  return ranked
+    .filter((candidate) => candidate.rank === bestRank)
+    .map((candidate) => candidate.definition);
+}
+
+export function npcNamesReferToSameNpc(left: string, right: string) {
+  return (
+    getTrackedNpcNameMatchRank(left, right) !== null ||
+    getTrackedNpcNameMatchRank(right, left) !== null
+  );
 }

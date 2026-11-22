@@ -4,6 +4,7 @@ import test from 'node:test';
 import type { Prisma, PrismaClient } from '@prisma/client';
 
 import { parseNpcKills } from '../../client/src/services/npcKillParser.js';
+import { selectInferredKillsToKeep } from '../src/utils/inferredNpcKills.js';
 import {
   raidNpcKillAppendSchema,
   raidNpcKillImportSchema
@@ -130,4 +131,86 @@ test('replacement is scoped and deduplicated; subsequent append keeps both histo
   const appended = row('appended');
   assert.equal(await persistRaidNpcKillBatch(app.db, scope, [replacement, appended], false), 1);
   assert.deepEqual(app.rows(), [anotherRaid, replacement, appended]);
+});
+
+const trackedDefinitions = [
+  { npcName: "Grand Magus D'Nor" },
+  { npcName: 'Prince Thirneg the Petulant' },
+  { npcName: 'All Seeing Eye' }
+];
+
+const killAt = (npcName: string, isoTime: string, logSignature: string) => ({
+  npcName,
+  occurredAt: new Date(isoTime),
+  logSignature
+});
+
+test('sends loot-inferred kills from the parser with the inferred flag accepted by the API', () => {
+  const logs = [
+    '[Sun Aug 30 22:42:10 2026] You have entered Lake of Ill Omen.',
+    '[Sun Aug 30 23:03:36 2026] 1) [lakeofillomen] Gauntlets of Spite\t | Status: Pending\t | NPC: Grand Magus D`Nor '
+  ].join('\n');
+  const [kill] = parseNpcKills(logs, new Date(2026, 7, 30, 22, 0));
+  assert.equal(kill?.inferredFromLoot, true);
+
+  const parsed = raidNpcKillAppendSchema.parse({
+    kills: [
+      {
+        npcName: kill?.npcName,
+        occurredAt: kill?.timestamp?.toISOString(),
+        killerName: kill?.killerName ?? null,
+        rawLine: kill?.rawLine,
+        zoneName: kill?.zoneName ?? null,
+        inferred: true
+      }
+    ]
+  });
+  assert.equal(parsed.kills[0]?.inferred, true);
+});
+
+test('keeps loot-inferred kills only for tracked NPCs without a nearby known kill', () => {
+  const entries = [
+    { inferred: false, row: killAt('a goblin', '2026-08-31T03:00:00Z', 'goblin') },
+    { inferred: true, row: killAt('a giant chest', '2026-08-31T03:01:00Z', 'chest') },
+    { inferred: true, row: killAt('Grand Magus D`Nor', '2026-08-31T03:03:36Z', 'dnor-loot') },
+    { inferred: true, row: killAt('AllSeeing Eye', '2026-08-31T04:00:00Z', 'eye-loot') }
+  ];
+
+  assert.deepEqual(
+    selectInferredKillsToKeep(entries, [], trackedDefinitions).map((entry) => entry.row.logSignature),
+    ['goblin', 'dnor-loot', 'eye-loot']
+  );
+});
+
+test('drops a loot-inferred kill when the same NPC already has a kill near that time', () => {
+  const inferred = {
+    inferred: true,
+    row: killAt('Prince Thirneg', '2025-12-30T02:33:14Z', 'thirneg-loot')
+  };
+  const loggedDeath = killAt('Prince Thirneg the Petulant', '2025-12-30T02:12:40Z', 'thirneg-death');
+
+  assert.deepEqual(selectInferredKillsToKeep([inferred], [loggedDeath], trackedDefinitions), []);
+  // A retry of the same inferred kill is still processed so tracker recording stays idempotent.
+  assert.deepEqual(
+    selectInferredKillsToKeep([inferred], [inferred.row], trackedDefinitions),
+    [inferred]
+  );
+  // A kill of the same NPC outside the window does not suppress the inference.
+  assert.deepEqual(
+    selectInferredKillsToKeep(
+      [inferred],
+      [killAt('Prince Thirneg the Petulant', '2025-12-30T01:30:00Z', 'earlier')],
+      trackedDefinitions
+    ),
+    [inferred]
+  );
+  // Within one batch, a logged death sent earlier wins over the inference.
+  assert.deepEqual(
+    selectInferredKillsToKeep(
+      [{ inferred: false, row: loggedDeath }, inferred],
+      [],
+      trackedDefinitions
+    ).map((entry) => entry.row.logSignature),
+    ['thirneg-death']
+  );
 });

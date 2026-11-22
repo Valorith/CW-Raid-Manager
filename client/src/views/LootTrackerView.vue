@@ -1406,6 +1406,7 @@ import {
 } from '../services/lootCouncilParser';
 import {
   RAID_NPC_KILL_END_GRACE_MINUTES,
+  createNpcKillParserState,
   extractLastIdentifyingZoneFromLog,
   parseNpcKills,
   type ParsedNpcKillEvent
@@ -1802,6 +1803,8 @@ const monitorHealth = reactive({
 });
 const processedLogKeys = new Set<string>();
 const processedNpcKillKeys = new Set<string>();
+// Loot-inferred kills need context from earlier chunks of the same live log.
+let npcKillParserState = createNpcKillParserState();
 const rejectedNpcKillCount = ref(0);
 const npcKillPersistenceQueue = new ReliableBatchQueue<ParsedNpcKillEvent>({
   buildKey: buildNpcKillKey,
@@ -5871,7 +5874,8 @@ async function persistRaidNpcKillEvents(kills: ParsedNpcKillEvent[]) {
       occurredAt: kill.timestamp!.toISOString(),
       killerName: kill.killerName ?? null,
       rawLine: kill.rawLine ?? null,
-      zoneName: kill.zoneName ?? null
+      zoneName: kill.zoneName ?? null,
+      ...(kill.inferredFromLoot ? { inferred: true } : {})
     }));
 
   if (payload.length === 0) {
@@ -6257,9 +6261,16 @@ function processLogContent(
   const patterns = getPatternsForParsing();
   const emoji = parserSettings.value?.emoji ?? '💎';
   const parsed = parseLootLog(content, options.start, patterns, options.end ?? null);
+  if (!options.append) {
+    npcKillParserState = createNpcKillParserState();
+  }
+  // A live log keeps unconfirmed loot inferences open for later chunks; a one-off file is complete.
+  const feedsLiveMonitor = Boolean(monitorSession.value?.isOwner && monitorController.fileHandle);
   const npcKillEvents = parseNpcKills(content, options.start, options.end ?? null, {
     endGraceMinutes: RAID_NPC_KILL_END_GRACE_MINUTES,
-    initialZoneName
+    initialZoneName,
+    state: npcKillParserState,
+    flushPendingLootKills: !feedsLiveMonitor
   });
   const shouldTrackLootCouncil = Boolean(monitorSession.value?.isOwner);
   if (shouldTrackLootCouncil) {
