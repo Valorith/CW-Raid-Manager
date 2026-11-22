@@ -4,7 +4,11 @@ import test from 'node:test';
 import type { Prisma, PrismaClient } from '@prisma/client';
 
 import { parseNpcKills } from '../../client/src/services/npcKillParser.js';
-import { selectInferredKillsToKeep } from '../src/utils/inferredNpcKills.js';
+import {
+  findInferredKillsSupersededByDeaths,
+  resolveInferredKillZone,
+  selectInferredKillsToKeep
+} from '../src/utils/inferredNpcKills.js';
 import {
   raidNpcKillAppendSchema,
   raidNpcKillImportSchema
@@ -148,6 +152,7 @@ const killAt = (npcName: string, isoTime: string, logSignature: string) => ({
 test('sends loot-inferred kills from the parser with the inferred flag accepted by the API', () => {
   const logs = [
     '[Sun Aug 30 22:42:10 2026] You have entered Lake of Ill Omen.',
+    '[Sun Aug 30 23:02:39 2026] Grand Magus D`Nor begins to cast a spell.',
     '[Sun Aug 30 23:03:36 2026] 1) [lakeofillomen] Gauntlets of Spite\t | Status: Pending\t | NPC: Grand Magus D`Nor '
   ].join('\n');
   const [kill] = parseNpcKills(logs, new Date(2026, 7, 30, 22, 0));
@@ -204,13 +209,38 @@ test('drops a loot-inferred kill when the same NPC already has a kill near that 
     ),
     [inferred]
   );
-  // Within one batch, a logged death sent earlier wins over the inference.
+  // Within one batch, a logged death wins over the inference whichever comes first.
+  for (const batch of [
+    [{ inferred: false, row: loggedDeath }, inferred],
+    [inferred, { inferred: false, row: { ...loggedDeath, occurredAt: new Date('2025-12-30T02:45:00Z') } }]
+  ]) {
+    assert.deepEqual(
+      selectInferredKillsToKeep(batch, [], trackedDefinitions).map((entry) => entry.row.logSignature),
+      ['thirneg-death']
+    );
+  }
+});
+
+test('replaces a stored loot-inferred kill when the death line for that kill arrives later', () => {
+  const storedInferred = [
+    { id: 'venril-loot', ...killAt('Venril Sathir', '2026-02-10T03:36:54Z', 'venril-loot') },
+    { id: 'other', ...killAt('Lord Vyemm', '2026-02-10T03:30:00Z', 'vyemm-loot') },
+    { id: 'old', ...killAt('Venril Sathir', '2026-02-09T23:00:00Z', 'old-loot') }
+  ];
+  const deaths = [killAt('Venril Sathir', '2026-02-10T03:48:10Z', 'venril-death')];
+
   assert.deepEqual(
-    selectInferredKillsToKeep(
-      [{ inferred: false, row: loggedDeath }, inferred],
-      [],
-      trackedDefinitions
-    ).map((entry) => entry.row.logSignature),
-    ['thirneg-death']
+    findInferredKillsSupersededByDeaths(storedInferred, deaths).map((row) => row.id),
+    ['venril-loot']
+  );
+});
+
+test('uses the drop zone named by the loot listing for an inferred kill', () => {
+  const rawLine =
+    "[Sun Aug 30 23:03:36 2026] 1) [lakeofillomen] Herald's Sleeves	 | Status: Pending	 | NPC: Grand Magus D`Nor ";
+  assert.equal(resolveInferredKillZone(rawLine, 'The Dreadlands'), 'Lake of Ill Omen');
+  assert.equal(
+    resolveInferredKillZone('[Sun Aug 30 23:03:36 2026] 1) [unknownzone] Item | Status: Pending | NPC: X', 'Kerra Isle'),
+    'Kerra Isle'
   );
 });

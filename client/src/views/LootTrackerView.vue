@@ -5261,10 +5261,35 @@ async function refreshRaidStateForMonitorRecovery() {
   }
 }
 
+// A loot inference still inside its confirmation window would be lost once the live log stops
+// being read, often for the last boss of the night, so send it as the monitor stops.
+function flushPendingLootInferredKills() {
+  if (!raid.value || !monitorSession.value?.isOwner || !canManageLoot.value) {
+    return;
+  }
+  const startIso = parsingWindow.start ?? raid.value.startedAt ?? raid.value.startTime;
+  if (!startIso) {
+    return;
+  }
+  const endIso = parsingWindow.end ?? raid.value.endedAt ?? null;
+  const pendingKills = parseNpcKills('', new Date(startIso), endIso ? new Date(endIso) : null, {
+    endGraceMinutes: RAID_NPC_KILL_END_GRACE_MINUTES,
+    state: npcKillParserState,
+    flushPendingLootKills: true
+  });
+  if (npcKillPersistenceQueue.enqueue(pendingKills) > 0) {
+    appendDebugLog('Sending unconfirmed loot-inferred NPC kills before monitoring stops', {
+      kills: pendingKills.map((kill) => kill.npcName)
+    });
+    void npcKillPersistenceQueue.flush();
+  }
+}
+
 async function stopActiveMonitor(options?: { force?: boolean }) {
   if (!monitorSession.value) {
     return;
   }
+  flushPendingLootInferredKills();
   monitorStopping.value = true;
   try {
     await api.stopRaidLogMonitor(raidId, {

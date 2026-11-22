@@ -30,8 +30,15 @@ test('matches a log-only title suffix to the configured base NPC name', () => {
   assert.equal(getTrackedNpcNameMatchRank('Vynoissu the Undying', 'Vynoissu'), 2);
 });
 
-test('matches a loot listing that omits the configured title', () => {
-  assert.equal(getTrackedNpcNameMatchRank('Prince Thirneg', 'Prince Thirneg the Petulant'), 3);
+test('matches a loot listing that omits the configured title only when allowed', () => {
+  assert.equal(
+    getTrackedNpcNameMatchRank('Prince Thirneg', 'Prince Thirneg the Petulant', {
+      allowOmittedTitle: true
+    }),
+    3
+  );
+  // A death line naming only the base name may be a different NPC (an illusion or event mob).
+  assert.equal(getTrackedNpcNameMatchRank('Bristlebane', 'Bristlebane the King of Thieves'), null);
 });
 
 test('matches hyphen and spacing variants of the same NPC name', () => {

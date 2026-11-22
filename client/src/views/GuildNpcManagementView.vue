@@ -699,7 +699,8 @@ async function handleLogTestFileSelected(event: Event) {
 
   try {
     const content = await file.text();
-    const kills = parseNpcKillEvents(content);
+    // This tool checks how death lines name the NPC, so leave out loot-inferred kills.
+    const kills = parseNpcKillEvents(content).filter((kill) => !kill.inferredFromLoot);
     const matches = kills.filter((kill) => normalizeNpcLogName(kill.npcName) === targetName);
     logTestResult.value = {
       fileName: file.name,

@@ -4,7 +4,10 @@ import type { RowDataPacket } from 'mysql2/promise';
 import { emitDiscordWebhookEvent } from './discordWebhookService.js';
 import { resetRespawnNotification } from './npcRespawnNotificationService.js';
 import { isEqDbConfigured, queryEqDb } from '../utils/eqDb.js';
-import { INFERRED_KILL_DUPLICATE_WINDOW_MS } from '../utils/inferredNpcKills.js';
+import {
+  INFERRED_KILL_DUPLICATE_WINDOW_MS,
+  INFERRED_KILL_NOTE
+} from '../utils/inferredNpcKills.js';
 import { findBestTrackedNpcNameMatches } from '../utils/npcNameMatching.js';
 import { findUniqueBestTrackedNpcZoneMatch } from '../utils/npcZoneMatching.js';
 import { prisma } from '../utils/prisma.js';
@@ -665,15 +668,16 @@ export async function recordKillForTrackedNpc(
   // filter, so rank the guild's (small) definition list in memory.
   const guildDefinitions =
     options?.definitions ?? (await prisma.npcDefinition.findMany({ where: { guildId } }));
-  const definitions = findBestTrackedNpcNameMatches(input.npcName, guildDefinitions);
-  const existingKillTime = options?.inferredFromLoot
-    ? {
-        gte: new Date(input.killedAt.getTime() - INFERRED_KILL_DUPLICATE_WINDOW_MS),
-        lte: new Date(input.killedAt.getTime() + INFERRED_KILL_DUPLICATE_WINDOW_MS)
-      }
-    : input.killedAt;
+  const definitions = findBestTrackedNpcNameMatches(input.npcName, guildDefinitions, {
+    allowOmittedTitle: options?.inferredFromLoot
+  });
+  const nearbyKillTime = {
+    gte: new Date(input.killedAt.getTime() - INFERRED_KILL_DUPLICATE_WINDOW_MS),
+    lte: new Date(input.killedAt.getTime() + INFERRED_KILL_DUPLICATE_WINDOW_MS)
+  };
+  const existingKillTime = options?.inferredFromLoot ? nearbyKillTime : input.killedAt;
   const autoRecordedNote = options?.inferredFromLoot
-    ? 'Auto-recorded from raid loot (no death line in log)'
+    ? INFERRED_KILL_NOTE
     : 'Auto-recorded from raid log';
 
   console.log('[recordKillForTrackedNpc] Lookup result:', {
@@ -730,6 +734,33 @@ export async function recordKillForTrackedNpc(
         killedAt: input.killedAt,
         killedByName: input.killedByName
       };
+    }
+  }
+
+  // A death line arriving after a loot-inferred record of the same kill corrects that record
+  // (exact time and killer) instead of adding a second kill, prompt or webhook.
+  if (!options?.inferredFromLoot) {
+    const inferredRecord = await prisma.npcKillRecord.findFirst({
+      where: {
+        guildId,
+        npcDefinitionId: definition.id,
+        killedAt: nearbyKillTime,
+        notes: { startsWith: INFERRED_KILL_NOTE }
+      },
+      orderBy: { killedAt: 'desc' }
+    });
+    if (inferredRecord) {
+      await prisma.npcKillRecord.update({
+        where: { id: inferredRecord.id },
+        data: {
+          killedAt: input.killedAt,
+          killedByName: input.killedByName?.trim() || null,
+          notes: inferredRecord.notes?.endsWith('(overworld)')
+            ? 'Auto-recorded from raid log (overworld)'
+            : 'Auto-recorded from raid log'
+        }
+      });
+      return { recorded: true, needsInstanceClarification: false };
     }
   }
 

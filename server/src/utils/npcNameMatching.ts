@@ -38,10 +38,20 @@ function compactName(value: string) {
   return value.replace(/^the /, '').replace(/[^\p{L}\p{N}]/gu, '');
 }
 
+export interface NpcNameMatchOptions {
+  // Loot listings drop titles ("Prince Thirneg" for "Prince Thirneg the Petulant"). Death lines
+  // keep them, so a bare base name there may be a different NPC and is not matched by default.
+  allowOmittedTitle?: boolean;
+}
+
 // Lower ranks are stronger. EQ log names can differ from configured names by apostrophe style,
 // a leading "The", a title present on only one side ("Vynoissu the Undying" in death lines,
 // "Prince Thirneg" in loot lines), or hyphenation and spacing ("All-Seeing Eye", "AllSeeing Eye").
-export function getTrackedNpcNameMatchRank(logName: string, configuredName: string) {
+export function getTrackedNpcNameMatchRank(
+  logName: string,
+  configuredName: string,
+  options: NpcNameMatchOptions = {}
+) {
   const log = normalizePunctuation(logName);
   const configured = normalizePunctuation(configuredName);
 
@@ -62,7 +72,7 @@ export function getTrackedNpcNameMatchRank(logName: string, configuredName: stri
     return 2;
   }
 
-  if (configured.startsWith(`${log} the `)) {
+  if (options.allowOmittedTitle && configured.startsWith(`${log} the `)) {
     return 3;
   }
 
@@ -76,10 +86,11 @@ export function getTrackedNpcNameMatchRank(logName: string, configuredName: stri
 
 export function findBestTrackedNpcNameMatches<T extends { npcName: string }>(
   logName: string,
-  definitions: readonly T[]
+  definitions: readonly T[],
+  options: NpcNameMatchOptions = {}
 ): T[] {
   const ranked = definitions.flatMap((definition) => {
-    const rank = getTrackedNpcNameMatchRank(logName, definition.npcName);
+    const rank = getTrackedNpcNameMatchRank(logName, definition.npcName, options);
     return rank === null ? [] : [{ definition, rank }];
   });
   const bestRank = ranked.reduce(
@@ -91,9 +102,11 @@ export function findBestTrackedNpcNameMatches<T extends { npcName: string }>(
     .map((candidate) => candidate.definition);
 }
 
+// Compares two names seen in the log (a death line and a loot listing) for deduplication.
 export function npcNamesReferToSameNpc(left: string, right: string) {
+  const options = { allowOmittedTitle: true };
   return (
-    getTrackedNpcNameMatchRank(left, right) !== null ||
-    getTrackedNpcNameMatchRank(right, left) !== null
+    getTrackedNpcNameMatchRank(left, right, options) !== null ||
+    getTrackedNpcNameMatchRank(right, left, options) !== null
   );
 }
