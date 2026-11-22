@@ -27,7 +27,7 @@ interface TimedLogLine {
 // Carries loot-inference context between incremental chunks of the same log. NPC maps are keyed
 // by canonical name and compared with isSameNpcName, so name variants still match.
 export interface NpcKillParserState {
-  lootListingSeenAt: Map<string, number>;
+  lootListingSeenAt: Map<string, { timestampMs: number; attributed: boolean }>;
   lastLootListingAtByNpc: Map<string, number>;
   lastKillAtByNpc: Map<string, number>;
   pendingLootKills: PendingLootInferredKill[];
@@ -209,11 +209,20 @@ function findRecentNpcTime(
   return latest;
 }
 
+// Matches the NPC's name as whole words, tolerating punctuation or spacing between letters
+// ("All-Seeing Eye" / "AllSeeing Eye") but not inside a longer word ("Dreadlands" for "Dread").
 function buildNpcMentionPattern(npcKey: string) {
   const letters = [...compactNpcName(npcKey)].map((letter) =>
     letter.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   );
-  return letters.length >= 4 ? new RegExp(letters.join('[^\\p{L}\\p{N}]*'), 'iu') : null;
+  if (letters.length < 4) {
+    return null;
+  }
+  const boundary = '[\\p{L}\\p{N}]';
+  return new RegExp(
+    `(?<!${boundary})${letters.join('[^\\p{L}\\p{N}]*')}(?!${boundary})`,
+    'iu'
+  );
 }
 
 function isLootListingText(line: string) {
@@ -443,30 +452,40 @@ export function parseNpcKillEvents(
         lootMatch.groups.zone.trim().toLowerCase(),
         lootMatch.groups.item.replace(/\s+/g, ' ').trim().toLowerCase()
       ].join('|');
-      const lastItemListedAt = state.lootListingSeenAt.get(listingKey);
-      const lastNpcListedAt = findRecentNpcTime(
-        state.lastLootListingAtByNpc,
-        npcKey,
-        timestampMs,
-        LOOT_NPC_LISTING_MEMORY_MS
-      );
-      state.lootListingSeenAt.set(listingKey, timestampMs);
-      state.lastLootListingAtByNpc.set(npcKey, timestampMs);
-      // Re-listed items, and new items while the NPC's loot is still being listed, belong to
-      // the kill that produced that loot.
-      if (
-        (lastItemListedAt !== undefined &&
-          timestampMs - lastItemListedAt <= LOOT_ITEM_LISTING_MEMORY_MS) ||
-        lastNpcListedAt !== null ||
+      const lastItemListing = state.lootListingSeenAt.get(listingKey);
+      if (lastItemListing && timestampMs - lastItemListing.timestampMs <= LOOT_ITEM_LISTING_MEMORY_MS) {
+        // A re-listed item. Only loot attributed to a kill keeps the NPC marked as being listed;
+        // loot this character never saw fought must not suppress a later real kill.
+        lastItemListing.timestampMs = timestampMs;
+        if (lastItemListing.attributed) {
+          state.lastLootListingAtByNpc.set(npcKey, timestampMs);
+        }
+        continue;
+      }
+      // New items while the NPC's loot is still being listed, or shortly after its death, belong
+      // to the kill that produced that loot.
+      const belongsToKnownKill =
+        findRecentNpcTime(
+          state.lastLootListingAtByNpc,
+          npcKey,
+          timestampMs,
+          LOOT_NPC_LISTING_MEMORY_MS
+        ) !== null ||
         findRecentNpcTime(
           state.lastKillAtByNpc,
           npcKey,
           timestampMs,
           LOOT_KILL_ATTRIBUTION_WINDOW_MS
         ) !== null ||
-        state.pendingLootKills.some((pending) => isSameNpcName(pending.npcKey, npcKey)) ||
-        !hasRecentNpcMention(state, lines, lineIndex, npcKey, timestampMs)
-      ) {
+        state.pendingLootKills.some((pending) => isSameNpcName(pending.npcKey, npcKey));
+      const attributed =
+        belongsToKnownKill || hasRecentNpcMention(state, lines, lineIndex, npcKey, timestampMs);
+      state.lootListingSeenAt.set(listingKey, { timestampMs, attributed });
+      if (!attributed) {
+        continue;
+      }
+      state.lastLootListingAtByNpc.set(npcKey, timestampMs);
+      if (belongsToKnownKill) {
         continue;
       }
       state.pendingLootKills.push({

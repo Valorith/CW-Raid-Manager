@@ -7,11 +7,15 @@ import { recordKillForTrackedNpc, type ZoneOption } from './npcRespawnService.js
 import {
   INFERRED_KILL_DUPLICATE_WINDOW_MS,
   INFERRED_KILL_SIGNATURE_SOURCE,
+  type KillMoment,
   findInferredKillsSupersededByDeaths,
   resolveInferredKillZone,
   selectInferredKillsToKeep
 } from '../utils/inferredNpcKills.js';
-import { findBestTrackedNpcNameMatches } from '../utils/npcNameMatching.js';
+import {
+  findBestTrackedNpcNameMatches,
+  npcNamesReferToSameNpc
+} from '../utils/npcNameMatching.js';
 import { prisma } from '../utils/prisma.js';
 import {
   buildEncounterKillKey,
@@ -156,7 +160,10 @@ async function reconcileInferredKills<T extends { inferred: boolean; row: Prepar
     .concat(trackedDeaths)
     .map((row) => row.occurredAt.getTime());
   if (replace || relevantTimes.length === 0) {
-    return { accepted: selectInferredKillsToKeep(entries, [], definitions), supersededIds: [] };
+    return {
+      accepted: selectInferredKillsToKeep(entries, [], definitions),
+      superseded: [] as Array<KillMoment & { id: string }>
+    };
   }
 
   const existing = await prisma.raidNpcKillEvent.findMany({
@@ -167,7 +174,13 @@ async function reconcileInferredKills<T extends { inferred: boolean; row: Prepar
         lte: new Date(Math.max(...relevantTimes) + INFERRED_KILL_DUPLICATE_WINDOW_MS)
       }
     },
-    select: { id: true, npcName: true, npcNameNormalized: true, occurredAt: true, logSignature: true }
+    select: {
+      id: true,
+      npcName: true,
+      npcNameNormalized: true,
+      occurredAt: true,
+      logSignature: true
+    }
   });
   const storedInferred = existing.filter(
     (row) =>
@@ -182,8 +195,47 @@ async function reconcileInferredKills<T extends { inferred: boolean; row: Prepar
       existing.filter((row) => !supersededIds.has(row.id)),
       definitions
     ),
-    supersededIds: [...supersededIds]
+    superseded
   };
+}
+
+// The death lines just stored replace these approximate loot-inferred kills, including any
+// instance/zone prompt still waiting on them; the death opens its own prompt if one is needed.
+async function removeSupersededInferredKills(
+  raidId: string,
+  guildId: string,
+  superseded: Array<KillMoment & { id: string }>,
+  logger?: FastifyBaseLogger
+) {
+  await prisma.raidNpcKillEvent.deleteMany({
+    where: { raidId, id: { in: superseded.map((row) => row.id) } }
+  });
+  try {
+    const prompts = await prisma.pendingNpcKillClarification.findMany({
+      where: {
+        guildId,
+        resolvedAt: null,
+        killedAt: { in: superseded.map((row) => row.occurredAt) }
+      },
+      select: { id: true, npcName: true, killedAt: true }
+    });
+    const replacedPromptIds = prompts
+      .filter((prompt) =>
+        superseded.some(
+          (row) =>
+            row.occurredAt.getTime() === prompt.killedAt.getTime() &&
+            npcNamesReferToSameNpc(row.npcName, prompt.npcName)
+        )
+      )
+      .map((prompt) => prompt.id);
+    if (replacedPromptIds.length > 0) {
+      await prisma.pendingNpcKillClarification.deleteMany({
+        where: { id: { in: replacedPromptIds } }
+      });
+    }
+  } catch (error) {
+    logger?.warn({ error, raidId }, 'Could not clear prompts for replaced loot-inferred kills.');
+  }
 }
 
 export async function recordRaidNpcKills(
@@ -235,7 +287,7 @@ export async function recordRaidNpcKills(
   }
 
   const definitions = await prisma.npcDefinition.findMany({ where: { guildId } });
-  const { accepted: acceptedCandidates, supersededIds } = await reconcileInferredKills(
+  const { accepted: acceptedCandidates, superseded } = await reconcileInferredKills(
     raidId,
     preparedCandidates,
     definitions,
@@ -253,9 +305,8 @@ export async function recordRaidNpcKills(
   // Never report success for a failed write; queue retries are deduplicated
   // by the database's (raidId, logSignature) unique key.
   const inserted = await persistRaidNpcKillBatch(prisma, { raidId, guildId }, prepared, replace);
-  if (supersededIds.length > 0) {
-    // The death lines just stored replace these approximate loot-inferred kills.
-    await prisma.raidNpcKillEvent.deleteMany({ where: { raidId, id: { in: supersededIds } } });
+  if (superseded.length > 0) {
+    await removeSupersededInferredKills(raidId, guildId, superseded, logger);
   }
 
   // Some encounters need more evidence than a standalone NPC death. Classic Braag's normal
@@ -340,7 +391,13 @@ export async function recordRaidNpcKills(
             killedByName: entry.killerName,
             zoneName: entry.zoneName
           },
-          { definitions, inferredFromLoot: inferredSignatures.has(entry.logSignature) }
+          {
+            definitions,
+            inferredFromLoot: inferredSignatures.has(entry.logSignature),
+            replacesInferredKillsAt: findInferredKillsSupersededByDeaths(superseded, [entry]).map(
+              (row) => row.occurredAt
+            )
+          }
         );
         logger?.info?.(
           {

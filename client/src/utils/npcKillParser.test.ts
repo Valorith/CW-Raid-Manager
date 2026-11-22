@@ -591,3 +591,37 @@ test('keeps different NPCs that share a base name apart', () => {
     ]
   );
 });
+
+test('does not let unwitnessed loot block a later real out-of-range kill of the same NPC', () => {
+  const content = [
+    // Leftover loot from a kill this character never saw fought: no inference, no lockout.
+    '[Sun Aug 30 22:40:00 2026] 1) [lakeofillomen] Old Gauntlets\t | Status: Pending\t | NPC: Grand Magus D`Nor ',
+    '[Sun Aug 30 22:42:10 2026] You have entered Lake of Ill Omen.',
+    '[Sun Aug 30 23:02:39 2026] Grand Magus D`Nor begins to cast a spell.',
+    '[Sun Aug 30 23:03:36 2026] 1) [lakeofillomen] Old Gauntlets\t | Status: Pending\t | NPC: Grand Magus D`Nor ',
+    "[Sun Aug 30 23:03:36 2026] 2) [lakeofillomen] Herald's Sleeves\t | Status: Pending\t | NPC: Grand Magus D`Nor "
+  ].join('\n');
+
+  assert.deepEqual(
+    parseNpcKillEvents(content).map((kill) => [kill.npcName, kill.timestamp?.toISOString()]),
+    [['Grand Magus D`Nor', '2026-08-31T03:03:36.000Z']]
+  );
+});
+
+test('does not treat a longer word as a mention of a short NPC name', () => {
+  const content = [
+    '[Sun Aug 30 21:00:00 2026] You have entered The Dreadlands.',
+    '[Sun Aug 30 21:01:00 2026] 1) [fearplane] Fear Fragment\t | Status: Pending\t | NPC: Dread '
+  ].join('\n');
+
+  assert.deepEqual(parseNpcKillEvents(content), []);
+  // The same listing after Dread is actually named in the log is inferred.
+  const witnessed = content.replace(
+    'The Dreadlands.',
+    'The Dreadlands.\n[Sun Aug 30 21:00:30 2026] Dirt hits Dread for 300 points of damage.'
+  );
+  assert.deepEqual(
+    parseNpcKillEvents(witnessed).map((kill) => kill.npcName),
+    ['Dread']
+  );
+});

@@ -662,6 +662,9 @@ export async function recordKillForTrackedNpc(
     // The kill was inferred from loot because no death line was logged. Its time is only
     // approximate, so a nearby existing record (including a manual entry) counts as this kill.
     inferredFromLoot?: boolean;
+    // Times of stored loot-inferred kills this death replaces. A tracker record created from one
+    // of them (including through a resolved instance prompt) is corrected instead of duplicated.
+    replacesInferredKillsAt?: Date[];
   }
 ): Promise<RecordKillResult> {
   // Name variants such as a missing title or hyphenation cannot be expressed as a database
@@ -744,20 +747,34 @@ export async function recordKillForTrackedNpc(
       where: {
         guildId,
         npcDefinitionId: definition.id,
-        killedAt: nearbyKillTime,
-        notes: { startsWith: INFERRED_KILL_NOTE }
+        AND: [
+          { killedAt: nearbyKillTime },
+          {
+            OR: [
+              { notes: { startsWith: INFERRED_KILL_NOTE } },
+              ...(options?.replacesInferredKillsAt?.length
+                ? [{ killedAt: { in: options.replacesInferredKillsAt } }]
+                : [])
+            ]
+          }
+        ]
       },
       orderBy: { killedAt: 'desc' }
     });
     if (inferredRecord) {
+      const wasAutoRecorded = inferredRecord.notes?.startsWith(INFERRED_KILL_NOTE) ?? false;
       await prisma.npcKillRecord.update({
         where: { id: inferredRecord.id },
         data: {
           killedAt: input.killedAt,
           killedByName: input.killedByName?.trim() || null,
-          notes: inferredRecord.notes?.endsWith('(overworld)')
-            ? 'Auto-recorded from raid log (overworld)'
-            : 'Auto-recorded from raid log'
+          ...(wasAutoRecorded
+            ? {
+                notes: inferredRecord.notes?.endsWith('(overworld)')
+                  ? 'Auto-recorded from raid log (overworld)'
+                  : 'Auto-recorded from raid log'
+              }
+            : {})
         }
       });
       return { recorded: true, needsInstanceClarification: false };

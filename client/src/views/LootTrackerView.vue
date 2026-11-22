@@ -5966,10 +5966,19 @@ async function submitInstanceClarifications() {
   submittingClarifications.value = true;
   try {
     for (const clarification of instanceClarifications.value) {
-      await api.resolvePendingNpcKillClarification(raid.value.guildId, clarification.id, {
-        npcDefinitionId: clarification.npcDefinitionId,
-        isInstance: clarification.isInstance
-      });
+      try {
+        await api.resolvePendingNpcKillClarification(raid.value.guildId, clarification.id, {
+          npcDefinitionId: clarification.npcDefinitionId,
+          isInstance: clarification.isInstance
+        });
+      } catch (error) {
+        // A death line that arrived after a loot-inferred kill replaces that kill's prompt.
+        if (isAxiosError(error) && error.response?.status === 404) {
+          appendDebugLog('Skipped a clarification that was replaced', { id: clarification.id });
+          continue;
+        }
+        throw error;
+      }
     }
     appendDebugLog('Instance clarifications submitted', {
       count: instanceClarifications.value.length
