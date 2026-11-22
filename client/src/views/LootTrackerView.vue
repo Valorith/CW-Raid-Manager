@@ -6030,8 +6030,11 @@ function closeInstanceClarificationModal() {
 async function submitInstanceClarifications() {
   if (!raid.value) return;
   submittingClarifications.value = true;
+  // Prompts can be swapped in while saving (a death line replacing a loot-inferred kill), so
+  // only the prompts being saved are removed afterwards.
+  const submitted = [...instanceClarifications.value];
   try {
-    for (const clarification of instanceClarifications.value) {
+    for (const clarification of submitted) {
       try {
         await api.resolvePendingNpcKillClarification(raid.value.guildId, clarification.id, {
           npcDefinitionId: clarification.npcDefinitionId,
@@ -6046,10 +6049,14 @@ async function submitInstanceClarifications() {
         throw error;
       }
     }
-    appendDebugLog('Instance clarifications submitted', {
-      count: instanceClarifications.value.length
-    });
-    closeInstanceClarificationModal();
+    appendDebugLog('Instance clarifications submitted', { count: submitted.length });
+    const submittedIds = new Set(submitted.map((clarification) => clarification.id));
+    instanceClarifications.value = instanceClarifications.value.filter(
+      (clarification) => !submittedIds.has(clarification.id)
+    );
+    if (instanceClarifications.value.length === 0) {
+      closeInstanceClarificationModal();
+    }
   } catch (error: any) {
     appendDebugLog('Failed to submit clarifications', { error: String(error) });
     window.alert(
@@ -6080,8 +6087,9 @@ function closeZoneClarificationModal() {
 async function submitZoneClarifications() {
   if (!raid.value) return;
   submittingZoneClarifications.value = true;
+  const submitted = [...zoneClarifications.value];
   try {
-    for (const clarification of zoneClarifications.value) {
+    for (const clarification of submitted) {
       if (!clarification.selectedNpcDefinitionId) continue;
       try {
         await api.resolvePendingNpcKillClarification(raid.value.guildId, clarification.id, {
@@ -6097,8 +6105,14 @@ async function submitZoneClarifications() {
         throw error;
       }
     }
-    appendDebugLog('Zone clarifications submitted', { count: zoneClarifications.value.length });
-    closeZoneClarificationModal();
+    appendDebugLog('Zone clarifications submitted', { count: submitted.length });
+    const submittedIds = new Set(submitted.map((clarification) => clarification.id));
+    zoneClarifications.value = zoneClarifications.value.filter(
+      (clarification) => !submittedIds.has(clarification.id)
+    );
+    if (zoneClarifications.value.length === 0) {
+      closeZoneClarificationModal();
+    }
   } catch (error: any) {
     appendDebugLog('Failed to submit zone clarifications', { error: String(error) });
     window.alert(
